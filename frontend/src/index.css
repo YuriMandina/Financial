@@ -6,3 +6,55 @@ body {
   background-color: #0f172a; /* Garante o fundo escuro do Tailwind (slate-900) */
   color: #f8fafc;
 }
+
+@media print {
+  /* Força o navegador a imprimir as cores de fundo e gradientes exatos do sistema */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Define o tamanho da folha como A4 Paisagem e uma margem segura padrão */
+  @page { 
+    size: A4 landscape; 
+    margin: 10mm 15mm; 
+  }
+
+  /* Remove o fundo escuro APENAS do background global para não gastar tinta preta à toa */
+  body, html, #root, main { 
+    background-color: transparent !important; 
+    height: auto !important; 
+    overflow: visible !important; 
+  }
+
+  /* Configuração rígida da tabela para não vazar a folha */
+  table { 
+    width: 100% !important; 
+    max-width: 100% !important;
+    border-collapse: collapse !important; 
+    page-break-inside: auto !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+  
+  /* A MÁGICA DA QUEBRA DE PÁGINA: O 'avoid' deve ficar APENAS no TR, nunca no TD */
+  tr { 
+    page-break-inside: avoid !important; 
+    break-inside: avoid !important; 
+    page-break-after: auto !important;
+  }
+
+  /* Bordas forçadas para todas as células */
+  td, th { 
+    border: 1px solid #cbd5e1 !important; 
+  }
+
+  /* Força o cabeçalho da tabela a se repetir em toda nova folha impressa */
+  thead { 
+    display: table-header-group !important; 
+  }
+
+  /* Esconde completamente da impressora elementos que não são o relatório */
+  .no-print { 
+    display: none !important; 
+  }
+}

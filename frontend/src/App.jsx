@@ -83,7 +83,7 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
   const valorTotalSelecionado = selecionadasDoCliente.reduce((acc, c) => acc + c.saldo_devedor, 0);
 
   const HeaderTH = ({ sortKey, label, width, align = "left" }) => (
-    <th className={`py-3 px-5 cursor-pointer hover:bg-slate-700/50 transition-colors select-none group ${width} text-${align}`} onClick={() => handleSort(sortKey)}>
+    <th className={`py-3 px-5 cursor-pointer hover:bg-slate-700/50 transition-colors select-none group ${width} print:w-auto print:min-w-0 text-${align}`} onClick={() => handleSort(sortKey)}>
       <div className={`flex items-center gap-2 ${align === 'right' ? 'justify-end' : 'justify-start'}`}>
         <span className="group-hover:text-indigo-300 transition-colors">{label}</span>
         <div className="flex flex-col text-[8px] leading-[8px] mt-0.5">
@@ -95,7 +95,7 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
   );
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl overflow-hidden print:border-slate-300 print:bg-white print:break-inside-avoid shadow-lg relative z-10">
+    <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl print:rounded-none overflow-hidden print:border-slate-300 print:!bg-transparent print:break-inside-avoid shadow-lg relative z-10">
       <div className="bg-slate-900/50 p-6 border-b border-slate-800/80 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:bg-slate-100 print:border-slate-300">
         
         <div className="flex items-center gap-4">
@@ -126,10 +126,10 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
         </div>
       </div>
 
-      <div className="overflow-x-auto print:overflow-visible">
+      <div className="overflow-x-auto print:overflow-visible print:w-full">
         <table className="w-full text-left border-collapse whitespace-nowrap">
           <thead>
-            <tr className="bg-slate-800/30 text-slate-300 print:bg-slate-50 print:text-slate-900 text-xs font-bold border-b border-slate-700/50 print:border-slate-300">
+            <tr className="bg-slate-800/30 text-slate-300 print:bg-slate-200 print:text-slate-900 text-xs font-bold border-b border-slate-700/50 print:border-slate-300">
               <th className="py-3 px-5 print:hidden w-10">
                 <button onClick={() => toggleTodosCliente(contasOrdenadas)} className="text-slate-400 hover:text-indigo-400" title="Selecionar Todos Visíveis">
                   {todasSelecionadas ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} />}
@@ -148,17 +148,17 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
                  <td colSpan="6" className="py-8 text-center text-slate-500 font-medium bg-slate-900/30">Nenhuma nota atende ao filtro de período atual.</td>
                </tr>
             ) : (
-              contasOrdenadas.map(conta => {
+              contasOrdenadas.map((conta, idx) => {
                 const taSelecionado = selecionados.find(s => s.codigo_lancamento === conta.codigo_lancamento);
                 return (
-                  <tr key={conta.codigo_lancamento} className={`border-b border-slate-700/30 print:border-slate-300 ${taSelecionado ? 'bg-indigo-500/5' : 'hover:bg-slate-800/40'} transition-colors`}>
+                  <tr key={conta.codigo_lancamento} className={`border-b border-slate-700/30 print:border-slate-300 ${taSelecionado ? 'bg-indigo-500/5' : 'hover:bg-slate-800/40'} transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50'}`}>
                     <td className="py-3 px-5 print:hidden cursor-pointer" onClick={() => toggleSelecao(conta)}>
                       {taSelecionado ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} className="text-slate-500" />}
                     </td>
                     <td className="py-3 px-5 text-slate-400 print:text-slate-800">{formatarDataComDia(conta.data_emissao)}</td>
                     <td className="py-3 px-5 font-medium text-slate-300 print:text-slate-800">{formatarDataComDia(conta.data_previsao_br)}</td>
                     <td className="py-3 px-5 text-slate-300 print:text-slate-800">{conta.numero_documento_fiscal} - {conta.numero_parcela}</td>
-                    <td className="py-3 px-5 text-slate-400 print:text-slate-600 truncate max-w-[200px]">{conta.conta_corrente}</td>
+                    <td className="py-3 px-5 text-slate-400 print:text-slate-600 truncate max-w-[200px] print:max-w-none">{conta.conta_corrente}</td>
                     <td className="py-3 px-5 text-right font-bold text-slate-200 print:text-slate-900">
                       R$ {conta.saldo_devedor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                     </td>
@@ -217,13 +217,12 @@ function App() {
   const [clienteFiltro, setClienteFiltro] = useState('');
   
   const [paginaAtual, setPaginaAtual] = useState(1);
-  const REGISTROS_POR_PAGINA = 50;
+  const [registrosPorPagina, setRegistrosPorPagina] = useState(50);
 
   const [listaBancos, setListaBancos] = useState([]);
   const [selecionados, setSelecionados] = useState([]); 
   const [modalBaixa, setModalBaixa] = useState({ aberto: false, cliente: '', contas: [] });
   
-  // ESTADOS DE COBRANÇA E REFERÊNCIA DO DOM PARA A IMAGEM
   const [reciboCobranca, setReciboCobranca] = useState(null);
   const [gerandoImagem, setGerandoImagem] = useState(false);
   const reciboCobrancaRef = useRef(null);
@@ -316,6 +315,14 @@ function App() {
     }
   }
 
+  const handleImprimir = () => {
+    setRegistrosPorPagina(contasFiltradas.length > 0 ? contasFiltradas.length : 50);
+    setTimeout(() => {
+      window.print();
+      setRegistrosPorPagina(50);
+    }, 300);
+  };
+
   const toggleSelecao = (conta) => {
     setSelecionados(prev => {
       const existe = prev.find(c => c.codigo_lancamento === conta.codigo_lancamento);
@@ -336,12 +343,10 @@ function App() {
 
   const abrirModalLote = (cliente, contasAbertasVisiveis) => {
     const selecionadasDoCliente = contasAbertasVisiveis.filter(c => selecionados.find(s => s.codigo_lancamento === c.codigo_lancamento));
-    
     if (selecionadasDoCliente.length === 0) {
       alert("Selecione pelo menos uma nota deste cliente para receber!");
       return;
     }
-    
     setDescGlobalValor('');
     setJurosGlobalValor('');
     setValorTotalRecebido('');
@@ -350,13 +355,8 @@ function App() {
 
     const detalhesIniciais = {};
     selecionadasDoCliente.forEach(conta => {
-      detalhesIniciais[conta.codigo_lancamento] = {
-        valor: conta.saldo_devedor,
-        desconto: 0,
-        juros: 0
-      };
+      detalhesIniciais[conta.codigo_lancamento] = { valor: conta.saldo_devedor, desconto: 0, juros: 0 };
     });
-    
     setDetalhesPagamento(detalhesIniciais);
     setDataPagamento(getHojeBR()); 
     setModalBaixa({ aberto: true, cliente: cliente, contas: selecionadasDoCliente });
@@ -365,29 +365,17 @@ function App() {
   const gerarCobrancaLote = (cliente, contasAbertasVisiveis) => {
     const selecionadasDoCliente = contasAbertasVisiveis.filter(c => selecionados.find(s => s.codigo_lancamento === c.codigo_lancamento));
     if (selecionadasDoCliente.length === 0) return;
-
     const totalDevido = selecionadasDoCliente.reduce((acc, c) => acc + c.saldo_devedor, 0);
     const d = new Date();
     const dataHoraEmissao = `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR')}`;
-
-    setReciboCobranca({
-      cliente,
-      dataHoraEmissao,
-      notas: selecionadasDoCliente,
-      totalDevido
-    });
+    setReciboCobranca({ cliente, dataHoraEmissao, notas: selecionadasDoCliente, totalDevido });
   };
 
-  // FUNÇÃO ADICIONADA: Tira uma "foto" da div especificada e joga para a área de transferência do sistema operacional
   const copiarImagemCobranca = async () => {
     if (!reciboCobrancaRef.current) return;
     setGerandoImagem(true);
     try {
-      const canvas = await html2canvas(reciboCobrancaRef.current, { 
-        backgroundColor: '#0f172a', // Força o fundo escuro (Tailwind slate-900) caso haja transparência
-        scale: 2 // Dobra a resolução para o cliente ler com clareza no celular
-      });
-      
+      const canvas = await html2canvas(reciboCobrancaRef.current, { backgroundColor: '#0f172a', scale: 2 });
       canvas.toBlob(async (blob) => {
         try {
           const item = new ClipboardItem({ 'image/png': blob });
@@ -407,15 +395,8 @@ function App() {
     }
   };
 
-  const converterDataBrParaDate = (dataStr) => {
-    if (!dataStr || dataStr === '-') return new Date(9999, 11, 31);
-    const partes = dataStr.split('/');
-    return new Date(partes[2], partes[1] - 1, partes[0]);
-  };
-
   const aplicarRateioGlobal = () => {
     const totalOriginal = modalBaixa.contas.reduce((acc, c) => acc + c.saldo_devedor, 0);
-    
     let dValGlobal = descGlobalTipo === 'VALOR' ? parseFloat(descGlobalValor || 0) : 0;
     let jValGlobal = jurosGlobalTipo === 'VALOR' ? parseFloat(jurosGlobalValor || 0) : 0;
     let pDesc = descGlobalTipo === 'PERCENTUAL' ? parseFloat(descGlobalValor || 0) / 100 : 0;
@@ -433,15 +414,11 @@ function App() {
     const novosDetalhes = { ...detalhesPagamento };
 
     contasOrdenadas.forEach(c => {
-      let descDaNota = 0;
-      let jurosDaNota = 0;
-      let valorPagoNestaNota = 0;
-
+      let descDaNota = 0, jurosDaNota = 0, valorPagoNestaNota = 0;
       if (aplicarCascata && poolDinheiroRecebido <= 0) {
         novosDetalhes[c.codigo_lancamento] = { desconto: 0, juros: 0, valor: 0 };
         return; 
       }
-
       const peso = c.saldo_devedor / totalOriginal;
       let descFull = descGlobalTipo === 'PERCENTUAL' ? c.saldo_devedor * pDesc : dValGlobal * peso;
       let jurosFull = jurosGlobalTipo === 'PERCENTUAL' ? c.saldo_devedor * pJuros : jValGlobal * peso;
@@ -456,7 +433,6 @@ function App() {
         } else {
           valorPagoNestaNota = poolDinheiroRecebido;
           poolDinheiroRecebido = 0; 
-          
           const proporcaoMassaMaga = valorPagoNestaNota / valorLiquidoFull;
           descDaNota = descFull * proporcaoMassaMaga;
           jurosDaNota = jurosFull * proporcaoMassaMaga;
@@ -466,14 +442,12 @@ function App() {
         descDaNota = descFull;
         jurosDaNota = jurosFull;
       }
-
       novosDetalhes[c.codigo_lancamento] = {
         desconto: Number(descDaNota.toFixed(2)),
         juros: Number(jurosDaNota.toFixed(2)),
         valor: Number(valorPagoNestaNota.toFixed(2))
       };
     });
-
     setDetalhesPagamento(novosDetalhes);
   };
 
@@ -488,11 +462,7 @@ function App() {
   };
 
   const calcularTotaisModal = () => {
-    let totalPago = 0;
-    let totalOriginal = 0;
-    let totalDesconto = 0;
-    let totalJuros = 0;
-
+    let totalPago = 0, totalOriginal = 0, totalDesconto = 0, totalJuros = 0;
     modalBaixa.contas.forEach(c => {
       totalOriginal += c.saldo_devedor;
       const det = detalhesPagamento[c.codigo_lancamento];
@@ -502,13 +472,11 @@ function App() {
         totalJuros += Number(det.juros || 0);
       }
     });
-
     return { totalOriginal, totalPago, totalDesconto, totalJuros };
   };
 
   const handleEfetuarBaixaLote = async () => {
     setProcessandoBaixa(true);
-    
     const hojeStr = getHojeBR();
     if (dataPagamento > hojeStr) {
       alert("Operação Negada: Não é permitido registrar pagamentos com data futura. Ajuste a data para hoje ou um dia anterior.");
@@ -518,7 +486,6 @@ function App() {
 
     try {
       const [ano, mes, dia] = dataPagamento.split('-');
-      
       const pagamentosTratados = modalBaixa.contas.map(c => {
         const det = detalhesPagamento[c.codigo_lancamento] || { valor: 0, desconto: 0, juros: 0 };
         return {
@@ -595,9 +562,9 @@ function App() {
     return filtrado;
   }, [contasBrutas, contaFiltro, clienteFiltro]);
 
-  const totalPaginas = Math.ceil(contasFiltradas.length / REGISTROS_POR_PAGINA) || 1;
-  const indiceInicio = (paginaAtual - 1) * REGISTROS_POR_PAGINA;
-  const indiceFim = indiceInicio + REGISTROS_POR_PAGINA;
+  const totalPaginas = Math.ceil(contasFiltradas.length / registrosPorPagina) || 1;
+  const indiceInicio = (paginaAtual - 1) * registrosPorPagina;
+  const indiceFim = indiceInicio + registrosPorPagina;
   const contasPaginadas = contasFiltradas.slice(indiceInicio, indiceFim);
 
   const dadosAgrupados = useMemo(() => {
@@ -638,21 +605,6 @@ function App() {
   return (
     <div className="flex h-screen bg-slate-950 font-sans overflow-hidden print:!block print:bg-white print:text-slate-900 print:!h-auto print:!overflow-visible">
       
-      <style>{`
-        @media print {
-          @page { size: landscape; margin: 10mm 15mm; }
-          html, body, #root, main, div[class*="bg-slate"] { background-color: transparent !important; background-image: none !important; }
-          * { animation: none !important; transition: none !important; transform: none !important; backdrop-filter: none !important; filter: none !important; }
-          html, body, #root, main { display: block !important; height: auto !important; min-height: auto !important; overflow: visible !important; position: static !important; }
-          table { width: 100%; border-collapse: collapse; page-break-inside: auto; margin-bottom: 20px; }
-          tbody { display: table-row-group; }
-          tr, td, th { page-break-inside: avoid !important; break-inside: avoid !important; }
-          thead { display: table-header-group; }
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          .no-print { display: none !important; }
-        }
-      `}</style>
-
       {/* SIDEBAR */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20 print:hidden">
         <div className="h-20 flex items-center px-6 border-b border-slate-800">
@@ -660,7 +612,7 @@ function App() {
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
               <TrendingUp size={18} className="text-white" />
             </div>
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">GabaritoBI</h1>
+            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">Financial</h1>
           </div>
         </div>
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
@@ -715,13 +667,13 @@ function App() {
             </div>
           </div>
 
-          <div className="hidden print:flex items-center justify-between border-b-2 border-slate-800 pb-4 mb-6 mt-4">
+          <div className="hidden print:flex items-center justify-between border-b-2 border-slate-800 pb-4 mb-6 mt-4 print:px-2">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 print:!bg-indigo-600 flex items-center justify-center">
                 <TrendingUp size={18} className="text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">GabaritoBI</h1>
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Financial</h1>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Inteligência Financeira</p>
               </div>
             </div>
@@ -772,7 +724,7 @@ function App() {
                   )}
                 </div>
 
-                <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-800 text-slate-300 hover:text-white px-6 py-3 rounded-xl font-bold group border border-slate-700">
+                <button onClick={handleImprimir} className="flex items-center gap-2 bg-slate-800 text-slate-300 hover:text-white px-6 py-3 rounded-xl font-bold group border border-slate-700 shadow-lg">
                   <Printer size={18} className="group-hover:scale-110 transition-transform" /> IMPRIMIR
                 </button>
               </div>
@@ -799,48 +751,50 @@ function App() {
                       ))}
                     </div>
                   ) : (
-                    <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-8 print:!p-0 print:shadow-none relative z-10 shadow-lg">
+                    /* A MÁGICA DO FUNDO BRANCO: O print:!bg-transparent remove aquele bloco azul escuro inteiro na impressão */
+                    <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl print:rounded-none p-8 print:!p-0 print:!bg-transparent print:shadow-none relative z-10 shadow-lg">
                       
                       {/* BLOCO 1: RESUMO POR CATEGORIA */}
-                      <div className="mb-12 print:mb-8">
-                        <h4 className="text-lg font-bold text-indigo-400 print:text-slate-900 uppercase tracking-wider mb-4">
+                      <div className="mb-12 print:mb-6">
+                        <h4 className="text-lg font-bold text-indigo-400 print:text-slate-900 uppercase tracking-wider mb-4 print:mb-2 print:mt-4 print:pl-2">
                           Resumo por Categoria de Despesa
                         </h4>
-                        <div className="overflow-x-auto rounded-xl border border-slate-700/50 print:border-none print:overflow-visible shadow-lg shadow-black/20 print:shadow-none">
+                        {/* A MÁGICA DA BORDA: Removido o overflow que cortava a borda e tirado os cantos arredondados */}
+                        <div className="overflow-x-auto print:overflow-visible rounded-xl print:rounded-none border border-slate-700/50 print:border-slate-300 print:border shadow-lg shadow-black/20 print:shadow-none print:w-full">
                           <table className="w-full text-left border-collapse whitespace-nowrap">
                             <thead>
-                              <tr className="bg-slate-900/80 print:bg-slate-100 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-800">
-                                <th className="py-4 px-5 uppercase w-3/4">Categoria {menuAtivo === 'contas-pagas' && '/ Conta Corrente'}</th>
-                                <th className="py-4 px-5 text-right uppercase w-1/4 min-w-[120px]">Total {menuAtivo === 'contas-pagas' ? 'Pago' : 'a Pagar'}</th>
+                              <tr className="bg-slate-900/80 print:bg-slate-200 print:!bg-slate-200 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-400">
+                                <th className="py-4 print:py-1 px-5 print:px-2 uppercase w-3/4 print:w-auto print:min-w-0">Categoria {menuAtivo === 'contas-pagas' && '/ Conta Corrente'}</th>
+                                <th className="py-4 print:py-1 px-5 print:px-2 text-right uppercase w-1/4 min-w-[120px] print:w-auto print:min-w-0">Total {menuAtivo === 'contas-pagas' ? 'Pago' : 'a Pagar'}</th>
                               </tr>
                             </thead>
                             <tbody className="text-sm">
                               {resumoCategorias.map((item, idx) => (
                                 <React.Fragment key={idx}>
-                                  <tr className={`border-b border-slate-700/30 print:border-slate-300 text-slate-300 print:text-slate-800 hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50/50'}`}>
-                                    <td className="py-3 px-5 font-bold">{item.categoria}</td>
-                                    <td className="py-3 px-5 text-right font-bold text-slate-200 print:text-slate-900">
+                                  <tr className={`border-b border-slate-700/30 print:border-slate-300 text-slate-300 print:text-slate-800 hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}>
+                                    <td className="py-3 print:py-1 px-5 print:px-2 font-bold">{item.categoria}</td>
+                                    <td className="py-3 print:py-1 px-5 print:px-2 text-right font-bold text-slate-200 print:text-slate-900">
                                       R$ {item.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                                     </td>
                                   </tr>
                                   
                                   {menuAtivo === 'contas-pagas' && item.contasCorrentes.map((ccItem, ccIdx) => (
                                     <tr key={`cc-${idx}-${ccIdx}`} className="border-b border-slate-700/10 print:border-slate-200 bg-slate-900/40 print:bg-transparent">
-                                      <td className="py-2 px-5 pl-12 text-slate-400 print:text-slate-600 text-xs flex items-center gap-2 border-l-2 border-indigo-500/30 ml-4">
+                                      <td className="py-2 print:py-1 px-5 print:px-2 pl-12 text-slate-400 print:text-slate-600 text-xs flex items-center gap-2 border-l-2 border-indigo-500/30 ml-4">
                                         <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 print:bg-slate-400"></div> {ccItem.cc}
                                       </td>
-                                      <td className="py-2 px-5 text-right text-slate-400 print:text-slate-600 text-xs">
+                                      <td className="py-2 print:py-1 px-5 print:px-2 text-right text-slate-400 print:text-slate-600 text-xs">
                                         R$ {ccItem.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                                       </td>
                                     </tr>
                                   ))}
                                 </React.Fragment>
                               ))}
-                              <tr className="bg-slate-800/80 print:bg-slate-200 border-t-2 border-slate-600 print:border-b-2 print:border-slate-800">
-                                <td className="py-4 px-5 text-right font-bold text-slate-300 print:text-slate-900 uppercase text-lg">
+                              <tr className="bg-slate-800/80 print:bg-slate-200 print:!bg-slate-200 border-t-2 border-slate-600 print:border-b-2 print:border-slate-800">
+                                <td className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-slate-300 print:text-slate-900 uppercase text-lg">
                                   Total Geral
                                 </td>
-                                <td className="py-4 px-5 text-right font-bold text-emerald-400 print:text-slate-900 text-lg">
+                                <td className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-emerald-400 print:text-slate-900 text-lg">
                                   R$ {totalGeral.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                                 </td>
                               </tr>
@@ -850,43 +804,44 @@ function App() {
                       </div>
 
                       {/* BLOCO 2: DETALHAMENTO */}
-                      <h3 className="text-xl font-bold text-indigo-400 mb-4 print:text-slate-900 uppercase tracking-wider">Detalhamento Financeiro (Página {paginaAtual})</h3>
-                      <div className="overflow-x-auto rounded-xl border border-slate-700/50 print:border-none print:overflow-visible shadow-lg shadow-black/20 print:shadow-none">
+                      <h3 className="text-xl font-bold text-indigo-400 mb-4 print:text-slate-900 uppercase tracking-wider print:mb-2 print:mt-4 print:pl-2">Detalhamento Financeiro (Previsão de Fluxo)</h3>
+                      <div className="overflow-x-auto print:overflow-visible rounded-xl print:rounded-none border border-slate-700/50 print:border-slate-300 print:border shadow-lg shadow-black/20 print:shadow-none print:w-full">
                         <table className="w-full text-left border-collapse whitespace-nowrap">
                           <thead>
-                            <tr className="bg-slate-900/80 print:bg-slate-100 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-800">
-                              <th className="py-4 px-5 text-center w-28">Data Emissão</th>
-                              <th className="py-4 px-5 w-1/4 min-w-[200px]">Categoria</th>
-                              <th className="py-4 px-5 w-1/3 min-w-[250px]">Fornecedor</th>
-                              <th className="py-4 px-5 text-center w-28">{menuAtivo === 'contas-pagas' ? 'Data Pagto' : 'Vencimento'}</th>
-                              {menuAtivo === 'contas-pagas' && <th className="py-4 px-5 w-1/5 min-w-[150px]">Conta Corrente</th>}
-                              <th className="py-4 px-5 text-center w-24">Nº Nota</th>
-                              <th className="py-4 px-5 text-center w-20">Parcela</th>
-                              <th className="py-4 px-5 text-right w-32">Valor</th>
+                            <tr className="bg-slate-900/80 print:bg-slate-200 print:!bg-slate-200 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-400">
+                              {/* A MÁGICA DA LARGURA: O print:w-auto desabilita as larguras de tela, impedindo que a tabela "vaze" para fora da folha A4 e suma a borda */}
+                              <th className="py-4 print:py-1 px-5 print:px-2 text-center w-28 print:w-auto print:min-w-0">Data Emissão</th>
+                              <th className="py-4 print:py-1 px-5 print:px-2 w-1/4 min-w-[200px] print:w-auto print:min-w-0">Categoria</th>
+                              <th className="py-4 print:py-1 px-5 print:px-2 w-1/3 min-w-[250px] print:w-auto print:min-w-0">Fornecedor</th>
+                              <th className="py-4 print:py-1 px-5 print:px-2 text-center w-28 print:w-auto print:min-w-0">{menuAtivo === 'contas-pagas' ? 'Data Pagto' : 'Vencimento'}</th>
+                              {menuAtivo === 'contas-pagas' && <th className="py-4 print:py-1 px-5 print:px-2 w-1/5 min-w-[150px] print:w-auto print:min-w-0">Conta Corrente</th>}
+                              <th className="py-4 print:py-1 px-5 print:px-2 text-center w-24 print:w-auto print:min-w-0">Nº Nota</th>
+                              <th className="py-4 print:py-1 px-5 print:px-2 text-center w-20 print:w-auto print:min-w-0">Parcela</th>
+                              <th className="py-4 print:py-1 px-5 print:px-2 text-right w-32 print:w-auto print:min-w-0">Valor</th>
                             </tr>
                           </thead>
                           <tbody className="text-sm">
                             {dadosAgrupados.map((grupo, gIdx) => (
                               <React.Fragment key={gIdx}>
                                 {grupo.contas.map((conta, cIdx) => (
-                                  <tr key={`${gIdx}-${cIdx}`} className={`border-b border-slate-700/30 print:border-slate-300 text-slate-400 print:text-slate-800 text-xs hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50/50'}`}>
-                                    <td className="py-3 px-5 text-center">{formatarDataComDia(conta.data_emissao)}</td>
-                                    <td className="py-3 px-5 truncate max-w-[200px] print:max-w-none">{conta.desc_categoria}</td>
-                                    <td className="py-3 px-5 truncate max-w-[250px] print:max-w-none font-medium text-slate-300 print:text-slate-900">{conta.nome_fornecedor}</td>
-                                    <td className="py-3 px-5 text-center font-medium text-slate-300 print:text-slate-800">{menuAtivo === 'contas-pagas' ? formatarDataComDia(conta.data_pagamento_br) : formatarDataComDia(conta.data_previsao_br)}</td>
-                                    {menuAtivo === 'contas-pagas' && <td className="py-3 px-5 text-slate-300 truncate max-w-[150px] print:max-w-none">{conta.conta_corrente}</td>}
-                                    <td className="py-3 px-5 text-center">{conta.numero_documento_fiscal}</td>
-                                    <td className="py-3 px-5 text-center">{conta.numero_parcela}</td>
-                                    <td className="py-3 px-5 text-right font-bold text-slate-200 print:text-slate-900">
+                                  <tr key={`${gIdx}-${cIdx}`} className={`border-b border-slate-700/30 print:border-slate-300 text-slate-400 print:text-slate-800 text-xs hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}>
+                                    <td className="py-3 print:py-1 px-5 print:px-2 text-center">{formatarDataComDia(conta.data_emissao)}</td>
+                                    <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[200px] print:max-w-none">{conta.desc_categoria}</td>
+                                    <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[250px] print:max-w-none font-medium text-slate-300 print:text-slate-900">{conta.nome_fornecedor}</td>
+                                    <td className="py-3 print:py-1 px-5 print:px-2 text-center font-medium text-slate-300 print:text-slate-800">{menuAtivo === 'contas-pagas' ? formatarDataComDia(conta.data_pagamento_br) : formatarDataComDia(conta.data_previsao_br)}</td>
+                                    {menuAtivo === 'contas-pagas' && <td className="py-3 print:py-1 px-5 print:px-2 text-slate-300 truncate max-w-[150px] print:max-w-none">{conta.conta_corrente}</td>}
+                                    <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_documento_fiscal}</td>
+                                    <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_parcela}</td>
+                                    <td className="py-3 print:py-1 px-5 print:px-2 text-right font-bold text-slate-200 print:text-slate-900">
                                       R$ {(menuAtivo === 'contas-pagas' ? conta.valor_pago : conta.saldo_devedor).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                                     </td>
                                   </tr>
                                 ))}
-                                <tr className="bg-slate-800/60 print:bg-slate-200 border-b-2 border-slate-600 print:border-slate-800">
-                                  <td colSpan={menuAtivo === 'contas-pagas' ? "7" : "6"} className="py-4 px-5 text-right font-bold text-slate-300 print:text-slate-900 text-xs uppercase">
-                                    Subtotal da Página em {grupo.dataReferencia}
+                                <tr className="bg-slate-800/60 print:bg-slate-100 print:!bg-slate-100 border-b-2 border-slate-600 print:border-slate-400">
+                                  <td colSpan={menuAtivo === 'contas-pagas' ? "7" : "6"} className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-slate-300 print:text-slate-900 text-xs uppercase">
+                                    Subtotal de {grupo.dataReferencia}
                                   </td>
-                                  <td className="py-4 px-5 text-right font-bold text-emerald-400 print:text-slate-900">
+                                  <td className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-emerald-400 print:text-slate-900">
                                     R$ {grupo.subtotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                                   </td>
                                 </tr>
@@ -1094,7 +1049,7 @@ function App() {
                   <CheckCircle size={32} className="text-emerald-600" />
                 </div>
                 <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase">Recibo de Pagamento</h1>
-                <p className="text-slate-500 font-medium mt-1">GabaritoBI - Açougue</p>
+                <p className="text-slate-500 font-medium mt-1">Financial - Açougue</p>
               </div>
 
               <div className="grid grid-cols-2 gap-y-4 mb-8 text-sm">
@@ -1167,17 +1122,21 @@ function App() {
           </div>
         )}
 
-        {/* MODAL 3 ADICIONADO: EXTRATO DE COBRANÇA (MODO ESCURO PARA WHATSAPP) */}
+        {/* MODAL 3: EXTRATO DE COBRANÇA */}
         {reciboCobranca && (
           <div className="fixed inset-0 z-[100] bg-slate-950/90 flex items-center justify-center p-4 overflow-y-auto">
             <div className="flex flex-col items-center max-w-2xl w-full my-8">
               
-              {/* ÁREA CAPTURÁVEL PELA BIBLIOTECA html2canvas */}
               <div ref={reciboCobrancaRef} className="bg-slate-900 border border-slate-800 p-8 md:p-10 rounded-[2rem] w-full relative overflow-hidden shadow-2xl">
                 
-                {/* BLOBS INCLUÍDOS DENTRO DO RECEIBO PARA SAÍREM NA FOTO */}
-                <div className="absolute top-[-20%] left-[-10%] w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none z-0"></div>
-                <div className="absolute bottom-[-10%] right-[-10%] w-64 h-64 bg-purple-500/20 rounded-full blur-[80px] pointer-events-none z-0"></div>
+                <div 
+                  className="absolute top-[-40%] left-[-20%] w-[500px] h-[500px] pointer-events-none z-0" 
+                  style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.15) 0%, rgba(0,0,0,0) 60%)' }}
+                ></div>
+                <div 
+                  className="absolute bottom-[-40%] right-[-20%] w-[500px] h-[500px] pointer-events-none z-0" 
+                  style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.15) 0%, rgba(0,0,0,0) 60%)' }}
+                ></div>
 
                 <div className="relative z-10">
                   <div className="text-center mb-8 border-b border-slate-800 pb-6">
@@ -1185,7 +1144,7 @@ function App() {
                       <Receipt size={32} className="text-indigo-400" />
                     </div>
                     <h1 className="text-3xl font-black text-white tracking-tight uppercase">Demonstrativo de Cobrança</h1>
-                    <p className="text-slate-400 font-medium mt-1">GabaritoBI - Açougue</p>
+                    <p className="text-slate-400 font-medium mt-1">Financial - Açougue</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-y-4 mb-8 text-sm">
@@ -1205,7 +1164,6 @@ function App() {
 
                   <div className="mb-8">
                     <h4 className="font-bold text-indigo-400 mb-3 uppercase text-xs tracking-wider">Relação de Títulos Pendentes</h4>
-                    {/* TABELA ATUALIZADA: Sem a coluna Vencimento */}
                     <table className="w-full text-xs text-left border-collapse">
                       <thead className="bg-slate-800/50 text-slate-400">
                         <tr>
@@ -1232,7 +1190,6 @@ function App() {
                 </div>
               </div>
 
-              {/* BOTÕES EXTERNOS DA IMAGEM */}
               <div className="flex flex-col sm:flex-row gap-4 w-full mt-6">
                 <button onClick={() => setReciboCobranca(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition border border-slate-700">Fechar</button>
                 <button onClick={copiarImagemCobranca} disabled={gerandoImagem} className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900 disabled:text-indigo-400 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20">
