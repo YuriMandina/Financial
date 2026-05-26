@@ -14,9 +14,9 @@ body {
     print-color-adjust: exact !important;
   }
 
-  /* Define o tamanho da folha como A4 Paisagem e uma margem segura padrão */
+  /* Define o tamanho da folha como A4 Retrato e uma margem segura padrão */
   @page { 
-    size: A4 landscape; 
+    size: A4 portrait; 
     margin: 10mm 15mm; 
   }
 

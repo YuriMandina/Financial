@@ -546,7 +546,15 @@ def obter_recebimentos_abertos():
             desc_cat = dict_cat_str.get(id_cat, tratar_vazio(id_cat))
             nome_conta = dict_contas.get(id_conta, f"Conta {id_conta}")
 
-            saldo = float(c.get("valor_documento", 0.0))
+            valor_documento = float(c.get("valor_documento", 0.0))
+            valor_pag = float(c.get("valor_pag", 0.0))
+
+            # Se houver pagamento parcial, o saldo real é o que resta
+            # Caso contrário, o saldo é o valor total da nota
+            if valor_pag > 0 and valor_pag < valor_documento:
+                saldo = round(valor_documento - valor_pag, 2)
+            else:
+                saldo = valor_documento
 
             info_registro = c.get("info", {})
             hora_exata = info_registro.get("hInc", "00:00:00")
@@ -566,10 +574,14 @@ def obter_recebimentos_abertos():
                     "nome_fornecedor": nome_cli,
                     "desc_categoria": desc_cat,
                     "conta_corrente": nome_conta,
+                    "valor_documento": valor_documento,
+                    "valor_pag": valor_pag,
                     "saldo_devedor": saldo,
+                    "tem_pagamento_parcial": valor_pag > 0 and valor_pag < valor_documento,
                 }
             )
             total += saldo
+
 
         contas_lista = sorted(
             contas_lista,
