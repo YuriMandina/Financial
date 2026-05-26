@@ -713,6 +713,23 @@ function App() {
   const resumoCategorias = useMemo(() => agruparPorCategoria(contasFiltradas, menuAtivo), [contasFiltradas, menuAtivo]);
   const totalGeral = useMemo(() => contasFiltradas.reduce((acc, c) => acc + (menuAtivo === 'contas-pagas' ? c.valor_pago : c.saldo_devedor), 0), [contasFiltradas, menuAtivo]);
 
+  const metricsVencimento = useMemo(() => {
+    if (menuAtivo !== 'recebimentos') return { acima30: 0, acima60: 0, acima90: 0, totalAcima30: 0, totalAcima60: 0, totalAcima90: 0 };
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    let acima30 = 0, acima60 = 0, acima90 = 0;
+    let totalAcima30 = 0, totalAcima60 = 0, totalAcima90 = 0;
+    contasFiltradas.forEach(c => {
+      const venc = converterDataBrParaDate(c.data_previsao_br);
+      if (venc >= new Date(9999, 0)) return; // sem data válida
+      const diffDias = Math.floor((hoje - venc) / (1000 * 60 * 60 * 24));
+      if (diffDias > 90) { acima90++; totalAcima90 += c.saldo_devedor; }
+      if (diffDias > 60) { acima60++; totalAcima60 += c.saldo_devedor; }
+      if (diffDias > 30) { acima30++; totalAcima30 += c.saldo_devedor; }
+    });
+    return { acima30, acima60, acima90, totalAcima30, totalAcima60, totalAcima90 };
+  }, [contasFiltradas, menuAtivo]);
+
   const contasCorrentesDisponiveis = useMemo(() => {
     if (menuAtivo === 'contas-a-pagar') return [];
     return [...new Set(contasBrutas.map(c => c.conta_corrente))].sort();
@@ -878,7 +895,54 @@ function App() {
                           gerarCobrancaLote={gerarCobrancaLote}
                         />
                       ))}
+
+                      {/* RODAPÉ DE TOTAL GERAL */}
+                      <div className="border-t-2 border-slate-700 print:border-slate-400 pt-4 mt-4">
+
+                        {/* CARDS DE AGING */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 print:grid print:grid-cols-3 print:gap-2 print:mb-2">
+                          <div className="flex flex-col bg-amber-500/10 border border-amber-500/30 rounded-xl print:rounded print:border-amber-400 px-4 py-3 print:px-3 print:py-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 print:text-amber-700">+ 30 dias em aberto</span>
+                            <span className="text-xl font-black text-amber-300 print:text-slate-900 print:text-sm mt-1">
+                              R$ {metricsVencimento.totalAcima30.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-amber-500/70 print:text-slate-500">{metricsVencimento.acima30} título(s)</span>
+                          </div>
+                          <div className="flex flex-col bg-orange-500/10 border border-orange-500/30 rounded-xl print:rounded print:border-orange-400 px-4 py-3 print:px-3 print:py-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400 print:text-orange-700">+ 60 dias em aberto</span>
+                            <span className="text-xl font-black text-orange-300 print:text-slate-900 print:text-sm mt-1">
+                              R$ {metricsVencimento.totalAcima60.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-orange-500/70 print:text-slate-500">{metricsVencimento.acima60} título(s)</span>
+                          </div>
+                          <div className="flex flex-col bg-red-500/10 border border-red-500/30 rounded-xl print:rounded print:border-red-400 px-4 py-3 print:px-3 print:py-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-red-400 print:text-red-700">+ 90 dias em aberto</span>
+                            <span className="text-xl font-black text-red-400 print:text-slate-900 print:text-sm mt-1">
+                              R$ {metricsVencimento.totalAcima90.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-red-500/70 print:text-slate-500">{metricsVencimento.acima90} título(s)</span>
+                          </div>
+                        </div>
+
+                        {/* TOTAL GERAL */}
+                        <div className="flex justify-between items-center bg-slate-900/80 print:bg-transparent border border-slate-700/50 print:border-slate-400 rounded-xl print:rounded-none px-6 py-4 print:px-4 print:py-2">
+                          <div>
+                            <p className="text-xs uppercase font-bold tracking-wider text-slate-400 print:text-slate-600">
+                              Total Geral de Títulos a Receber
+                            </p>
+                            <p className="text-sm text-slate-500 print:text-slate-500 print:text-[10px]">
+                              {gruposRecebimentos.length} cliente(s) &bull; {contasFiltradas.length} título(s)
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-3xl font-black text-emerald-400 print:text-slate-900 print:text-xl">
+                              R$ {totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
+
                   ) : (
                     /* A MÁGICA DO FUNDO BRANCO: O print:!bg-transparent remove aquele bloco azul escuro inteiro na impressão */
                     <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl print:rounded-none p-8 print:!p-0 print:!bg-transparent print:shadow-none relative z-10 shadow-lg">
