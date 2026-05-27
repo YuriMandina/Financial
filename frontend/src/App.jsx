@@ -264,6 +264,9 @@ function App() {
   const [processandoBaixa, setProcessandoBaixa] = useState(false);
   const [reciboGerado, setReciboGerado] = useState(null);
 
+  // --- ESTADO EXCLUSIVO: CURVA ABC E LUCRATIVIDADE ---
+  const [resumoCurvaAbc, setResumoCurvaAbc] = useState(null);
+
   const agruparDadosPorData = (contas, tipoRelatorio) => {
     const campoData = tipoRelatorio === 'contas-pagas' ? 'data_pagamento_br' : 'data_previsao_br';
     const campoValor = tipoRelatorio === 'contas-pagas' ? 'valor_pago' : 'saldo_devedor';
@@ -298,7 +301,8 @@ function App() {
   };
 
   const handleBuscarDados = async () => {
-    if (menuAtivo !== 'recebimentos' && (!dataInicial || !dataFinal)) {
+    const precisaDatas = menuAtivo !== 'recebimentos';
+    if (precisaDatas && (!dataInicial || !dataFinal)) {
       alert("Por favor, selecione a Data Inicial e a Data Final.");
       return;
     }
@@ -307,22 +311,35 @@ function App() {
     setClienteFiltro('');
     setSelecionados([]);
     setPaginaAtual(1);
+    setResumoCurvaAbc(null);
     try {
-      const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' : menuAtivo === 'recebimentos' ? 'recebimentos' : 'contas-a-pagar';
-      const url = menuAtivo === 'recebimentos'
-        ? `http://localhost:8000/api/relatorios/recebimentos/dados`
-        : `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+      // --- ROTEAMENTO DE ENDPOINTS ---
+      if (menuAtivo === 'curva-abc') {
+        const url = `http://localhost:8000/api/relatorios/curva-abc/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const resposta = await fetch(url);
+        if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
+        const dados = await resposta.json();
+        // Armazena o resumo financeiro global no estado dedicado
+        setResumoCurvaAbc(dados.resumo || null);
+        // Alimenta o estado padrão com a lista de produtos
+        setContasBrutas(dados.itens || []);
+      } else {
+        const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' : menuAtivo === 'recebimentos' ? 'recebimentos' : 'contas-a-pagar';
+        const url = menuAtivo === 'recebimentos'
+          ? `http://localhost:8000/api/relatorios/recebimentos/dados`
+          : `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
 
-      const resposta = await fetch(url);
-      if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
-      const dados = await resposta.json();
-      setContasBrutas(dados.contas || []);
+        const resposta = await fetch(url);
+        if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
+        const dados = await resposta.json();
+        setContasBrutas(dados.contas || []);
 
-      if (menuAtivo === 'recebimentos' && listaBancos.length === 0) {
-        fetch('http://localhost:8000/api/geral/bancos')
-          .then(res => res.json())
-          .then(data => setListaBancos(data))
-          .catch(e => console.error(e));
+        if (menuAtivo === 'recebimentos' && listaBancos.length === 0) {
+          fetch('http://localhost:8000/api/geral/bancos')
+            .then(res => res.json())
+            .then(data => setListaBancos(data))
+            .catch(e => console.error(e));
+        }
       }
     } catch (erro) {
       alert(`Erro: ${erro.message}`);
@@ -735,9 +752,18 @@ function App() {
     return [...new Set(contasBrutas.map(c => c.conta_corrente))].sort();
   }, [contasBrutas, menuAtivo]);
 
-  const tituloModulo = menuAtivo === 'contas-pagas' ? 'Módulo de Contas Pagas' : menuAtivo === 'recebimentos' ? 'Módulo de Convênios' : 'Módulo de Contas a Pagar';
-  const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.' : menuAtivo === 'recebimentos' ? 'Acompanhe faturas de convênios, edite pagamentos parciais e gere recibos.' : 'Sincronize os dados e imprima o relatório detalhado.';
-  const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados' : menuAtivo === 'recebimentos' ? 'Títulos a Receber (Convênio)' : 'Previsão de Pagamentos';
+  const tituloModulo = menuAtivo === 'contas-pagas' ? 'Módulo de Contas Pagas'
+    : menuAtivo === 'recebimentos' ? 'Módulo de Convênios'
+    : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
+    : 'Módulo de Contas a Pagar';
+  const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.'
+    : menuAtivo === 'recebimentos' ? 'Acompanhe faturas de convênios, edite pagamentos parciais e gere recibos.'
+    : menuAtivo === 'curva-abc' ? 'Avalie o peso e a margem de cada produto na sua operação.'
+    : 'Sincronize os dados e imprima o relatório detalhado.';
+  const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados'
+    : menuAtivo === 'recebimentos' ? 'Títulos a Receber (Convênio)'
+    : menuAtivo === 'curva-abc' ? 'Curva ABC e Lucratividade'
+    : 'Previsão de Pagamentos';
 
   const SidebarItem = ({ id, icone: Icon, texto }) => (
     <button onClick={() => { setMenuAtivo(id); setContasBrutas([]); setSelecionados([]); setClienteFiltro(''); setContaFiltro('TODAS'); setPaginaAtual(1); }}
@@ -768,6 +794,7 @@ function App() {
           <SidebarItem id="contas-pagas" icone={Database} texto="Contas Pagas (Realizado)" />
           <SidebarItem id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênio)" />
           <SidebarItem id="vendas" icone={TrendingUp} texto="Análise de Vendas" />
+          <SidebarItem id="curva-abc" icone={TrendingUp} texto="Curva ABC e Lucratividade" />
         </nav>
       </aside>
 
@@ -829,7 +856,258 @@ function App() {
             </div>
           </div>
 
-          {!carregandoTela && contasBrutas.length > 0 && (
+          {/* ================================================================ */}
+          {/* TELA: CURVA ABC E LUCRATIVIDADE                                  */}
+          {/* ================================================================ */}
+          {menuAtivo === 'curva-abc' && !carregandoTela && resumoCurvaAbc && (
+            <div className="animate-[fadeIn_0.5s_ease-out] space-y-8 print:space-y-4">
+
+              {/* ---- CABEÇALHO DE IMPRESSÃO ---- */}
+              <div className="hidden print:flex items-center justify-between border-b-2 border-slate-800 pb-4 mb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+                    <TrendingUp size={18} className="text-white" />
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-bold text-slate-900">Financial</h1>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Inteligência Financeira</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <h2 className="text-lg font-bold text-slate-800 uppercase">Curva ABC e Lucratividade</h2>
+                  <p className="text-sm text-slate-600 mt-1">Período: {dataInicial.split('-').reverse().join('/')} a {dataFinal.split('-').reverse().join('/')}</p>
+                </div>
+              </div>
+
+              {/* ---- SEÇÃO 1: CARDS KPI ---- */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 print:grid print:grid-cols-3 print:gap-3">
+
+                {/* KPI 1 – Faturamento Total */}
+                <div className="relative bg-slate-900/80 border border-slate-700/60 rounded-2xl p-6 print:rounded print:border-slate-400 print:p-3 overflow-hidden group hover:border-indigo-500/40 transition-colors">
+                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent pointer-events-none" />
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400 print:text-slate-600 mb-3">
+                    Faturamento Total
+                  </p>
+                  <p className="text-3xl font-black text-white print:text-slate-900 print:text-xl leading-none">
+                    R$ {resumoCurvaAbc.receita_total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-2 print:hidden">{contasBrutas.length} produto(s) no período</p>
+                </div>
+
+                {/* KPI 2 – Lucro Bruto Total */}
+                <div className="relative bg-slate-900/80 border border-slate-700/60 rounded-2xl p-6 print:rounded print:border-slate-400 print:p-3 overflow-hidden hover:border-emerald-500/40 transition-colors">
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none" />
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400 print:text-slate-600 mb-3">
+                    Lucro Bruto Total
+                  </p>
+                  <p className={`text-3xl font-black print:text-xl leading-none ${resumoCurvaAbc.lucro_bruto_total >= 0 ? 'text-emerald-400' : 'text-red-400'} print:text-slate-900`}>
+                    R$ {resumoCurvaAbc.lucro_bruto_total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-2 print:hidden">Receita − CMV consolidado</p>
+                </div>
+
+                {/* KPI 3 – Margem Bruta Média */}
+                <div className="relative bg-slate-900/80 border border-slate-700/60 rounded-2xl p-6 print:rounded print:border-slate-400 print:p-3 overflow-hidden hover:border-purple-500/40 transition-colors">
+                  <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent pointer-events-none" />
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400 print:text-slate-600 mb-3">
+                    Margem Bruta Média
+                  </p>
+                  <p className={`text-3xl font-black print:text-xl leading-none ${resumoCurvaAbc.margem_media_perc >= 0 ? 'text-purple-400' : 'text-red-400'} print:text-slate-900`}>
+                    {resumoCurvaAbc.margem_media_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                  </p>
+                  <p className="text-xs text-slate-500 mt-2 print:hidden">Sobre receita total do período</p>
+                </div>
+              </div>
+
+              {/* ---- SEÇÃO 2: BARRA DE AÇÕES ---- */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 print:hidden">
+                <div className="flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2">
+                  <Search size={16} className="text-indigo-400" />
+                  <input
+                    type="text"
+                    placeholder="Filtrar produto..."
+                    value={clienteFiltro}
+                    onChange={(e) => { setClienteFiltro(e.target.value); setPaginaAtual(1); }}
+                    className="bg-transparent text-slate-200 text-sm font-medium focus:outline-none placeholder-slate-500 w-48"
+                  />
+                </div>
+                <button
+                  onClick={() => { setRegistrosPorPagina(contasBrutas.length || 50); setTimeout(() => { window.print(); setRegistrosPorPagina(50); }, 300); }}
+                  className="flex items-center gap-2 bg-slate-800 text-slate-300 hover:text-white px-6 py-3 rounded-xl font-bold group border border-slate-700 shadow-lg"
+                >
+                  <Printer size={18} className="group-hover:scale-110 transition-transform" /> IMPRIMIR
+                </button>
+              </div>
+
+              {/* ---- SEÇÃO 3: TABELA DE PRODUTOS ---- */}
+              {(() => {
+                // Filtragem local por texto do produto
+                const itensFiltrados = clienteFiltro.trim()
+                  ? contasBrutas.filter(p =>
+                      p.descricao_produto && p.descricao_produto.toLowerCase().includes(clienteFiltro.toLowerCase())
+                    )
+                  : contasBrutas;
+
+                // Totalizadores do rodapé
+                const totQtd        = itensFiltrados.reduce((s, p) => s + (p.quantidade || 0), 0);
+                const totReceita    = itensFiltrados.reduce((s, p) => s + (p.receita_total || 0), 0);
+                const totCmc        = itensFiltrados.reduce((s, p) => s + (p.cmc_total || 0), 0);
+                const totCmvTotal   = itensFiltrados.reduce((s, p) => s + (p.cmv_total || 0), 0);
+                const totLucro      = itensFiltrados.reduce((s, p) => s + (p.lucro_bruto || 0), 0);
+                const totPartic     = itensFiltrados.reduce((s, p) => s + (p.participacao_perc || 0), 0);
+                const margemRodape  = totReceita !== 0 ? (totLucro / totReceita) * 100 : 0;
+
+                const badgeAbc = (perc) => {
+                  if (perc > 5)  return { label: 'A', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 print:text-emerald-800 print:border-emerald-600' };
+                  if (perc >= 1) return { label: 'B', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40 print:text-amber-800 print:border-amber-600' };
+                  return          { label: 'C', cls: 'bg-slate-600/30 text-slate-400 border-slate-600/50 print:text-slate-600 print:border-slate-400' };
+                };
+
+                const fmtR = (v) => `R$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+                const fmtQ = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+
+                return (
+                  <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl print:rounded-none print:!bg-transparent print:border-slate-300 overflow-hidden shadow-lg">
+
+                    {/* --- cabeçalho --- */}
+                    <div className="overflow-x-auto print:overflow-visible print:w-full">
+                      <table className="w-full text-left border-collapse whitespace-nowrap">
+                        <thead>
+                          <tr className="bg-slate-800/60 print:bg-slate-200 text-slate-300 print:text-slate-900 text-xs font-bold border-b border-slate-700/50 print:border-slate-400 uppercase tracking-wider">
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-center w-16 print:w-auto">ABC</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 w-64 min-w-[200px] print:w-auto">Produto</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-24 print:w-auto">Qtd.</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">CMV Unit.</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">CMV Total</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">CMC Total</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-36 print:w-auto">Total NF</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">Média Venda</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">Lucro Bruto</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto">Margem %</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-24 print:w-auto">Partic. %</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-sm">
+                          {itensFiltrados.length === 0 ? (
+                            <tr>
+                              <td colSpan="11" className="py-12 text-center text-slate-500 font-medium">
+                                Nenhum produto encontrado para o filtro atual.
+                              </td>
+                            </tr>
+                          ) : itensFiltrados.map((p, idx) => {
+                            const badge = badgeAbc(p.participacao_perc);
+                            const lucroNeg = p.lucro_bruto < 0;
+                            const margemNeg = p.margem_bruta_perc < 0;
+                            return (
+                              <tr
+                                key={idx}
+                                className={`border-b border-slate-700/30 print:border-slate-300 hover:bg-slate-800/40 print:hover:bg-transparent transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}
+                              >
+                                {/* Badge ABC */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 text-center">
+                                  <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full border text-xs font-black ${badge.cls}`}>
+                                    {badge.label}
+                                  </span>
+                                </td>
+
+                                {/* Produto */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 font-semibold text-slate-200 print:text-slate-900 max-w-[240px] truncate print:max-w-none">
+                                  {p.descricao_produto}
+                                </td>
+
+                                {/* Quantidade */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 text-right text-slate-300 print:text-slate-800">
+                                  {fmtQ(p.quantidade)}
+                                </td>
+
+                                {/* CMV Unitário */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 text-right text-slate-400 print:text-slate-700">
+                                  {fmtR(p.cmv_medio)}
+                                </td>
+
+                                {/* CMV Total */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 text-right text-slate-400 print:text-slate-700">
+                                  {fmtR(p.cmv_total)}
+                                </td>
+
+                                {/* CMC Total (custo real da API) */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 text-right text-slate-400 print:text-slate-700">
+                                  {fmtR(p.cmc_total)}
+                                </td>
+
+                                {/* Total NF */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 text-right font-bold text-slate-200 print:text-slate-900">
+                                  {fmtR(p.receita_total)}
+                                </td>
+
+                                {/* Média Valor Venda */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 text-right text-slate-300 print:text-slate-800">
+                                  {fmtR(p.media_valor_venda)}
+                                </td>
+
+                                {/* Lucro Bruto */}
+                                <td className={`py-3 print:py-1 px-4 print:px-2 text-right font-bold ${lucroNeg ? 'text-red-400' : 'text-emerald-400'} print:text-slate-900`}>
+                                  {fmtR(p.lucro_bruto)}
+                                </td>
+
+                                {/* Margem Bruta % */}
+                                <td className={`py-3 print:py-1 px-4 print:px-2 text-right font-bold ${margemNeg ? 'text-red-400' : 'text-purple-400'} print:text-slate-900`}>
+                                  {p.margem_bruta_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                                </td>
+
+                                {/* % Participação */}
+                                <td className="py-3 print:py-1 px-4 print:px-2 text-right font-semibold text-indigo-400 print:text-slate-900">
+                                  {p.participacao_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+
+                        {/* ---- RODAPÉ TOTALIZADOR ---- */}
+                        <tfoot>
+                          <tr className="bg-slate-800/80 print:bg-slate-200 border-t-2 border-slate-600 print:border-slate-700 text-xs font-black uppercase">
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-center text-slate-400 print:text-slate-700">—</td>
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-slate-300 print:text-slate-900">
+                              TOTAL ({itensFiltrados.length} prod.)
+                            </td>
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-right text-slate-200 print:text-slate-900">
+                              {fmtQ(totQtd)}
+                            </td>
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-right text-slate-500 print:text-slate-500">—</td>
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-right text-slate-400 print:text-slate-800">
+                              {fmtR(totCmvTotal)}
+                            </td>
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-right text-slate-400 print:text-slate-800">
+                              {fmtR(totCmc)}
+                            </td>
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-right text-white print:text-slate-900">
+                              {fmtR(totReceita)}
+                            </td>
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-right text-slate-500 print:text-slate-500">—</td>
+                            <td className={`py-4 print:py-2 px-4 print:px-2 text-right ${totLucro >= 0 ? 'text-emerald-400' : 'text-red-400'} print:text-slate-900`}>
+                              {fmtR(totLucro)}
+                            </td>
+                            <td className={`py-4 print:py-2 px-4 print:px-2 text-right ${margemRodape >= 0 ? 'text-purple-400' : 'text-red-400'} print:text-slate-900`}>
+                              {margemRodape.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                            </td>
+                            <td className="py-4 print:py-2 px-4 print:px-2 text-right text-indigo-400 print:text-slate-900">
+                              {totPartic.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* ================================================================ */}
+          {/* TELAS GENÉRICAS (contas-pagar, contas-pagas, recebimentos…)      */}
+          {/* ================================================================ */}
+          {menuAtivo !== 'curva-abc' && !carregandoTela && contasBrutas.length > 0 && (
             <div className="animate-[fadeIn_0.5s_ease-out] print:!block">
 
               <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-10 gap-4 print:hidden">

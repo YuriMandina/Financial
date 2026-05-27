@@ -323,12 +323,277 @@ def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
     return todos_movimentos
 
 
+def extrair_movimento_vendas(data_inicio: str, data_fim: str):
+    """
+    Extrai os itens de vendas do PDV (NFC-e / Cupom Fiscal) do Omie para o período.
+
+    Endpoint oficial: /api/v1/produtos/cupomfiscalconsultar/
+    Call: CuponsFiscais
+    Filtros:
+      - dDtEmissaoDe / dDtEmissaoAte → data de emissão no formato DD/MM/YYYY
+
+    Estrutura de resposta:
+      cupons[] → cada cupom contém:
+        cabecalhoCupom:
+          cModeloCupom  → "65" = NFC-e, "59" = CFe-SAT, "00" = ECF
+          nValorCupom   → valor total do cupom
+          dDtEmissaoCupom
+          info.cCupomCancelado  → "S" = cancelado (ignorar)
+        itensCupom[] → itens do cupom:
+          xProd         → descrição do produto
+          nQuant        → quantidade
+          vItem         → valor líquido do item (após desc/acresc)
+          nCMCTotal     → custo da mercadoria (campo Omie interno)
+          cItemCancelado → "S" = item cancelado (ignorar)
+          cItemDevolvido → "S" = devolvido (ignorar)
+    """
+    cache_key = f"movimento_vendas_pdv_{data_inicio}_{data_fim}"
+    dados_cacheados = get_from_cache(cache_key)
+    if dados_cacheados:
+        return dados_cacheados
+
+    url = "https://app.omie.com.br/api/v1/produtos/cupomfiscalconsultar/"
+    dt_inicio_omie = pd.to_datetime(data_inicio).strftime("%d/%m/%Y")
+    dt_fim_omie = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
+
+    pagina_atual, total_paginas = 1, 1
+    todos_itens = []
+
+    while pagina_atual <= total_paginas:
+        payload = {
+            "call": "CuponsFiscais",
+            "app_key": APP_KEY,
+            "app_secret": APP_SECRET,
+            "param": [
+                {
+                    "nPagina": pagina_atual,
+                    "nRegPorPagina": 50,
+                    "dDtEmissaoDe": dt_inicio_omie,
+                    "dDtEmissaoAte": dt_fim_omie,
+                }
+            ],
+        }
+        try:
+            res = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            ).json()
+
+            if "faultstring" in res:
+                print(f"[OMIE ERRO] CuponsFiscais: {res['faultstring']}")
+                break
+
+            total_paginas = res.get("nTotPaginas", 1)
+
+            for cupom in res.get("cupons", []):
+                cab = cupom.get("cabecalhoCupom", {})
+                info_cupom = cupom.get("info", {})
+
+                # Ignora cupons cancelados ou devolvidos
+                if str(info_cupom.get("cCupomCancelado", "N")).upper() == "S":
+                    continue
+                if str(info_cupom.get("cCupomDevolvido", "N")).upper() == "S":
+                    continue
+
+                for item in cupom.get("itensCupom", []):
+                    # Ignora itens cancelados ou devolvidos
+                    if str(item.get("cItemCancelado", "N")).upper() == "S":
+                        continue
+                    if str(item.get("cItemDevolvido", "N")).upper() == "S":
+                        continue
+
+                    descricao  = str(item.get("xProd", "Produto sem descrição")).strip()
+                    quantidade = safe_float(item.get("nQuant", 0))
+                    # vItem = valor líquido do item (já descontado/acrescido)
+                    valor_item = safe_float(item.get("vItem", 0))
+                    cmc_total  = safe_float(item.get("nCMCTotal", 0))
+
+                    if quantidade == 0 and valor_item == 0:
+                        continue  # linha vazia, ignora
+
+                    todos_itens.append(
+                        {
+                            "descricao_produto":   descricao,
+                            "quantidade":          quantidade,
+                            "total_nf":            valor_item,
+                            "cmc_total_movimento": cmc_total,
+                        }
+                    )
+
+        except Exception:
+            traceback.print_exc()
+            break
+
+        pagina_atual += 1
+        time.sleep(0.3)
+
+    set_to_cache(cache_key, todos_itens, tempo_segundos=120)
+    return todos_itens
+
+
+
+
 # --- ENDPOINTS ---
+
 @app.get("/api/geral/bancos")
 def obter_bancos():
     dict_contas = extrair_dicionario_contas_correntes()
     bancos = [{"id": k, "nome": v} for k, v in dict_contas.items()]
     return sorted(bancos, key=lambda x: x["nome"])
+
+
+@app.get("/api/relatorios/curva-abc/dados")
+def obter_curva_abc(data_inicio: str, data_fim: str):
+    """
+    Retorna a Curva ABC de lucratividade agrupada por produto para o período.
+
+    Fórmulas aplicadas (com tratamento de divisão por zero e NaN):
+      - CMV Médio          = Σ(cmc_total_movimento) / Σ(quantidade)
+      - CMV Total          = Σ(quantidade) * CMV Médio
+      - Média Valor Venda  = Σ(total_nf) / Σ(quantidade)
+      - Lucro Bruto        = Σ(total_nf) - Σ(cmc_total_movimento)
+      - Margem Bruta (%)   = Lucro Bruto / Σ(total_nf) * 100
+      - % Participação     = Σ(total_nf) do item / Σ(total_nf) global * 100
+    """
+    try:
+        itens_brutos = extrair_movimento_vendas(data_inicio, data_fim)
+
+        if not itens_brutos:
+            return JSONResponse(
+                content={
+                    "resumo": {
+                        "receita_total": 0.0,
+                        "lucro_bruto_total": 0.0,
+                        "margem_media_perc": 0.0,
+                    },
+                    "itens": [],
+                }
+            )
+
+        # ------------------------------------------------------------------
+        # 1. Carrega no Pandas e garante tipos numéricos
+        # ------------------------------------------------------------------
+        df = pd.DataFrame(itens_brutos)
+
+        for col in ["quantidade", "total_nf", "cmc_total_movimento"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+        # ------------------------------------------------------------------
+        # 2. Agrupa por produto
+        # ------------------------------------------------------------------
+        grp = (
+            df.groupby("descricao_produto", as_index=False)
+            .agg(
+                qtd_total=("quantidade", "sum"),
+                receita_total_item=("total_nf", "sum"),
+                cmc_total_sum=("cmc_total_movimento", "sum"),
+            )
+        )
+
+        # ------------------------------------------------------------------
+        # 3. Total geral da receita (para % Participação)
+        # ------------------------------------------------------------------
+        receita_global = grp["receita_total_item"].sum()
+
+        # ------------------------------------------------------------------
+        # 4. Aplica as fórmulas com proteção contra divisão por zero / NaN
+        # ------------------------------------------------------------------
+
+        # CMV Médio = Σ(CMC Total) / Σ(Quantidade)
+        grp["cmv_medio"] = grp.apply(
+            lambda r: (r["cmc_total_sum"] / r["qtd_total"])
+            if r["qtd_total"] != 0
+            else 0.0,
+            axis=1,
+        ).fillna(0.0)
+
+        # CMV Total = Σ(Quantidade) * CMV Médio
+        grp["cmv_total"] = (grp["qtd_total"] * grp["cmv_medio"]).fillna(0.0)
+
+        # Média do Valor de Venda = Σ(Total NF) / Σ(Quantidade)
+        grp["media_valor_venda"] = grp.apply(
+            lambda r: (r["receita_total_item"] / r["qtd_total"])
+            if r["qtd_total"] != 0
+            else 0.0,
+            axis=1,
+        ).fillna(0.0)
+
+        # Lucro Bruto = Σ(Total NF) - Σ(CMC Total)
+        grp["lucro_bruto"] = (
+            grp["receita_total_item"] - grp["cmc_total_sum"]
+        ).fillna(0.0)
+
+        # Margem Bruta (%) = Lucro Bruto / Σ(Total NF) * 100
+        grp["margem_bruta_perc"] = grp.apply(
+            lambda r: (r["lucro_bruto"] / r["receita_total_item"] * 100)
+            if r["receita_total_item"] != 0
+            else 0.0,
+            axis=1,
+        ).fillna(0.0)
+
+        # % Participação = Σ(Total NF) do item / Σ(Total NF) global * 100
+        grp["participacao_perc"] = grp.apply(
+            lambda r: (r["receita_total_item"] / receita_global * 100)
+            if receita_global != 0
+            else 0.0,
+            axis=1,
+        ).fillna(0.0)
+
+        # ------------------------------------------------------------------
+        # 5. Ordena de forma decrescente pela % Participação
+        # ------------------------------------------------------------------
+        grp = grp.sort_values(by="participacao_perc", ascending=False).reset_index(
+            drop=True
+        )
+
+        # ------------------------------------------------------------------
+        # 6. Resumo global
+        # ------------------------------------------------------------------
+        lucro_bruto_total = float(grp["lucro_bruto"].sum())
+        margem_media = (
+            float(lucro_bruto_total / receita_global * 100)
+            if receita_global != 0
+            else 0.0
+        )
+
+        # ------------------------------------------------------------------
+        # 7. Monta a lista de itens para o JSON
+        # ------------------------------------------------------------------
+        itens_lista = []
+        for _, row in grp.iterrows():
+            itens_lista.append(
+                {
+                    "descricao_produto": str(row["descricao_produto"]),
+                    "quantidade": round(float(row["qtd_total"]), 4),
+                    "receita_total": round(float(row["receita_total_item"]), 2),
+                    "cmc_total": round(float(row["cmc_total_sum"]), 2),
+                    "cmv_medio": round(float(row["cmv_medio"]), 4),
+                    "cmv_total": round(float(row["cmv_total"]), 2),
+                    "media_valor_venda": round(float(row["media_valor_venda"]), 4),
+                    "lucro_bruto": round(float(row["lucro_bruto"]), 2),
+                    "margem_bruta_perc": round(float(row["margem_bruta_perc"]), 2),
+                    "participacao_perc": round(float(row["participacao_perc"]), 4),
+                }
+            )
+
+        return JSONResponse(
+            content={
+                "resumo": {
+                    "receita_total": round(float(receita_global), 2),
+                    "lucro_bruto_total": round(lucro_bruto_total, 2),
+                    "margem_media_perc": round(margem_media, 2),
+                },
+                "itens": itens_lista,
+            }
+        )
+
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500, content={"detail": f"Falha no Backend: {e}"}
+        )
 
 
 @app.get("/api/relatorios/contas-a-pagar/dados")
