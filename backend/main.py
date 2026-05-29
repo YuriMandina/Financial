@@ -340,10 +340,11 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
           dDtEmissaoCupom
           info.cCupomCancelado  → "S" = cancelado (ignorar)
         itensCupom[] → itens do cupom:
-          xProd         → descrição do produto
-          nQuant        → quantidade
-          vItem         → valor líquido do item (após desc/acresc)
-          nCMCTotal     → custo da mercadoria (campo Omie interno)
+          xProd          → descrição do produto
+          nQuant         → quantidade
+          vItem          → valor líquido do item (já descontado/acrescido)
+          vDesc          → valor do desconto concedido no item (campo NFC-e)
+          nCMCTotal      → custo da mercadoria (campo Omie interno)
           cItemCancelado → "S" = item cancelado (ignorar)
           cItemDevolvido → "S" = devolvido (ignorar)
     """
@@ -408,6 +409,8 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
                     quantidade = safe_float(item.get("nQuant", 0))
                     # vItem = valor líquido do item (já descontado/acrescido)
                     valor_item = safe_float(item.get("vItem", 0))
+                    # vDesc = desconto concedido no item na NFC-e
+                    desconto_item = safe_float(item.get("vDesc", 0))
                     cmc_total  = safe_float(item.get("nCMCTotal", 0))
 
                     if quantidade == 0 and valor_item == 0:
@@ -418,6 +421,7 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
                             "descricao_produto":   descricao,
                             "quantidade":          quantidade,
                             "total_nf":            valor_item,
+                            "descontos_item":      desconto_item,   # vDesc da NFC-e
                             "cmc_total_movimento": cmc_total,
                         }
                     )
@@ -433,6 +437,74 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
     return todos_itens
 
 
+
+def extrair_dicionario_cmc_produtos(data_fim: str):
+    """
+    Busca o CMC (Custo Médio Contábil) de todos os produtos via ListarPosEstoque.
+    Retorna um dicionário { descricao_normalizada: cmc_unitario }.
+
+    Endpoint: /api/v1/estoque/consulta/
+    Call: ListarPosEstoque
+    Campo relevante na resposta: produtos[].cDescricao / produtos[].nCMC
+    """
+    cache_key = f"cmc_produtos_{data_fim}"
+    dados_cacheados = get_from_cache(cache_key)
+    if dados_cacheados:
+        return dados_cacheados
+
+    url = "https://app.omie.com.br/api/v1/estoque/consulta/"
+    dt_posicao = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
+
+    pagina_atual, total_paginas = 1, 1
+    dicionario = {}  # { descricao_upper: cmc_unitario }
+
+    while pagina_atual <= total_paginas:
+        payload = {
+            "call": "ListarPosEstoque",
+            "app_key": APP_KEY,
+            "app_secret": APP_SECRET,
+            "param": [
+                {
+                    "nPagina": pagina_atual,
+                    "nRegPorPagina": 100,
+                    "dDataPosicao": dt_posicao,
+                    "cExibeTodos": "S",
+                }
+            ],
+        }
+        try:
+            res = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            ).json()
+
+            if "faultstring" in res:
+                print(f"[OMIE ERRO] ListarPosEstoque: {res['faultstring']}")
+                break
+
+            total_paginas = res.get("nTotPaginas", 1)
+
+            for prod in res.get("produtos", []):
+                descricao = str(prod.get("cDescricao", "")).strip()
+                cmc = safe_float(prod.get("nCMC", 0))
+                if descricao:
+                    # Guarda pelo nome em maiúsculo para lookup case-insensitive
+                    chave = descricao.upper()
+                    # Se o produto já existe, mantém o maior CMC (evita sobrescrever com 0)
+                    if chave not in dicionario or cmc > 0:
+                        dicionario[chave] = cmc
+
+        except Exception:
+            traceback.print_exc()
+            break
+
+        pagina_atual += 1
+        time.sleep(0.3)
+
+    set_to_cache(cache_key, dicionario, tempo_segundos=120)
+    return dicionario
 
 
 # --- ENDPOINTS ---
@@ -450,10 +522,11 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
     Retorna a Curva ABC de lucratividade agrupada por produto para o período.
 
     Fórmulas aplicadas (com tratamento de divisão por zero e NaN):
-      - CMV Médio          = Σ(cmc_total_movimento) / Σ(quantidade)
-      - CMV Total          = Σ(quantidade) * CMV Médio
+      - CMV UNIT.          = CMC unitário do produto (via ListarPosEstoque na data_fim)
+      - CMV TOTAL          = Σ(quantidade) * CMV UNIT.
+      - Descontos          = Σ(nCMCTotal dos itens do cupom) — custo registrado na venda
       - Média Valor Venda  = Σ(total_nf) / Σ(quantidade)
-      - Lucro Bruto        = Σ(total_nf) - Σ(cmc_total_movimento)
+      - Lucro Bruto        = Σ(total_nf) - CMV TOTAL
       - Margem Bruta (%)   = Lucro Bruto / Σ(total_nf) * 100
       - % Participação     = Σ(total_nf) do item / Σ(total_nf) global * 100
     """
@@ -473,43 +546,46 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
             )
 
         # ------------------------------------------------------------------
-        # 1. Carrega no Pandas e garante tipos numéricos
+        # 1. Busca o dicionário de CMC dos produtos via estoque (data_fim)
+        # ------------------------------------------------------------------
+        dict_cmc = extrair_dicionario_cmc_produtos(data_fim)
+
+        # ------------------------------------------------------------------
+        # 2. Carrega no Pandas e garante tipos numéricos
         # ------------------------------------------------------------------
         df = pd.DataFrame(itens_brutos)
 
-        for col in ["quantidade", "total_nf", "cmc_total_movimento"]:
+        for col in ["quantidade", "total_nf", "descontos_item", "cmc_total_movimento"]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
         # ------------------------------------------------------------------
-        # 2. Agrupa por produto
+        # 3. Agrupa por produto
         # ------------------------------------------------------------------
         grp = (
             df.groupby("descricao_produto", as_index=False)
             .agg(
                 qtd_total=("quantidade", "sum"),
                 receita_total_item=("total_nf", "sum"),
-                cmc_total_sum=("cmc_total_movimento", "sum"),
+                descontos_sum=("descontos_item", "sum"),    # vDesc da NFC-e → Descontos
             )
         )
 
         # ------------------------------------------------------------------
-        # 3. Total geral da receita (para % Participação)
+        # 4. Total geral da receita (para % Participação)
         # ------------------------------------------------------------------
         receita_global = grp["receita_total_item"].sum()
 
         # ------------------------------------------------------------------
-        # 4. Aplica as fórmulas com proteção contra divisão por zero / NaN
+        # 5. Aplica as fórmulas com proteção contra divisão por zero / NaN
         # ------------------------------------------------------------------
 
-        # CMV Médio = Σ(CMC Total) / Σ(Quantidade)
-        grp["cmv_medio"] = grp.apply(
-            lambda r: (r["cmc_total_sum"] / r["qtd_total"])
-            if r["qtd_total"] != 0
-            else 0.0,
-            axis=1,
+        # CMV UNIT. = CMC do produto cadastrado (via estoque na data_fim)
+        # Lookup case-insensitive pelo nome do produto
+        grp["cmv_medio"] = grp["descricao_produto"].apply(
+            lambda desc: dict_cmc.get(str(desc).strip().upper(), 0.0)
         ).fillna(0.0)
 
-        # CMV Total = Σ(Quantidade) * CMV Médio
+        # CMV TOTAL = Quantidade * CMV UNIT.
         grp["cmv_total"] = (grp["qtd_total"] * grp["cmv_medio"]).fillna(0.0)
 
         # Média do Valor de Venda = Σ(Total NF) / Σ(Quantidade)
@@ -520,9 +596,9 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
             axis=1,
         ).fillna(0.0)
 
-        # Lucro Bruto = Σ(Total NF) - Σ(CMC Total)
+        # Lucro Bruto = Σ(Total NF) - CMV TOTAL (baseado no CMC dos produtos)
         grp["lucro_bruto"] = (
-            grp["receita_total_item"] - grp["cmc_total_sum"]
+            grp["receita_total_item"] - grp["cmv_total"]
         ).fillna(0.0)
 
         # Margem Bruta (%) = Lucro Bruto / Σ(Total NF) * 100
@@ -542,14 +618,14 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
         ).fillna(0.0)
 
         # ------------------------------------------------------------------
-        # 5. Ordena de forma decrescente pela % Participação
+        # 6. Ordena de forma decrescente pela % Participação
         # ------------------------------------------------------------------
         grp = grp.sort_values(by="participacao_perc", ascending=False).reset_index(
             drop=True
         )
 
         # ------------------------------------------------------------------
-        # 6. Resumo global
+        # 7. Resumo global (Lucro Bruto baseado no CMV dos produtos)
         # ------------------------------------------------------------------
         lucro_bruto_total = float(grp["lucro_bruto"].sum())
         margem_media = (
@@ -559,7 +635,7 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
         )
 
         # ------------------------------------------------------------------
-        # 7. Monta a lista de itens para o JSON
+        # 8. Monta a lista de itens para o JSON
         # ------------------------------------------------------------------
         itens_lista = []
         for _, row in grp.iterrows():
@@ -568,10 +644,10 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
                     "descricao_produto": str(row["descricao_produto"]),
                     "quantidade": round(float(row["qtd_total"]), 4),
                     "receita_total": round(float(row["receita_total_item"]), 2),
-                    "cmc_total": round(float(row["cmc_total_sum"]), 2),
-                    "cmv_medio": round(float(row["cmv_medio"]), 4),
-                    "cmv_total": round(float(row["cmv_total"]), 2),
-                    "media_valor_venda": round(float(row["media_valor_venda"]), 4),
+                    "descontos": round(float(row["descontos_sum"]), 2),   # nCMCTotal dos cupons
+                    "cmv_medio": round(float(row["cmv_medio"]), 2),       # CMC unitário do produto
+                    "cmv_total": round(float(row["cmv_total"]), 2),       # QTD * CMV UNIT.
+                    "media_valor_venda": round(float(row["media_valor_venda"]), 2),  # 2 casas
                     "lucro_bruto": round(float(row["lucro_bruto"]), 2),
                     "margem_bruta_perc": round(float(row["margem_bruta_perc"]), 2),
                     "participacao_perc": round(float(row["participacao_perc"]), 4),

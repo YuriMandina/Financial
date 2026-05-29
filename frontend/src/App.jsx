@@ -951,7 +951,7 @@ function App() {
                 // Totalizadores do rodapé
                 const totQtd        = itensFiltrados.reduce((s, p) => s + (p.quantidade || 0), 0);
                 const totReceita    = itensFiltrados.reduce((s, p) => s + (p.receita_total || 0), 0);
-                const totCmc        = itensFiltrados.reduce((s, p) => s + (p.cmc_total || 0), 0);
+                const totDescontos  = itensFiltrados.reduce((s, p) => s + (p.descontos || 0), 0);
                 const totCmvTotal   = itensFiltrados.reduce((s, p) => s + (p.cmv_total || 0), 0);
                 const totLucro      = itensFiltrados.reduce((s, p) => s + (p.lucro_bruto || 0), 0);
                 const totPartic     = itensFiltrados.reduce((s, p) => s + (p.participacao_perc || 0), 0);
@@ -979,7 +979,7 @@ function App() {
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-24 print:w-auto">Qtd.</th>
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">CMV Unit.</th>
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">CMV Total</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">CMC Total</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">Descontos</th>
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-36 print:w-auto">Total NF</th>
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">Média Venda</th>
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">Lucro Bruto</th>
@@ -1030,9 +1030,9 @@ function App() {
                                   {fmtR(p.cmv_total)}
                                 </td>
 
-                                {/* CMC Total (custo real da API) */}
+                                {/* CMC Total → agora chamado Descontos */}
                                 <td className="py-3 print:py-1 px-4 print:px-2 text-right text-slate-400 print:text-slate-700">
-                                  {fmtR(p.cmc_total)}
+                                  {fmtR(p.descontos)}
                                 </td>
 
                                 {/* Total NF */}
@@ -1079,7 +1079,7 @@ function App() {
                               {fmtR(totCmvTotal)}
                             </td>
                             <td className="py-4 print:py-2 px-4 print:px-2 text-right text-slate-400 print:text-slate-800">
-                              {fmtR(totCmc)}
+                              {fmtR(totDescontos)}
                             </td>
                             <td className="py-4 print:py-2 px-4 print:px-2 text-right text-white print:text-slate-900">
                               {fmtR(totReceita)}
