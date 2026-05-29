@@ -31,7 +31,7 @@ body {
   table { 
     width: 100% !important; 
     max-width: 100% !important;
-    table-layout: fixed !important;
+    table-layout: auto !important;
     border-collapse: collapse !important; 
     page-break-inside: auto !important;
     border: 1px solid #cbd5e1 !important;
@@ -63,10 +63,7 @@ body {
     border: 1px solid #cbd5e1 !important; 
   }
 
-  /* Força o cabeçalho da tabela a se repetir em toda nova folha impressa */
-  thead { 
-    display: table-header-group !important; 
-  }
+  /* Não forçamos thead block para evitar duplicação em alguns navegadores na mesma página */
 
   /* Cards KPI: mantém fundo escuro para o texto ficar legível na impressão */
   .print\:bg-slate-800 {

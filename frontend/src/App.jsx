@@ -1166,17 +1166,17 @@ function App() {
                       <table className="w-full text-left border-collapse whitespace-nowrap">
                         <thead>
                           <tr className="bg-slate-800/60 print:bg-slate-200 text-slate-300 print:text-slate-900 text-xs font-bold border-b border-slate-700/50 print:border-slate-400 uppercase tracking-wider">
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-center w-16 print:w-auto">ABC</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 w-64 min-w-[200px] print:w-auto">Produto</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-24 print:w-auto">Qtd.</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">CMV Unit.</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">CMV Total</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">Descontos</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-36 print:w-auto">Total NF</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">Média Venda</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto">Lucro Bruto</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto">Margem %</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-24 print:w-auto">Partic. %</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-center w-12 print:w-auto">ABC</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 w-full print:w-auto">Produto</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-20 print:w-auto print:whitespace-nowrap">Qtd.</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto print:whitespace-nowrap">CMV Unit.</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto print:whitespace-nowrap">CMV Total</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto print:whitespace-nowrap">Descontos</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto print:whitespace-nowrap">Total NF</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto print:whitespace-nowrap">Média Venda</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto print:whitespace-nowrap">Lucro Bruto</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-24 print:w-auto print:whitespace-nowrap">Margem %</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-20 print:w-auto print:whitespace-nowrap">Partic. %</th>
                           </tr>
                         </thead>
                         <tbody className="text-sm">
@@ -1213,8 +1213,8 @@ function App() {
                                   className={`border-b border-slate-700/30 print:border-slate-300 hover:bg-slate-800/40 print:hover:bg-transparent transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}
                                 >
                                   {/* Badge ABC */}
-                                  <td className="py-3 print:py-1 px-4 print:px-2 text-center">
-                                    <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full border text-xs font-black ${badge.cls}`}>
+                                  <td className="py-3 print:py-1 px-4 print:px-2 text-center w-12 print:w-auto">
+                                    <span className={`inline-flex items-center justify-center w-6 h-6 print:w-5 print:h-5 rounded-full border text-xs print:text-[10px] font-black ${badge.cls}`}>
                                       {badge.label}
                                     </span>
                                   </td>
