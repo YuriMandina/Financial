@@ -14,29 +14,44 @@ body {
     print-color-adjust: exact !important;
   }
 
-  /* Define o tamanho da folha como A4 Retrato e uma margem segura padrão */
+  /* Define o tamanho da folha como A4 Paisagem para caber todas as colunas */
   @page { 
-    size: A4 portrait; 
-    margin: 10mm 15mm; 
+    size: A4 landscape; 
+    margin: 6mm 8mm; 
   }
 
-  /* Remove o fundo escuro APENAS do background global para não gastar tinta preta à toa */
+  /* Remove o fundo escuro APENAS do background global */
   body, html, #root, main { 
     background-color: transparent !important; 
     height: auto !important; 
     overflow: visible !important; 
   }
 
-  /* Configuração rígida da tabela para não vazar a folha */
+  /* ── TABELA: reduz padding e fonte para caber na página ── */
   table { 
     width: 100% !important; 
     max-width: 100% !important;
+    table-layout: fixed !important;
     border-collapse: collapse !important; 
     page-break-inside: auto !important;
     border: 1px solid #cbd5e1 !important;
+    font-size: 8.5pt !important;
   }
-  
-  /* A MÁGICA DA QUEBRA DE PÁGINA: O 'avoid' deve ficar APENAS no TR, nunca no TD */
+
+  th, td {
+    font-size: 8.5pt !important;
+    padding: 2px 4px !important;
+    word-break: break-word !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+  }
+
+  /* Coluna Produto pode ser mais larga */
+  th:nth-child(2), td:nth-child(2) {
+    word-break: break-word !important;
+  }
+
+  /* A MÁGICA DA QUEBRA DE PÁGINA: O 'avoid' deve ficar APENAS no TR */
   tr { 
     page-break-inside: avoid !important; 
     break-inside: avoid !important; 
@@ -53,8 +68,13 @@ body {
     display: table-header-group !important; 
   }
 
+  /* Cards KPI: mantém fundo escuro para o texto ficar legível na impressão */
+  .print\:bg-slate-800 {
+    background-color: #1e293b !important;
+  }
+
   /* Esconde completamente da impressora elementos que não são o relatório */
   .no-print { 
     display: none !important; 
   }
-}
+}

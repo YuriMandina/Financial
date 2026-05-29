@@ -405,13 +405,13 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
                     if str(item.get("cItemDevolvido", "N")).upper() == "S":
                         continue
 
-                    descricao  = str(item.get("xProd", "Produto sem descrição")).strip()
-                    quantidade = safe_float(item.get("nQuant", 0))
+                    descricao    = str(item.get("xProd", "Produto sem descrição")).strip()
+                    quantidade   = safe_float(item.get("nQuant", 0))
                     # vItem = valor líquido do item (já descontado/acrescido)
-                    valor_item = safe_float(item.get("vItem", 0))
+                    valor_item   = safe_float(item.get("vItem", 0))
                     # vDesc = desconto concedido no item na NFC-e
                     desconto_item = safe_float(item.get("vDesc", 0))
-                    cmc_total  = safe_float(item.get("nCMCTotal", 0))
+                    cmc_total    = safe_float(item.get("nCMCTotal", 0))
 
                     if quantidade == 0 and valor_item == 0:
                         continue  # linha vazia, ignora
@@ -438,16 +438,18 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
 
 
 
-def extrair_dicionario_cmc_produtos(data_fim: str):
+def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
     """
-    Busca o CMC (Custo Médio Contábil) de todos os produtos via ListarPosEstoque.
-    Retorna um dicionário { descricao_normalizada: cmc_unitario }.
+    Busca o CMC (Custo Médio Contábil) E a Família de todos os produtos via ListarPosEstoque.
+    Retorna uma tupla:
+      dict_cmc    = { descricao_normalizada_upper: cmc_unitario }
+      dict_familia = { descricao_normalizada_upper: nome_familia }
 
     Endpoint: /api/v1/estoque/consulta/
     Call: ListarPosEstoque
-    Campo relevante na resposta: produtos[].cDescricao / produtos[].nCMC
+    Campos: cDescricao / nCMC / cDescricaoFamilia (ou cFamilia)
     """
-    cache_key = f"cmc_produtos_{data_fim}"
+    cache_key = f"cmc_familia_produtos_{data_fim}"
     dados_cacheados = get_from_cache(cache_key)
     if dados_cacheados:
         return dados_cacheados
@@ -456,7 +458,8 @@ def extrair_dicionario_cmc_produtos(data_fim: str):
     dt_posicao = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
 
     pagina_atual, total_paginas = 1, 1
-    dicionario = {}  # { descricao_upper: cmc_unitario }
+    dict_cmc    = {}  # { descricao_upper: cmc_unitario }
+    dict_familia = {}  # { descricao_upper: nome_familia }
 
     while pagina_atual <= total_paginas:
         payload = {
@@ -488,13 +491,24 @@ def extrair_dicionario_cmc_produtos(data_fim: str):
 
             for prod in res.get("produtos", []):
                 descricao = str(prod.get("cDescricao", "")).strip()
+                if not descricao:
+                    continue
+
+                chave = descricao.upper()
                 cmc = safe_float(prod.get("nCMC", 0))
-                if descricao:
-                    # Guarda pelo nome em maiúsculo para lookup case-insensitive
-                    chave = descricao.upper()
-                    # Se o produto já existe, mantém o maior CMC (evita sobrescrever com 0)
-                    if chave not in dicionario or cmc > 0:
-                        dicionario[chave] = cmc
+
+                # CMC: mantém o maior (evita sobrescrever com 0)
+                if chave not in dict_cmc or cmc > 0:
+                    dict_cmc[chave] = cmc
+
+                # Família: tenta vários nomes de campo possíveis
+                familia = (
+                    str(prod.get("cDescricaoFamilia", "") or "").strip()
+                    or str(prod.get("xFamilia", "") or "").strip()
+                    or str(prod.get("cFamilia", "") or "").strip()
+                )
+                if familia and chave not in dict_familia:
+                    dict_familia[chave] = familia
 
         except Exception:
             traceback.print_exc()
@@ -503,8 +517,9 @@ def extrair_dicionario_cmc_produtos(data_fim: str):
         pagina_atual += 1
         time.sleep(0.3)
 
-    set_to_cache(cache_key, dicionario, tempo_segundos=120)
-    return dicionario
+    resultado = (dict_cmc, dict_familia)
+    set_to_cache(cache_key, resultado, tempo_segundos=120)
+    return resultado
 
 
 # --- ENDPOINTS ---
@@ -546,9 +561,9 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
             )
 
         # ------------------------------------------------------------------
-        # 1. Busca o dicionário de CMC dos produtos via estoque (data_fim)
+        # 1. Busca o dicionário de CMC e Família dos produtos via estoque
         # ------------------------------------------------------------------
-        dict_cmc = extrair_dicionario_cmc_produtos(data_fim)
+        dict_cmc, dict_familia = extrair_dicionario_cmc_e_familia_produtos(data_fim)
 
         # ------------------------------------------------------------------
         # 2. Carrega no Pandas e garante tipos numéricos
@@ -568,6 +583,11 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
                 receita_total_item=("total_nf", "sum"),
                 descontos_sum=("descontos_item", "sum"),    # vDesc da NFC-e → Descontos
             )
+        )
+
+        # Lookup de família via dicionário do estoque (by nome do produto, case-insensitive)
+        grp["familia_produto"] = grp["descricao_produto"].apply(
+            lambda desc: dict_familia.get(str(desc).strip().upper(), "Sem Família")
         )
 
         # ------------------------------------------------------------------
@@ -625,6 +645,22 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
         )
 
         # ------------------------------------------------------------------
+        # 6b. Classificação ABC pela regra 80/20 com participação ACUMULADA
+        #   Classe A: acumulado ≤ 20%  (top 20% da receita)
+        #   Classe B: acumulado ≤ 50%  (próximos 30%)
+        #   Classe C: acumulado > 50%  (restantes 50%)
+        # ------------------------------------------------------------------
+        grp["participacao_acumulada"] = grp["participacao_perc"].cumsum()
+        def classificar_abc(acum):
+            if acum <= 21.0:
+                return "A"
+            elif acum <= 51.0:
+                return "B"
+            else:
+                return "C"
+        grp["classe_abc"] = grp["participacao_acumulada"].apply(classificar_abc)
+
+        # ------------------------------------------------------------------
         # 7. Resumo global (Lucro Bruto baseado no CMV dos produtos)
         # ------------------------------------------------------------------
         lucro_bruto_total = float(grp["lucro_bruto"].sum())
@@ -634,6 +670,9 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
             else 0.0
         )
 
+        # Lista de famílias únicas (ordenadas)
+        familias_unicas = sorted(grp["familia_produto"].dropna().unique().tolist())
+
         # ------------------------------------------------------------------
         # 8. Monta a lista de itens para o JSON
         # ------------------------------------------------------------------
@@ -642,15 +681,18 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
             itens_lista.append(
                 {
                     "descricao_produto": str(row["descricao_produto"]),
+                    "familia_produto": str(row["familia_produto"]),
+                    "classe_abc": str(row["classe_abc"]),
                     "quantidade": round(float(row["qtd_total"]), 4),
                     "receita_total": round(float(row["receita_total_item"]), 2),
-                    "descontos": round(float(row["descontos_sum"]), 2),   # nCMCTotal dos cupons
+                    "descontos": round(float(row["descontos_sum"]), 2),
                     "cmv_medio": round(float(row["cmv_medio"]), 2),       # CMC unitário do produto
                     "cmv_total": round(float(row["cmv_total"]), 2),       # QTD * CMV UNIT.
-                    "media_valor_venda": round(float(row["media_valor_venda"]), 2),  # 2 casas
+                    "media_valor_venda": round(float(row["media_valor_venda"]), 2),
                     "lucro_bruto": round(float(row["lucro_bruto"]), 2),
                     "margem_bruta_perc": round(float(row["margem_bruta_perc"]), 2),
                     "participacao_perc": round(float(row["participacao_perc"]), 4),
+                    "participacao_acumulada": round(float(row["participacao_acumulada"]), 4),
                 }
             )
 
@@ -661,6 +703,7 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
                     "lucro_bruto_total": round(lucro_bruto_total, 2),
                     "margem_media_perc": round(margem_media, 2),
                 },
+                "familias": familias_unicas,
                 "itens": itens_lista,
             }
         )
