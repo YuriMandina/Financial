@@ -946,7 +946,7 @@ def obter_recebimentos_abertos():
             contas_lista.append(
                 {
                     "codigo_lancamento": c.get("codigo_lancamento_omie"),
-                    "data_previsao_br": tratar_vazio(c.get("data_vencimento")),
+                    "data_previsao_br": tratar_vazio(c.get("data_previsao") or c.get("data_vencimento")),
                     "data_emissao": tratar_vazio(c.get("data_emissao")),
                     "hora_emissao": hora_exata,
                     "tipo_documento": tipo_doc,

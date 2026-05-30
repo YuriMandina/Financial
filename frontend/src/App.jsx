@@ -443,7 +443,7 @@ function App() {
       <tr>
         <td style="padding:6px 10px;border:1px solid #cbd5e1;">${n.data_emissao || '-'}</td>
         <td style="padding:6px 10px;border:1px solid #cbd5e1;">${n.numero_documento_fiscal} - ${n.numero_parcela}</td>
-        <td style="padding:6px 10px;text-align:right;font-weight:bold;border:1px solid #cbd5e1;">R$ ${n.saldo_devedor.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+        <td style="padding:6px 10px;text-align:right;font-weight:bold;border:1px solid #cbd5e1;">R$ ${n.saldo_devedor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
       </tr>`).join('');
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Demonstrativo de Cobrança</title>
       <style>
@@ -470,7 +470,7 @@ function App() {
         <p class="sub">Financial - Açougue</p>
       </div>
       <div class="row"><span class="label">Sacado / Cliente:</span><span class="value">${reciboCobranca.cliente}</span></div>
-      <div class="total-box"><span class="label">Total a Pagar</span><span class="value">R$ ${reciboCobranca.totalDevido.toLocaleString('pt-BR',{minimumFractionDigits:2})}</span></div>
+      <div class="total-box"><span class="label">Total a Pagar</span><span class="value">R$ ${reciboCobranca.totalDevido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
       <div class="row"><span class="label">Data de Emissão deste Extrato:</span><span class="value">${reciboCobranca.dataHoraEmissao}</span></div>
       <table>
         <thead><tr><th>Emissão</th><th>Nota / Parcela</th><th style="text-align:right">Valor (R$)</th></tr></thead>
@@ -490,11 +490,10 @@ function App() {
     const linhas = reciboGerado.notas.map(n => `
       <tr>
         <td style="padding:6px 10px;border:1px solid #e2e8f0;">${n.contaOriginal.numero_documento_fiscal} - ${n.contaOriginal.numero_parcela}</td>
-        <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">R$ ${n.contaOriginal.saldo_devedor.toLocaleString('pt-BR', {minimumFractionDigits:2})}</td>
-        <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">${
-          n.desconto > 0 ? `<span style="color:#ef4444;">-R$ ${n.desconto.toLocaleString('pt-BR')}</span>` : ''
-        }${n.juros > 0 ? `<span style="color:#f59e0b;"> +R$ ${n.juros.toLocaleString('pt-BR')}</span>` : ''}${n.desconto === 0 && n.juros === 0 ? '-' : ''}</td>
-        <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:bold;color:#059669;">R$ ${n.valor.toLocaleString('pt-BR', {minimumFractionDigits:2})}</td>
+        <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">R$ ${n.contaOriginal.saldo_devedor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+        <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">${n.desconto > 0 ? `<span style="color:#ef4444;">-R$ ${n.desconto.toLocaleString('pt-BR')}</span>` : ''
+      }${n.juros > 0 ? `<span style="color:#f59e0b;"> +R$ ${n.juros.toLocaleString('pt-BR')}</span>` : ''}${n.desconto === 0 && n.juros === 0 ? '-' : ''}</td>
+        <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:bold;color:#059669;">R$ ${n.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
       </tr>`).join('');
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Recibo de Pagamento</title>
       <style>
@@ -523,7 +522,7 @@ function App() {
         <p class="sub">Financial - Açougue</p>
       </div>
       <div class="row"><span class="label">Recebemos de:</span><span class="value" style="font-size:15px;">${reciboGerado.cliente}</span></div>
-      <div class="total-box"><span class="label">Valor Total Pago</span><span class="value">R$ ${reciboGerado.totalPago.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span></div>
+      <div class="total-box"><span class="label">Valor Total Pago</span><span class="value">R$ ${reciboGerado.totalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
       <div class="row"><span class="label">Data de Pagamento:</span><span class="value">${reciboGerado.data_pagamento}</span></div>
       <div class="row"><span class="label">Conta de Destino:</span><span class="value">${reciboGerado.banco || '-'}</span></div>
       <div class="row"><span class="label">Subtotal Original:</span><span class="value">R$ ${reciboGerado.totalOriginal.toLocaleString('pt-BR')}</span></div>
@@ -763,16 +762,16 @@ function App() {
 
   const tituloModulo = menuAtivo === 'contas-pagas' ? 'Módulo de Contas Pagas'
     : menuAtivo === 'recebimentos' ? 'Módulo de Convênios'
-    : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
-    : 'Módulo de Contas a Pagar';
+      : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
+        : 'Módulo de Contas a Pagar';
   const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.'
     : menuAtivo === 'recebimentos' ? 'Acompanhe faturas de convênios, edite pagamentos parciais e gere recibos.'
-    : menuAtivo === 'curva-abc' ? 'Avalie o peso e a margem de cada produto na sua operação.'
-    : 'Sincronize os dados e imprima o relatório detalhado.';
+      : menuAtivo === 'curva-abc' ? 'Avalie o peso e a margem de cada produto na sua operação.'
+        : 'Sincronize os dados e imprima o relatório detalhado.';
   const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados'
     : menuAtivo === 'recebimentos' ? 'Títulos a Receber (Convênio)'
-    : menuAtivo === 'curva-abc' ? 'Curva ABC e Lucratividade'
-    : 'Previsão de Pagamentos';
+      : menuAtivo === 'curva-abc' ? 'Curva ABC e Lucratividade'
+        : 'Previsão de Pagamentos';
 
   const SidebarItem = ({ id, icone: Icon, texto }) => (
     <button onClick={() => { setMenuAtivo(id); setContasBrutas([]); setSelecionados([]); setClienteFiltro(''); setContaFiltro('TODAS'); setPaginaAtual(1); }}
@@ -949,11 +948,10 @@ function App() {
                     <button
                       id="btn-filtro-familias"
                       onClick={() => { setDropFamiliaAberto(p => !p); setDropClasseAberto(false); }}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-semibold transition-all ${
-                        familiasFiltro.length > 0
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-semibold transition-all ${familiasFiltro.length > 0
                           ? 'bg-indigo-600/20 border-indigo-500/60 text-indigo-300'
                           : 'bg-slate-900/50 border-slate-700/50 text-slate-300 hover:border-indigo-500/40'
-                      }`}
+                        }`}
                     >
                       <Filter size={14} />
                       Famílias
@@ -985,15 +983,13 @@ function App() {
                                   selecionada ? prev.filter(f => f !== fam) : [...prev, fam]
                                 );
                               }}
-                              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
-                                selecionada
+                              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${selecionada
                                   ? 'bg-indigo-500/20 text-indigo-200'
                                   : 'text-slate-300 hover:bg-slate-800'
-                              }`}
+                                }`}
                             >
-                              <span className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center text-xs font-black ${
-                                selecionada ? 'bg-indigo-500 border-indigo-400 text-white' : 'border-slate-600'
-                              }`}>{selecionada ? '✓' : ''}</span>
+                              <span className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center text-xs font-black ${selecionada ? 'bg-indigo-500 border-indigo-400 text-white' : 'border-slate-600'
+                                }`}>{selecionada ? '✓' : ''}</span>
                               <span className="truncate">{fam}</span>
                             </button>
                           );
@@ -1007,11 +1003,10 @@ function App() {
                     <button
                       id="btn-filtro-classe-abc"
                       onClick={() => { setDropClasseAberto(p => !p); setDropFamiliaAberto(false); }}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-semibold transition-all ${
-                        classeAbcFiltro.length > 0
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-semibold transition-all ${classeAbcFiltro.length > 0
                           ? 'bg-purple-600/20 border-purple-500/60 text-purple-300'
                           : 'bg-slate-900/50 border-slate-700/50 text-slate-300 hover:border-purple-500/40'
-                      }`}
+                        }`}
                     >
                       <TrendingUp size={14} />
                       Classe ABC
@@ -1031,7 +1026,7 @@ function App() {
                             className="text-xs text-purple-400 hover:text-purple-300 font-semibold"
                           >Limpar</button>
                         </div>
-                        {[{id:'A',label:'A — Top 20% Receita',cls:'text-emerald-300'},{id:'B',label:'B — Próximos 30%',cls:'text-amber-300'},{id:'C',label:'C — Restantes 50%',cls:'text-slate-400'}].map(cl => {
+                        {[{ id: 'A', label: 'A — Top 20% Receita', cls: 'text-emerald-300' }, { id: 'B', label: 'B — Próximos 30%', cls: 'text-amber-300' }, { id: 'C', label: 'C — Restantes 50%', cls: 'text-slate-400' }].map(cl => {
                           const sel = classeAbcFiltro.includes(cl.id);
                           return (
                             <button
@@ -1041,13 +1036,11 @@ function App() {
                                   sel ? prev.filter(c => c !== cl.id) : [...prev, cl.id]
                                 );
                               }}
-                              className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-3 transition-colors ${
-                                sel ? 'bg-purple-500/10' : 'hover:bg-slate-800'
-                              }`}
+                              className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-3 transition-colors ${sel ? 'bg-purple-500/10' : 'hover:bg-slate-800'
+                                }`}
                             >
-                              <span className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center text-xs font-black ${
-                                sel ? 'bg-purple-500 border-purple-400 text-white' : 'border-slate-600'
-                              }`}>{sel ? '✓' : ''}</span>
+                              <span className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center text-xs font-black ${sel ? 'bg-purple-500 border-purple-400 text-white' : 'border-slate-600'
+                                }`}>{sel ? '✓' : ''}</span>
                               <span className={`font-bold ${cl.cls}`}>{cl.label}</span>
                             </button>
                           );
@@ -1084,8 +1077,8 @@ function App() {
                 // 1. Filtragem por texto do produto
                 let itensFiltrados = clienteFiltro.trim()
                   ? contasBrutas.filter(p =>
-                      p.descricao_produto && p.descricao_produto.toLowerCase().includes(clienteFiltro.toLowerCase())
-                    )
+                    p.descricao_produto && p.descricao_produto.toLowerCase().includes(clienteFiltro.toLowerCase())
+                  )
                   : contasBrutas;
 
                 // 2. Filtragem por família
@@ -1099,19 +1092,19 @@ function App() {
                 }
 
                 // Totalizadores do rodapé
-                const totQtd        = itensFiltrados.reduce((s, p) => s + (p.quantidade || 0), 0);
-                const totReceita    = itensFiltrados.reduce((s, p) => s + (p.receita_total || 0), 0);
-                const totDescontos  = itensFiltrados.reduce((s, p) => s + (p.descontos || 0), 0);
-                const totCmvTotal   = itensFiltrados.reduce((s, p) => s + (p.cmv_total || 0), 0);
-                const totLucro      = itensFiltrados.reduce((s, p) => s + (p.lucro_bruto || 0), 0);
-                const totPartic     = itensFiltrados.reduce((s, p) => s + (p.participacao_perc || 0), 0);
-                const margemRodape  = totReceita !== 0 ? (totLucro / totReceita) * 100 : 0;
+                const totQtd = itensFiltrados.reduce((s, p) => s + (p.quantidade || 0), 0);
+                const totReceita = itensFiltrados.reduce((s, p) => s + (p.receita_total || 0), 0);
+                const totDescontos = itensFiltrados.reduce((s, p) => s + (p.descontos || 0), 0);
+                const totCmvTotal = itensFiltrados.reduce((s, p) => s + (p.cmv_total || 0), 0);
+                const totLucro = itensFiltrados.reduce((s, p) => s + (p.lucro_bruto || 0), 0);
+                const totPartic = itensFiltrados.reduce((s, p) => s + (p.participacao_perc || 0), 0);
+                const margemRodape = totReceita !== 0 ? (totLucro / totReceita) * 100 : 0;
 
                 // Badge ABC usa a classe calculada pelo backend
                 const badgeAbc = (classe) => {
                   if (classe === 'A') return { label: 'A', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 print:text-emerald-800 print:border-emerald-600' };
                   if (classe === 'B') return { label: 'B', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40 print:text-amber-800 print:border-amber-600' };
-                  return                 { label: 'C', cls: 'bg-slate-600/30 text-slate-400 border-slate-600/50 print:text-slate-600 print:border-slate-400' };
+                  return { label: 'C', cls: 'bg-slate-600/30 text-slate-400 border-slate-600/50 print:text-slate-600 print:border-slate-400' };
                 };
 
                 const fmtR = (v) => `R$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
@@ -1121,13 +1114,13 @@ function App() {
                 const calcSubtotal = (classe) => {
                   const grupo = itensFiltrados.filter(p => p.classe_abc === classe);
                   const sub = {
-                    qtd:     grupo.reduce((s, p) => s + (p.quantidade || 0), 0),
+                    qtd: grupo.reduce((s, p) => s + (p.quantidade || 0), 0),
                     receita: grupo.reduce((s, p) => s + (p.receita_total || 0), 0),
-                    desc:    grupo.reduce((s, p) => s + (p.descontos || 0), 0),
-                    cmv:     grupo.reduce((s, p) => s + (p.cmv_total || 0), 0),
-                    lucro:   grupo.reduce((s, p) => s + (p.lucro_bruto || 0), 0),
-                    partic:  grupo.reduce((s, p) => s + (p.participacao_perc || 0), 0),
-                    count:   grupo.length,
+                    desc: grupo.reduce((s, p) => s + (p.descontos || 0), 0),
+                    cmv: grupo.reduce((s, p) => s + (p.cmv_total || 0), 0),
+                    lucro: grupo.reduce((s, p) => s + (p.lucro_bruto || 0), 0),
+                    partic: grupo.reduce((s, p) => s + (p.participacao_perc || 0), 0),
+                    count: grupo.length,
                   };
                   sub.margem = sub.receita !== 0 ? (sub.lucro / sub.receita) * 100 : 0;
                   return sub;
@@ -1200,7 +1193,7 @@ function App() {
                               if (classeAtual !== null && p.classe_abc !== classeAtual) {
                                 if (classeAtual === 'A') rows.push(
                                   <SubtotalRow key={`sub-A`} classe="A" label="A" corBg="bg-emerald-500/10 print:bg-emerald-50" corText="text-emerald-400 print:text-emerald-800" corBorder="border-emerald-500/30 print:border-emerald-600" />
-                                );
+                                ); ""
                                 if (classeAtual === 'B') rows.push(
                                   <SubtotalRow key={`sub-B`} classe="B" label="B" corBg="bg-amber-500/10 print:bg-amber-50" corText="text-amber-400 print:text-amber-800" corBorder="border-amber-500/30 print:border-amber-600" />
                                 );
