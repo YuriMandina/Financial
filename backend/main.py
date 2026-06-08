@@ -437,29 +437,26 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
     return todos_itens
 
 
-
 def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
     """
-    Busca o CMC (Custo Médio Contábil) E a Família de todos os produtos via ListarPosEstoque.
+    Busca o CMC (Custo Médio Contábil) via ListarPosEstoque.
+    Busca a Família via ListarProdutos (cadastro de produtos).
     Retorna uma tupla:
       dict_cmc    = { descricao_normalizada_upper: cmc_unitario }
       dict_familia = { descricao_normalizada_upper: nome_familia }
-
-    Endpoint: /api/v1/estoque/consulta/
-    Call: ListarPosEstoque
-    Campos: cDescricao / nCMC / cDescricaoFamilia (ou cFamilia)
     """
     cache_key = f"cmc_familia_produtos_{data_fim}"
     dados_cacheados = get_from_cache(cache_key)
     if dados_cacheados:
         return dados_cacheados
 
-    url = "https://app.omie.com.br/api/v1/estoque/consulta/"
+    # --- 1. CMC via posição de estoque ---
+    url_estoque = "https://app.omie.com.br/api/v1/estoque/consulta/"
     dt_posicao = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
 
     pagina_atual, total_paginas = 1, 1
-    dict_cmc    = {}  # { descricao_upper: cmc_unitario }
-    dict_familia = {}  # { descricao_upper: nome_familia }
+    dict_cmc    = {}
+    dict_familia_estoque = {}
 
     while pagina_atual <= total_paginas:
         payload = {
@@ -477,7 +474,7 @@ def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
         }
         try:
             res = requests.post(
-                url,
+                url_estoque,
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=30,
@@ -501,13 +498,102 @@ def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
                 if chave not in dict_cmc or cmc > 0:
                     dict_cmc[chave] = cmc
 
-                # Família: tenta vários nomes de campo possíveis
+                # Família via posição de estoque (fallback)
                 familia = (
                     str(prod.get("cDescricaoFamilia", "") or "").strip()
                     or str(prod.get("xFamilia", "") or "").strip()
                     or str(prod.get("cFamilia", "") or "").strip()
                 )
-                if familia and chave not in dict_familia:
+                if familia and chave not in dict_familia_estoque:
+                    dict_familia_estoque[chave] = familia
+
+        except Exception:
+            traceback.print_exc()
+            break
+
+        pagina_atual += 1
+        time.sleep(0.3)
+
+    # --- 2. Família via cadastro de produtos (fonte primária) ---
+    dict_familia_cadastro = extrair_familias_do_cadastro_produtos()
+
+    # Mescla: cadastro tem prioridade; fallback = estoque
+    dict_familia = {**dict_familia_estoque, **dict_familia_cadastro}
+
+    resultado = (dict_cmc, dict_familia)
+    set_to_cache(cache_key, resultado, tempo_segundos=120)
+    return resultado
+
+
+def extrair_familias_do_cadastro_produtos():
+    """
+    Busca a família de cada produto diretamente do cadastro de produtos Omie.
+
+    Endpoint: /api/v1/geral/produtos/
+    Call: ListarProdutos
+    Campos relevantes:
+      - descricao         → nome do produto
+      - familia_produto   → descrição da família (campo direto)
+      - cDescricaoFamilia → alternativa (pode vir no objeto detalhado)
+    Retorna:
+      dict_familia = { descricao_normalizada_upper: nome_familia }
+    """
+    cache_key = "familias_cadastro_produtos"
+    dados_cacheados = get_from_cache(cache_key)
+    if dados_cacheados:
+        return dados_cacheados
+
+    url = "https://app.omie.com.br/api/v1/geral/produtos/"
+    pagina_atual, total_paginas = 1, 1
+    dict_familia = {}
+
+    while pagina_atual <= total_paginas:
+        payload = {
+            "call": "ListarProdutos",
+            "app_key": APP_KEY,
+            "app_secret": APP_SECRET,
+            "param": [
+                {
+                    "pagina": pagina_atual,
+                    "registros_por_pagina": 500,
+                    "apenas_importado_api": "N",
+                    "filtrar_apenas_omiepdv": "N",
+                }
+            ],
+        }
+        try:
+            res = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            ).json()
+
+            if "faultstring" in res:
+                print(f"[OMIE ERRO] ListarProdutos: {res['faultstring']}")
+                break
+
+            total_paginas = res.get("total_de_paginas", 1)
+
+            for prod in res.get("produto_servico_cadastro", []):
+                # A descrição do produto pode estar em campos diferentes
+                descricao = (
+                    str(prod.get("descricao", "") or "").strip()
+                    or str(prod.get("descricao_complementar", "") or "").strip()
+                )
+                if not descricao:
+                    continue
+
+                chave = descricao.upper()
+
+                # Campo confirmado via diagnóstico: "descricao_familia" é o campo correto
+                familia = (
+                    str(prod.get("descricao_familia", "") or "").strip()
+                    or str(prod.get("familia_produto", "") or "").strip()
+                    or str(prod.get("cDescricaoFamilia", "") or "").strip()
+                )
+
+                if familia:
                     dict_familia[chave] = familia
 
         except Exception:
@@ -517,9 +603,9 @@ def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
         pagina_atual += 1
         time.sleep(0.3)
 
-    resultado = (dict_cmc, dict_familia)
-    set_to_cache(cache_key, resultado, tempo_segundos=120)
-    return resultado
+    print(f"[OMIE] Famílias do cadastro: {len(dict_familia)} produtos com família mapeada")
+    set_to_cache(cache_key, dict_familia, tempo_segundos=300)
+    return dict_familia
 
 
 # --- ENDPOINTS ---
@@ -529,6 +615,27 @@ def obter_bancos():
     dict_contas = extrair_dicionario_contas_correntes()
     bancos = [{"id": k, "nome": v} for k, v in dict_contas.items()]
     return sorted(bancos, key=lambda x: x["nome"])
+
+
+@app.get("/api/debug/campos-produto")
+def debug_campos_produto():
+    """
+    Endpoint de diagnóstico: retorna os primeiros 3 produtos do cadastro Omie
+    com TODOS os campos da API, para identificar o campo correto de família.
+    """
+    url = "https://app.omie.com.br/api/v1/geral/produtos/"
+    payload = {
+        "call": "ListarProdutos",
+        "app_key": APP_KEY,
+        "app_secret": APP_SECRET,
+        "param": [{"pagina": 1, "registros_por_pagina": 3, "apenas_importado_api": "N", "filtrar_apenas_omiepdv": "N"}],
+    }
+    try:
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
+        produtos = res.get("produto_servico_cadastro", [])
+        return {"total_paginas": res.get("total_de_paginas"), "amostra": produtos[:3]}
+    except Exception as e:
+        return {"erro": str(e)}
 
 
 @app.get("/api/relatorios/curva-abc/dados")
