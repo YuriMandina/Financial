@@ -848,7 +848,7 @@ function App() {
             </div>
           </div>
 
-          <div className="hidden print:flex items-center justify-between border-b-2 border-slate-800 pb-4 mb-6 mt-4 print:px-2">
+          <div className={`hidden ${menuAtivo !== 'curva-abc' ? 'print:flex' : ''} items-center justify-between border-b-2 border-slate-800 pb-4 mb-6 mt-4 print:px-2`}>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 print:!bg-indigo-600 flex items-center justify-center">
                 <TrendingUp size={18} className="text-white" />
@@ -921,7 +921,7 @@ function App() {
                     Margem Bruta Média
                   </p>
                   <p className={`text-3xl font-black print:text-xl leading-none ${resumoCurvaAbc.margem_media_perc >= 0 ? 'text-purple-400 print:text-purple-300' : 'text-red-400 print:text-red-300'}`}>
-                    {resumoCurvaAbc.margem_media_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                    {resumoCurvaAbc.margem_media_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                   </p>
                   <p className="text-xs text-slate-500 mt-2 print:hidden">Sobre receita total do período</p>
                 </div>
@@ -1145,8 +1145,8 @@ function App() {
                       <td className={`py-2 print:py-1 px-4 print:px-2 text-right text-xs font-bold ${corText}`}>{fmtR(sub.receita)}</td>
                       <td className="py-2 print:py-1 px-4 print:px-2 text-right text-xs text-slate-500 print:text-slate-400">—</td>
                       <td className={`py-2 print:py-1 px-4 print:px-2 text-right text-xs font-bold ${sub.lucro >= 0 ? corText : 'text-red-400'}`}>{fmtR(sub.lucro)}</td>
-                      <td className={`py-2 print:py-1 px-4 print:px-2 text-right text-xs font-bold ${sub.margem >= 0 ? corText : 'text-red-400'}`}>{sub.margem.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%</td>
-                      <td className={`py-2 print:py-1 px-4 print:px-2 text-right text-xs font-bold ${corText}`}>{sub.partic.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%</td>
+                      <td className={`py-2 print:py-1 px-4 print:px-2 text-right text-xs font-bold ${sub.margem >= 0 ? corText : 'text-red-400'}`}>{sub.margem.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+                      <td className={`py-2 print:py-1 px-4 print:px-2 text-right text-xs font-bold ${corText}`}>{sub.partic.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
                     </tr>
                   );
                 };
@@ -1168,7 +1168,7 @@ function App() {
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-32 print:w-auto print:whitespace-nowrap">Total NF</th>
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto print:whitespace-nowrap">Média Venda</th>
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-28 print:w-auto print:whitespace-nowrap">Lucro Bruto</th>
-                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-24 print:w-auto print:whitespace-nowrap">Margem %</th>
+                            <th className="py-4 print:py-1 px-4 print:px-2 text-right w-24 print:w-auto print:whitespace-nowrap">Margem Bruta</th>
                             <th className="py-4 print:py-1 px-4 print:px-2 text-right w-20 print:w-auto print:whitespace-nowrap">Partic. %</th>
                           </tr>
                         </thead>
@@ -1254,12 +1254,12 @@ function App() {
 
                                   {/* Margem Bruta % */}
                                   <td className={`py-3 print:py-1 px-4 print:px-2 text-right font-bold ${margemNeg ? 'text-red-400' : 'text-purple-400'} print:text-slate-900`}>
-                                    {p.margem_bruta_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                                    {p.margem_bruta_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                                   </td>
 
                                   {/* % Participação */}
                                   <td className="py-3 print:py-1 px-4 print:px-2 text-right font-semibold text-indigo-400 print:text-slate-900">
-                                    {p.participacao_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                                    {p.participacao_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                                   </td>
                                 </tr>
                               );
@@ -1305,10 +1305,10 @@ function App() {
                               {fmtR(totLucro)}
                             </td>
                             <td className={`py-4 print:py-2 px-4 print:px-2 text-right ${margemRodape >= 0 ? 'text-purple-400' : 'text-red-400'} print:text-slate-900`}>
-                              {margemRodape.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                              {margemRodape.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                             </td>
                             <td className="py-4 print:py-2 px-4 print:px-2 text-right text-indigo-400 print:text-slate-900">
-                              {totPartic.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                              {totPartic.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                             </td>
                           </tr>
                         </tfoot>

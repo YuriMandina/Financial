@@ -74,4 +74,12 @@ body {
   .no-print { 
     display: none !important; 
   }
-}
+
+  /* RODAPÉ TOTALIZADOR: impede que o <tfoot> repita em cada página.
+     Ao usar table-row-group ele se comporta como tbody e aparece apenas
+     onde está fisicamente no documento (ao final da tabela). */
+  tfoot {
+    display: table-row-group !important;
+  }
+}
+
