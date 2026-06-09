@@ -6,6 +6,7 @@ import {
   CheckSquare, Square, Calculator, Zap, ArrowDownToLine, ChevronLeft, ChevronRight,
   Receipt, Copy
 } from 'lucide-react';
+import DateRangePicker from './DateRangePicker';
 
 // --- FUNÇÕES GLOBAIS DE FORMATAÇÃO E CÁLCULO ---
 const converterDataBrParaDate = (dataStr) => {
@@ -833,12 +834,13 @@ function App() {
 
             <div className="bg-slate-900/80 border border-white/[0.05] rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
               {menuAtivo !== 'recebimentos' && (
-                <div className="flex items-center gap-3">
-                  <CalendarDays className="text-indigo-400 hidden sm:block" size={20} />
-                  <input type="date" value={dataInicial} onChange={(e) => setDataInicial(e.target.value)} className="bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2 text-slate-200 text-sm [color-scheme:dark]" />
-                  <span className="text-slate-500 text-sm font-medium">até</span>
-                  <input type="date" value={dataFinal} onChange={(e) => setDataFinal(e.target.value)} className="bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2 text-slate-200 text-sm [color-scheme:dark]" />
-                </div>
+                <DateRangePicker
+                  startValue={dataInicial}
+                  endValue={dataFinal}
+                  onStartChange={setDataInicial}
+                  onEndChange={setDataFinal}
+                  disabled={carregandoTela}
+                />
               )}
 
               <button onClick={handleBuscarDados} disabled={carregandoTela} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold transition-all disabled:opacity-50">
