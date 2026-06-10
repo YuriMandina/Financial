@@ -270,6 +270,7 @@ function App() {
   const [familiasList, setFamiliasList] = useState([]);       // lista de famílias disponíveis
   const [familiasFiltro, setFamiliasFiltro] = useState([]);   // famílias selecionadas (vazio = todas)
   const [classeAbcFiltro, setClasseAbcFiltro] = useState([]); // classes selecionadas (vazio = todas)
+  const [isolarABC, setIsolarABC] = useState(false);
   const [dropFamiliaAberto, setDropFamiliaAberto] = useState(false);
   const [dropClasseAberto, setDropClasseAberto] = useState(false);
 
@@ -713,6 +714,69 @@ function App() {
     return filtrado;
   }, [contasBrutas, contaFiltro, clienteFiltro]);
 
+  const curvaAbcProcessada = useMemo(() => {
+    if (menuAtivo !== 'curva-abc' || !resumoCurvaAbc || contasBrutas.length === 0) return { itens: [], resumoKpi: null };
+
+    // 1. Filtragem por texto do produto
+    let itensFiltrados = clienteFiltro.trim()
+      ? contasBrutas.filter(p =>
+        p.descricao_produto && p.descricao_produto.toLowerCase().includes(clienteFiltro.toLowerCase())
+      )
+      : contasBrutas;
+
+    // 2. Filtragem por família
+    if (familiasFiltro.length > 0) {
+      itensFiltrados = itensFiltrados.filter(p => familiasFiltro.includes(p.familia_produto));
+    }
+
+    // -- RECALCULAR ABC SE isolarABC --
+    let kpiReceita = 0, kpiLucro = 0, kpiMargem = 0;
+
+    if (isolarABC && itensFiltrados.length > 0) {
+        const totalReceitaFiltrada = itensFiltrados.reduce((s, p) => s + (p.receita_total || 0), 0);
+        let isolados = itensFiltrados.map(p => ({...p}));
+        
+        isolados.forEach(p => {
+            p.participacao_perc = totalReceitaFiltrada ? (p.receita_total / totalReceitaFiltrada) * 100 : 0;
+        });
+        
+        isolados.sort((a, b) => b.participacao_perc - a.participacao_perc);
+        
+        let acum = 0;
+        isolados.forEach(p => {
+            acum += p.participacao_perc;
+            p.participacao_acumulada = acum;
+            if (acum <= 21.0) p.classe_abc = 'A';
+            else if (acum <= 51.0) p.classe_abc = 'B';
+            else p.classe_abc = 'C';
+        });
+        
+        itensFiltrados = isolados;
+        
+        kpiReceita = totalReceitaFiltrada;
+        kpiLucro = itensFiltrados.reduce((s, p) => s + (p.lucro_bruto || 0), 0);
+        kpiMargem = kpiReceita !== 0 ? (kpiLucro / kpiReceita) * 100 : 0;
+    } else {
+        kpiReceita = resumoCurvaAbc.receita_total;
+        kpiLucro = resumoCurvaAbc.lucro_bruto_total;
+        kpiMargem = resumoCurvaAbc.margem_media_perc;
+    }
+
+    // 3. Filtragem por classe ABC
+    if (classeAbcFiltro.length > 0) {
+      itensFiltrados = itensFiltrados.filter(p => classeAbcFiltro.includes(p.classe_abc));
+    }
+
+    return { 
+      itens: itensFiltrados, 
+      resumoKpi: {
+         receita_total: kpiReceita,
+         lucro_bruto_total: kpiLucro,
+         margem_media_perc: kpiMargem
+      }
+    };
+  }, [contasBrutas, menuAtivo, clienteFiltro, familiasFiltro, classeAbcFiltro, isolarABC, resumoCurvaAbc]);
+
   const gruposRecebimentos = useMemo(() => {
     if (menuAtivo !== 'recebimentos') return [];
     const clientesUnicos = [...new Set(contasFiltradas.map(c => c.nome_cliente))];
@@ -899,9 +963,9 @@ function App() {
                     Faturamento Total
                   </p>
                   <p className="text-3xl font-black text-white print:text-white print:text-xl leading-none">
-                    R$ {resumoCurvaAbc.receita_total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    R$ {curvaAbcProcessada.resumoKpi?.receita_total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </p>
-                  <p className="text-xs text-slate-500 mt-2 print:hidden">{contasBrutas.length} produto(s) no período</p>
+                  <p className="text-xs text-slate-500 mt-2 print:hidden">{isolarABC ? curvaAbcProcessada.itens.length : contasBrutas.length} produto(s) no período</p>
                 </div>
 
                 {/* KPI 2 – Lucro Bruto Total */}
@@ -910,8 +974,8 @@ function App() {
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400 print:text-slate-300 mb-3">
                     Lucro Bruto Total
                   </p>
-                  <p className={`text-3xl font-black print:text-xl leading-none ${resumoCurvaAbc.lucro_bruto_total >= 0 ? 'text-emerald-400 print:text-emerald-300' : 'text-red-400 print:text-red-300'}`}>
-                    R$ {resumoCurvaAbc.lucro_bruto_total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  <p className={`text-3xl font-black print:text-xl leading-none ${curvaAbcProcessada.resumoKpi?.lucro_bruto_total >= 0 ? 'text-emerald-400 print:text-emerald-300' : 'text-red-400 print:text-red-300'}`}>
+                    R$ {curvaAbcProcessada.resumoKpi?.lucro_bruto_total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </p>
                   <p className="text-xs text-slate-500 mt-2 print:hidden">Receita − CMV consolidado</p>
                 </div>
@@ -922,8 +986,8 @@ function App() {
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400 print:text-slate-300 mb-3">
                     Margem Bruta Média
                   </p>
-                  <p className={`text-3xl font-black print:text-xl leading-none ${resumoCurvaAbc.margem_media_perc >= 0 ? 'text-purple-400 print:text-purple-300' : 'text-red-400 print:text-red-300'}`}>
-                    {resumoCurvaAbc.margem_media_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                  <p className={`text-3xl font-black print:text-xl leading-none ${curvaAbcProcessada.resumoKpi?.margem_media_perc >= 0 ? 'text-purple-400 print:text-purple-300' : 'text-red-400 print:text-red-300'}`}>
+                    {curvaAbcProcessada.resumoKpi?.margem_media_perc.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                   </p>
                   <p className="text-xs text-slate-500 mt-2 print:hidden">Sobre receita total do período</p>
                 </div>
@@ -1051,6 +1115,17 @@ function App() {
                     )}
                   </div>
 
+                  {/* ---- CHECKBOX ISOLAR ABC ---- */}
+                  <label className="flex items-center gap-2 text-sm text-slate-300 font-medium cursor-pointer bg-slate-900/50 border border-slate-700/50 px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors select-none">
+                    <input 
+                      type="checkbox" 
+                      checked={isolarABC} 
+                      onChange={e => setIsolarABC(e.target.checked)} 
+                      className="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50 bg-slate-900/50" 
+                    />
+                    Isolar Curva ABC
+                  </label>
+
                 </div>
 
                 <button
@@ -1076,22 +1151,7 @@ function App() {
                 />
               )}
               {(() => {
-                // 1. Filtragem por texto do produto
-                let itensFiltrados = clienteFiltro.trim()
-                  ? contasBrutas.filter(p =>
-                    p.descricao_produto && p.descricao_produto.toLowerCase().includes(clienteFiltro.toLowerCase())
-                  )
-                  : contasBrutas;
-
-                // 2. Filtragem por família
-                if (familiasFiltro.length > 0) {
-                  itensFiltrados = itensFiltrados.filter(p => familiasFiltro.includes(p.familia_produto));
-                }
-
-                // 3. Filtragem por classe ABC
-                if (classeAbcFiltro.length > 0) {
-                  itensFiltrados = itensFiltrados.filter(p => classeAbcFiltro.includes(p.classe_abc));
-                }
+                const itensFiltrados = curvaAbcProcessada.itens;
 
                 // Totalizadores do rodapé
                 const totQtd = itensFiltrados.reduce((s, p) => s + (p.quantidade || 0), 0);
