@@ -226,7 +226,7 @@ function App() {
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
   const [carregandoTela, setCarregandoTela] = useState(false);
-  const [menuAtivo, setMenuAtivo] = useState('contas-pagar');
+  const [menuAtivo, setMenuAtivo] = useState('dashboard');
 
   const [contasBrutas, setContasBrutas] = useState([]);
 
@@ -264,6 +264,9 @@ function App() {
 
   const [processandoBaixa, setProcessandoBaixa] = useState(false);
   const [reciboGerado, setReciboGerado] = useState(null);
+
+  // --- ESTADO EXCLUSIVO: DASHBOARD ---
+  const [dashboardData, setDashboardData] = useState(null);
 
   // --- ESTADO EXCLUSIVO: CURVA ABC E LUCRATIVIDADE ---
   const [resumoCurvaAbc, setResumoCurvaAbc] = useState(null);
@@ -321,7 +324,27 @@ function App() {
     setResumoCurvaAbc(null);
     try {
       // --- ROTEAMENTO DE ENDPOINTS ---
-      if (menuAtivo === 'curva-abc') {
+      if (menuAtivo === 'dashboard') {
+        const urlPagar = `http://localhost:8000/api/relatorios/contas-a-pagar/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const urlPagas = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const urlRec = `http://localhost:8000/api/relatorios/recebimentos/dados`;
+        
+        const [resPagar, resPagas, resRec] = await Promise.all([
+          fetch(urlPagar),
+          fetch(urlPagas),
+          fetch(urlRec)
+        ]);
+        
+        const dadosPagar = resPagar.ok ? await resPagar.json() : { contas: [] };
+        const dadosPagas = resPagas.ok ? await resPagas.json() : { contas: [] };
+        const dadosRec = resRec.ok ? await resRec.json() : { contas: [] };
+        
+        setDashboardData({
+          pagar: dadosPagar.contas || [],
+          pagas: dadosPagas.contas || [],
+          receber: dadosRec.contas || []
+        });
+      } else if (menuAtivo === 'curva-abc') {
         const url = `http://localhost:8000/api/relatorios/curva-abc/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         const resposta = await fetch(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
@@ -828,15 +851,18 @@ function App() {
   const tituloModulo = menuAtivo === 'contas-pagas' ? 'Módulo de Contas Pagas'
     : menuAtivo === 'recebimentos' ? 'Módulo de Convênios'
       : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
-        : 'Módulo de Contas a Pagar';
+        : menuAtivo === 'dashboard' ? 'Visão Geral Financeira'
+          : 'Módulo de Contas a Pagar';
   const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.'
     : menuAtivo === 'recebimentos' ? 'Acompanhe faturas de convênios, edite pagamentos parciais e gere recibos.'
       : menuAtivo === 'curva-abc' ? 'Avalie o peso e a margem de cada produto na sua operação.'
-        : 'Sincronize os dados e imprima o relatório detalhado.';
+        : menuAtivo === 'dashboard' ? 'Acompanhe os principais indicadores de saúde financeira do seu negócio.'
+          : 'Sincronize os dados e imprima o relatório detalhado.';
   const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados'
     : menuAtivo === 'recebimentos' ? 'Títulos a Receber (Convênio)'
       : menuAtivo === 'curva-abc' ? 'Curva ABC e Lucratividade'
-        : 'Previsão de Pagamentos';
+        : menuAtivo === 'dashboard' ? 'Dashboard Executivo'
+          : 'Previsão de Pagamentos';
 
   const SidebarItem = ({ id, icone: Icon, texto }) => (
     <button onClick={() => { setMenuAtivo(id); setContasBrutas([]); setSelecionados([]); setClienteFiltro(''); setContaFiltro('TODAS'); setPaginaAtual(1); }}
@@ -866,7 +892,6 @@ function App() {
           <SidebarItem id="contas-pagar" icone={FileText} texto="Contas a Pagar (Previsão)" />
           <SidebarItem id="contas-pagas" icone={Database} texto="Contas Pagas (Realizado)" />
           <SidebarItem id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênio)" />
-          <SidebarItem id="vendas" icone={TrendingUp} texto="Análise de Vendas" />
           <SidebarItem id="curva-abc" icone={TrendingUp} texto="Curva ABC e Lucratividade" />
         </nav>
       </aside>
@@ -877,11 +902,7 @@ function App() {
         <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden"></div>
         <div className="absolute bottom-[-10%] right-[-5%] w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden"></div>
 
-        <header className="h-20 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between px-8 z-50 sticky top-0 print:hidden">
-          <div className="flex items-center bg-slate-800/50 border border-slate-700/50 rounded-full px-4 py-2 w-96">
-            <Search size={18} className="text-slate-400" />
-            <input type="text" placeholder="Buscar no sistema..." className="bg-transparent border-none outline-none text-sm ml-3 w-full text-slate-200" />
-          </div>
+        <header className="h-20 bg-slate-900/95 border-b border-slate-800 flex items-center justify-end px-8 z-50 sticky top-0 print:hidden">
           <div className="flex items-center gap-3 pl-6 border-l border-slate-800">
             <p className="text-sm font-medium text-slate-200 hidden md:block">Admin Financeiro</p>
             <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-600"><Users size={20} className="text-slate-300" /></div>
@@ -1383,9 +1404,94 @@ function App() {
           )}
 
           {/* ================================================================ */}
+          {/* TELA: DASHBOARD (VISÃO GERAL)                                    */}
+          {/* ================================================================ */}
+          {menuAtivo === 'dashboard' && !carregandoTela && dashboardData && (
+            <div className="animate-[fadeIn_0.5s_ease-out] space-y-8">
+              {(() => {
+                const totalPagar = dashboardData.pagar.reduce((acc, c) => acc + (c.saldo_devedor || 0), 0);
+                const totalPagas = dashboardData.pagas.reduce((acc, c) => acc + (c.valor_pago || 0), 0);
+                const totalReceber = dashboardData.receber.reduce((acc, c) => acc + (c.saldo_devedor || 0), 0);
+                
+                return (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="relative bg-slate-900/80 border border-slate-700/60 rounded-2xl p-6 overflow-hidden group hover:border-rose-500/40 transition-colors shadow-lg">
+                        <div className="absolute inset-0 bg-gradient-to-br from-rose-500/5 to-transparent pointer-events-none" />
+                        <div className="flex items-center justify-between mb-4">
+                           <p className="text-sm font-bold uppercase tracking-widest text-slate-400">Total a Pagar (Previsão)</p>
+                           <div className="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center"><ArrowDownToLine size={20} className="text-rose-400" /></div>
+                        </div>
+                        <p className="text-3xl font-black text-rose-400">R$ {totalPagar.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-xs text-slate-500 mt-2">No período selecionado</p>
+                      </div>
+
+                      <div className="relative bg-slate-900/80 border border-slate-700/60 rounded-2xl p-6 overflow-hidden group hover:border-emerald-500/40 transition-colors shadow-lg">
+                        <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none" />
+                        <div className="flex items-center justify-between mb-4">
+                           <p className="text-sm font-bold uppercase tracking-widest text-slate-400">Total Pago (Realizado)</p>
+                           <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center"><CheckCircle size={20} className="text-emerald-400" /></div>
+                        </div>
+                        <p className="text-3xl font-black text-emerald-400">R$ {totalPagas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-xs text-slate-500 mt-2">Contas liquidadas no período</p>
+                      </div>
+
+                      <div className="relative bg-slate-900/80 border border-slate-700/60 rounded-2xl p-6 overflow-hidden group hover:border-indigo-500/40 transition-colors shadow-lg">
+                        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent pointer-events-none" />
+                        <div className="flex items-center justify-between mb-4">
+                           <p className="text-sm font-bold uppercase tracking-widest text-slate-400">Total a Receber</p>
+                           <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center"><TrendingUp size={20} className="text-indigo-400" /></div>
+                        </div>
+                        <p className="text-3xl font-black text-indigo-400">R$ {totalReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-xs text-slate-500 mt-2">Em aberto (Convênios)</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+                       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg">
+                          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><FileText className="text-indigo-400" size={20} /> Próximos Vencimentos a Pagar</h3>
+                          <div className="space-y-4">
+                             {dashboardData.pagar.length === 0 ? (
+                                <p className="text-slate-500 text-sm">Nenhum título a pagar no período.</p>
+                             ) : dashboardData.pagar.slice(0, 5).map((conta, idx) => (
+                                <div key={idx} className="flex justify-between items-center bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
+                                   <div className="overflow-hidden">
+                                      <p className="text-slate-300 font-bold text-sm truncate max-w-[200px]" title={conta.nome_fornecedor}>{conta.nome_fornecedor}</p>
+                                      <p className="text-slate-500 text-xs">Venc: {conta.data_previsao_br}</p>
+                                   </div>
+                                   <p className="text-rose-400 font-bold whitespace-nowrap">R$ {conta.saldo_devedor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                                </div>
+                             ))}
+                          </div>
+                       </div>
+                       
+                       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-lg">
+                          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Database className="text-emerald-400" size={20} /> Últimos Pagamentos Realizados</h3>
+                          <div className="space-y-4">
+                             {dashboardData.pagas.length === 0 ? (
+                                <p className="text-slate-500 text-sm">Nenhum título pago no período.</p>
+                             ) : dashboardData.pagas.slice(0, 5).map((conta, idx) => (
+                                <div key={idx} className="flex justify-between items-center bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
+                                   <div className="overflow-hidden">
+                                      <p className="text-slate-300 font-bold text-sm truncate max-w-[200px]" title={conta.nome_fornecedor}>{conta.nome_fornecedor}</p>
+                                      <p className="text-slate-500 text-xs">Pago em: {conta.data_pagamento_br}</p>
+                                   </div>
+                                   <p className="text-emerald-400 font-bold whitespace-nowrap">R$ {conta.valor_pago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                                </div>
+                             ))}
+                          </div>
+                       </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* ================================================================ */}
           {/* TELAS GENÉRICAS (contas-pagar, contas-pagas, recebimentos…)      */}
           {/* ================================================================ */}
-          {menuAtivo !== 'curva-abc' && !carregandoTela && contasBrutas.length > 0 && (
+          {menuAtivo !== 'curva-abc' && menuAtivo !== 'dashboard' && !carregandoTela && contasBrutas.length > 0 && (
             <div className="animate-[fadeIn_0.5s_ease-out] print:!block">
 
               <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-10 gap-4 print:hidden">
