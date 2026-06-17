@@ -12,6 +12,7 @@ from api_auth import router as auth_router
 from api_invites import router as invites_router
 from api_settings import router as settings_router
 import models
+import concurrent.futures
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -1272,3 +1273,170 @@ def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = D
     return JSONResponse(
         content={"status": "success", "mensagem": "Recebimentos em lote registrados!"}
     )
+
+
+# ==============================================================================
+# DRE GERENCIAL (POR DATA DE EMISSAO)
+# ==============================================================================
+
+def _omie_fetch_pages_parallel(url, call_name, array_name, d_ini, d_fim):
+    app_key = current_org.get().omie_app_key
+    app_secret = current_org.get().omie_app_secret
+    
+    # First request to get total_paginas
+    payload = {
+        "call": call_name,
+        "app_key": app_key,
+        "app_secret": app_secret,
+        "param": [{
+            "pagina": 1,
+            "registros_por_pagina": 100,
+            "filtrar_por_emissao_de": d_ini,
+            "filtrar_por_emissao_ate": d_fim,
+        }]
+    }
+    try:
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=20)
+        if res.status_code != 200:
+            return []
+        data = res.json()
+    except Exception as e:
+        print(f"Erro na pagina 1 de {call_name}:", e)
+        return []
+
+    total_paginas = data.get("total_de_paginas", 1)
+    todas_contas = list(data.get(array_name, []))
+
+    if total_paginas <= 1:
+        return todas_contas
+
+    def fetch_page(pagina):
+        page_payload = {
+            "call": call_name,
+            "app_key": app_key,
+            "app_secret": app_secret,
+            "param": [{
+                "pagina": pagina,
+                "registros_por_pagina": 100,
+                "filtrar_por_emissao_de": d_ini,
+                "filtrar_por_emissao_ate": d_fim,
+            }]
+        }
+        try:
+            p_res = requests.post(url, json=page_payload, headers={"Content-Type": "application/json"}, timeout=20)
+            if p_res.status_code == 200:
+                return p_res.json().get(array_name, [])
+        except Exception as e:
+            print(f"Erro na pagina {pagina} de {call_name}:", e)
+        return []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(fetch_page, range(2, total_paginas + 1))
+        for res_list in results:
+            if res_list:
+                todas_contas.extend(res_list)
+                
+    return todas_contas
+
+def _omie_extrair_dre_pagar_emissao(data_ini_str, data_fim_str):
+    d_ini = f"{data_ini_str[8:10]}/{data_ini_str[5:7]}/{data_ini_str[0:4]}"
+    d_fim = f"{data_fim_str[8:10]}/{data_fim_str[5:7]}/{data_fim_str[0:4]}"
+    url = "https://app.omie.com.br/api/v1/financas/contapagar/"
+    return _omie_fetch_pages_parallel(url, "ListarContasPagar", "conta_pagar_cadastro", d_ini, d_fim)
+
+def _omie_extrair_dre_receber_emissao(data_ini_str, data_fim_str):
+    d_ini = f"{data_ini_str[8:10]}/{data_ini_str[5:7]}/{data_ini_str[0:4]}"
+    d_fim = f"{data_fim_str[8:10]}/{data_fim_str[5:7]}/{data_fim_str[0:4]}"
+    url = "https://app.omie.com.br/api/v1/financas/contareceber/"
+    return _omie_fetch_pages_parallel(url, "ListarContasReceber", "conta_receber_cadastro", d_ini, d_fim)
+
+def _extract_emissao(item):
+    d = item.get("data_emissao")
+    if d:
+        return f"{d[6:10]}-{d[3:5]}-{d[0:2]}"
+    return "1900-01-01"
+
+def extrair_dre_pagar(data_inicio, data_fim):
+    return obter_fatiado_db(
+        data_inicio,
+        data_fim,
+        "DRE Pagar",
+        "dre_pagar",
+        _omie_extrair_dre_pagar_emissao,
+        _extract_emissao
+    )
+
+def extrair_dre_receber(data_inicio, data_fim):
+    return obter_fatiado_db(
+        data_inicio,
+        data_fim,
+        "DRE Receber",
+        "dre_receber",
+        _omie_extrair_dre_receber_emissao,
+        _extract_emissao
+    )
+
+@app.get("/api/relatorios/dre/dados")
+def obter_dados_dre(data_inicio: str, data_fim: str, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
+    try:
+        dict_categorias = extrair_dicionario_categorias()
+        dict_cat_str = {str(k): v for k, v in dict_categorias.items()}
+        
+        pagar = extrair_dre_pagar(data_inicio, data_fim)
+        receber = extrair_dre_receber(data_inicio, data_fim)
+        
+        agrup_receitas = {}
+        agrup_despesas = {}
+        
+        total_receitas = 0.0
+        total_despesas = 0.0
+        
+        # Agrupar receitas
+        for p in receber:
+            categorias = p.get("categorias", [])
+            if not categorias:
+                cat = p.get("codigo_categoria")
+                if cat: categorias = [{"codigo_categoria": cat, "valor": p.get("valor_documento", 0)}]
+                
+            for cat in categorias:
+                c_cod = cat.get("codigo_categoria", "")
+                val = float(cat.get("valor", 0))
+                if c_cod not in agrup_receitas:
+                    desc = dict_cat_str.get(str(c_cod), c_cod)
+                    agrup_receitas[c_cod] = {"categoria": desc, "codigo": c_cod, "valor": 0.0}
+                agrup_receitas[c_cod]["valor"] += val
+                total_receitas += val
+
+        # Agrupar despesas
+        for p in pagar:
+            categorias = p.get("categorias", [])
+            if not categorias:
+                cat = p.get("codigo_categoria")
+                if cat: categorias = [{"codigo_categoria": cat, "valor": p.get("valor_documento", 0)}]
+                
+            for cat in categorias:
+                c_cod = cat.get("codigo_categoria", "")
+                val = float(cat.get("valor", 0))
+                if c_cod not in agrup_despesas:
+                    desc = dict_cat_str.get(str(c_cod), c_cod)
+                    agrup_despesas[c_cod] = {"categoria": desc, "codigo": c_cod, "valor": 0.0}
+                agrup_despesas[c_cod]["valor"] += val
+                total_despesas += val
+                
+        # Sort values
+        lista_receitas = sorted(list(agrup_receitas.values()), key=lambda x: x["valor"], reverse=True)
+        lista_despesas = sorted(list(agrup_despesas.values()), key=lambda x: x["valor"], reverse=True)
+        
+        return {
+            "receitas": lista_receitas,
+            "despesas": lista_despesas,
+            "totais": {
+                "receita": total_receitas,
+                "despesa": total_despesas,
+                "lucro": total_receitas - total_despesas
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

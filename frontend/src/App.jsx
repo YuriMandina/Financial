@@ -4,11 +4,12 @@ import {
   Settings as SettingsIcon, LayoutDashboard, FileText, TrendingUp, Users, Search, CalendarDays,
   Loader2, Database, Printer, Filter, CreditCard, CheckCircle,
   CheckSquare, Square, Calculator, Zap, ArrowDownToLine, ChevronLeft, ChevronRight,
-  Receipt, Copy, RotateCcw, X
+  Receipt, Copy, RotateCcw, X, Target
 } from 'lucide-react';
 import DateRangePicker from './DateRangePicker';
 import { AuthScreen } from './Auth';
 import { Settings } from './Settings';
+import { DreGerencial } from './DreGerencial';
 
 // --- FUNÇÕES GLOBAIS DE FORMATAÇÃO E CÁLCULO ---
 const converterDataBrParaDate = (dataStr) => {
@@ -978,17 +979,20 @@ function App() {
     : menuAtivo === 'recebimentos' ? 'Módulo de Convênios'
       : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
         : menuAtivo === 'dashboard' ? 'Visão Geral Financeira'
-          : 'Módulo de Contas a Pagar';
+          : menuAtivo === 'dre-gerencial' ? 'DRE Gerencial'
+            : 'Módulo de Contas a Pagar';
   const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.'
     : menuAtivo === 'recebimentos' ? 'Acompanhe faturas de convênios, edite pagamentos parciais e gere recibos.'
       : menuAtivo === 'curva-abc' ? 'Avalie o peso e a margem de cada produto na sua operação.'
         : menuAtivo === 'dashboard' ? 'Acompanhe os principais indicadores de saúde financeira do seu negócio.'
-          : 'Sincronize os dados e imprima o relatório detalhado.';
+          : menuAtivo === 'dre-gerencial' ? 'Demonstrativo de Resultado do Exercício por competência.'
+            : 'Sincronize os dados e imprima o relatório detalhado.';
   const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados'
     : menuAtivo === 'recebimentos' ? 'Títulos a Receber (Convênio)'
       : menuAtivo === 'curva-abc' ? 'Curva ABC e Lucratividade'
         : menuAtivo === 'dashboard' ? 'Dashboard Executivo'
-          : 'Previsão de Pagamentos';
+          : menuAtivo === 'dre-gerencial' ? 'DRE Gerencial'
+            : 'Previsão de Pagamentos';
 
   const SidebarItem = ({ id, icone: Icon, texto }) => (
     <button onClick={() => { setMenuAtivo(id); setContasBrutas([]); setSelecionados([]); setClienteFiltro(''); setContaFiltro('TODAS'); setPaginaAtual(1); }}
@@ -1023,6 +1027,7 @@ function App() {
           <SidebarItem id="contas-pagas" icone={Database} texto="Contas Pagas (Realizado)" />
           <SidebarItem id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênio)" />
           <SidebarItem id="curva-abc" icone={TrendingUp} texto="Curva ABC e Lucratividade" />
+          <SidebarItem id="dre-gerencial" icone={Target} texto="DRE Gerencial" />
         </nav>
       </aside>
 
@@ -1053,6 +1058,8 @@ function App() {
         
         {menuAtivo === 'configuracoes' ? (
           <Settings token={token} />
+        ) : menuAtivo === 'dre-gerencial' ? (
+          <DreGerencial token={token} />
         ) : (
           <>
           <div className="flex-1 p-8 z-10 print:!p-0 print:!m-0 print:!block print:!overflow-visible">
