@@ -4,3 +4,5 @@ pandas
 requests
 fpdf2
 python-dotenv
+sqlalchemy
+psycopg2-binary

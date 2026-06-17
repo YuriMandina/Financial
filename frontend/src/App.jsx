@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FileText, TrendingUp, Users, Search, CalendarDays,
   Loader2, Database, Printer, Filter, CreditCard, CheckCircle,
   CheckSquare, Square, Calculator, Zap, ArrowDownToLine, ChevronLeft, ChevronRight,
-  Receipt, Copy
+  Receipt, Copy, RotateCcw, X
 } from 'lucide-react';
 import DateRangePicker from './DateRangePicker';
 
@@ -268,6 +268,65 @@ function App() {
   // --- ESTADO EXCLUSIVO: DASHBOARD ---
   const [dashboardData, setDashboardData] = useState(null);
 
+  // --- ESTADOS: GERENCIAMENTO DE SNAPSHOTS ---
+  const [modalSnapshotsAberto, setModalSnapshotsAberto] = useState(false);
+  const [listaSnapshots, setListaSnapshots] = useState([]);
+  const [paginaSnapshots, setPaginaSnapshots] = useState(1);
+  const [registrosPorPaginaSnapshots, setRegistrosPorPaginaSnapshots] = useState(10);
+  const [modalDataInicial, setModalDataInicial] = useState('');
+  const [modalDataFinal, setModalDataFinal] = useState('');
+
+  const carregarSnapshots = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/snapshots');
+      const dados = await res.json();
+      setListaSnapshots(dados);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAbrirSnapshots = () => {
+    carregarSnapshots();
+    setPaginaSnapshots(1);
+    setModalSnapshotsAberto(true);
+  };
+
+  const handleDeletarSnapshot = async (id) => {
+    try {
+      await fetch(`http://localhost:8000/api/snapshots/${id}`, { method: 'DELETE' });
+      carregarSnapshots();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleResincronizarSnapshot = async (snap) => {
+    try {
+      await fetch(`http://localhost:8000/api/snapshots/${snap.id}`, { method: 'DELETE' });
+      
+      let url = "";
+      if (snap.tipo_relatorio === 'Contas Pagas') {
+        url = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+      } else if (snap.tipo_relatorio === 'Vendas PDV' || snap.tipo_relatorio.includes('CMC')) {
+        url = `http://localhost:8000/api/relatorios/curva-abc/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+      } else if (snap.tipo_relatorio.includes('Pagar')) {
+        url = `http://localhost:8000/api/relatorios/contas-a-pagar/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+      } else if (snap.tipo_relatorio.includes('Receber')) {
+        url = `http://localhost:8000/api/relatorios/recebimentos/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+      } else if (snap.tipo_relatorio.includes('Dicionário') || snap.tipo_relatorio.includes('Famílias')) {
+        url = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=2026-01-01&data_fim=2026-01-01`;
+      }
+      
+      if (url) {
+        await fetch(url);
+      }
+      carregarSnapshots();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // --- ESTADO EXCLUSIVO: CURVA ABC E LUCRATIVIDADE ---
   const [resumoCurvaAbc, setResumoCurvaAbc] = useState(null);
   const [familiasList, setFamiliasList] = useState([]);       // lista de famílias disponíveis
@@ -311,8 +370,7 @@ function App() {
   };
 
   const handleBuscarDados = async () => {
-    const precisaDatas = menuAtivo !== 'recebimentos';
-    if (precisaDatas && (!dataInicial || !dataFinal)) {
+    if (!dataInicial || !dataFinal) {
       alert("Por favor, selecione a Data Inicial e a Data Final.");
       return;
     }
@@ -327,7 +385,7 @@ function App() {
       if (menuAtivo === 'dashboard') {
         const urlPagar = `http://localhost:8000/api/relatorios/contas-a-pagar/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         const urlPagas = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
-        const urlRec = `http://localhost:8000/api/relatorios/recebimentos/dados`;
+        const urlRec = `http://localhost:8000/api/relatorios/recebimentos/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         
         const [resPagar, resPagas, resRec] = await Promise.all([
           fetch(urlPagar),
@@ -359,9 +417,7 @@ function App() {
         setContasBrutas(dados.itens || []);
       } else {
         const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' : menuAtivo === 'recebimentos' ? 'recebimentos' : 'contas-a-pagar';
-        const url = menuAtivo === 'recebimentos'
-          ? `http://localhost:8000/api/relatorios/recebimentos/dados`
-          : `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const url = `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
 
         const resposta = await fetch(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
@@ -848,6 +904,42 @@ function App() {
     return [...new Set(contasBrutas.map(c => c.conta_corrente))].sort();
   }, [contasBrutas, menuAtivo]);
 
+  const snapshotsFiltrados = useMemo(() => {
+    let filtrados = listaSnapshots.filter(snap => {
+      if (menuAtivo === 'dashboard') return true;
+      if (menuAtivo === 'contas-pagar') return snap.tipo_relatorio === 'Contas a Pagar (Abertas)' || snap.tipo_relatorio.includes('Dicionário de');
+      if (menuAtivo === 'contas-pagas') return snap.tipo_relatorio === 'Contas Pagas' || snap.tipo_relatorio.includes('Dicionário de');
+      if (menuAtivo === 'recebimentos') return snap.tipo_relatorio === 'Contas a Receber (Abertas)' || snap.tipo_relatorio.includes('Dicionário de');
+      if (menuAtivo === 'curva-abc') return snap.tipo_relatorio === 'Vendas PDV' || snap.tipo_relatorio.includes('CMC') || snap.tipo_relatorio.includes('Famílias');
+      return true;
+    });
+
+    if (modalDataInicial || modalDataFinal) {
+      filtrados = filtrados.filter(snap => {
+        if (snap.data_referencia === 'Global') return false; // Hide globals when filtering by date
+        if (modalDataInicial && snap.data_referencia < modalDataInicial) return false;
+        if (modalDataFinal && snap.data_referencia > modalDataFinal) return false;
+        return true;
+      });
+    }
+
+    filtrados.sort((a, b) => {
+      if (a.data_referencia === 'Global' && b.data_referencia !== 'Global') return 1;
+      if (b.data_referencia === 'Global' && a.data_referencia !== 'Global') return -1;
+      if (a.data_referencia > b.data_referencia) return -1;
+      if (a.data_referencia < b.data_referencia) return 1;
+      return b.id - a.id;
+    });
+
+    return filtrados;
+  }, [listaSnapshots, menuAtivo, modalDataInicial, modalDataFinal]);
+
+  const totalSnapshots = snapshotsFiltrados.length;
+  const totalPaginasSnapshots = Math.ceil(totalSnapshots / registrosPorPaginaSnapshots) || 1;
+  const indexInicioSnapshots = (paginaSnapshots - 1) * registrosPorPaginaSnapshots;
+  const indexFimSnapshots = indexInicioSnapshots + registrosPorPaginaSnapshots;
+  const snapshotsPaginados = snapshotsFiltrados.slice(indexInicioSnapshots, indexFimSnapshots);
+
   const tituloModulo = menuAtivo === 'contas-pagas' ? 'Módulo de Contas Pagas'
     : menuAtivo === 'recebimentos' ? 'Módulo de Convênios'
       : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
@@ -918,19 +1010,21 @@ function App() {
             </div>
 
             <div className="bg-slate-900/80 border border-white/[0.05] rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
-              {menuAtivo !== 'recebimentos' && (
-                <DateRangePicker
-                  startValue={dataInicial}
-                  endValue={dataFinal}
-                  onStartChange={setDataInicial}
-                  onEndChange={setDataFinal}
-                  disabled={carregandoTela}
-                />
-              )}
+              <DateRangePicker
+                startValue={dataInicial}
+                endValue={dataFinal}
+                onStartChange={setDataInicial}
+                onEndChange={setDataFinal}
+                disabled={carregandoTela}
+              />
 
               <button onClick={handleBuscarDados} disabled={carregandoTela} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold transition-all disabled:opacity-50">
                 {carregandoTela ? <Loader2 className="animate-spin" size={16} /> : <Database size={16} />}
                 SINCRONIZAR DADOS
+              </button>
+              <button onClick={handleAbrirSnapshots} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-lg font-bold transition-all">
+                <Database size={16} />
+                BASE DE DADOS
               </button>
             </div>
           </div>
@@ -947,7 +1041,7 @@ function App() {
             </div>
             <div className="text-right">
               <h2 className="text-lg font-bold text-slate-800 uppercase">{tituloRelatorio}</h2>
-              {menuAtivo !== 'recebimentos' && <p className="text-sm font-medium text-slate-600 mt-1">Período: {dataInicial.split('-').reverse().join('/')} a {dataFinal.split('-').reverse().join('/')}</p>}
+              <p className="text-sm font-medium text-slate-600 mt-1">Período: {dataInicial.split('-').reverse().join('/')} a {dataFinal.split('-').reverse().join('/')}</p>
             </div>
           </div>
 
@@ -2056,6 +2150,113 @@ function App() {
                 </button>
               </div>
 
+            </div>
+          </div>
+        )}
+        {/* MODAL SNAPSHOTS */}
+        {modalSnapshotsAberto && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+              <div className="p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:justify-between sm:items-center bg-slate-900 gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">Base de Dados Sincronizada</h2>
+                  <p className="text-sm text-slate-400 font-medium">Gerencie o histórico de dados já importados por dia</p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="bg-slate-800/50 border border-white/[0.05] rounded-xl p-1 shadow-sm">
+                    <DateRangePicker
+                      startValue={modalDataInicial}
+                      endValue={modalDataFinal}
+                      onStartChange={(val) => { setModalDataInicial(val); setPaginaSnapshots(1); }}
+                      onEndChange={(val) => { setModalDataFinal(val); setPaginaSnapshots(1); }}
+                    />
+                  </div>
+                  <button onClick={() => setModalSnapshotsAberto(false)} className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400">
+                    <X size={24} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 overflow-y-auto bg-slate-950 flex-1">
+                <div className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-800/50 border-b border-slate-800">
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">ID</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Relatório</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Data Ref.</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Sincronizado Em</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {snapshotsPaginados.map(snap => (
+                        <tr key={snap.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                          <td className="px-4 py-3 text-sm text-slate-400 font-medium">{snap.id}</td>
+                          <td className="px-4 py-3 text-sm text-slate-300 font-bold">{snap.tipo_relatorio}</td>
+                          <td className="px-4 py-3 text-sm text-indigo-400 font-bold">{snap.data_referencia}</td>
+                          <td className="px-4 py-3 text-sm text-slate-500">{snap.created_at}</td>
+                          <td className="px-4 py-3 text-sm text-right flex justify-end gap-2">
+                            <button onClick={() => handleDeletarSnapshot(snap.id)} className="bg-red-500/10 text-red-400 hover:bg-red-500/20 px-3 py-1.5 rounded font-bold text-xs transition-colors">Excluir</button>
+                            <button onClick={() => handleResincronizarSnapshot(snap)} className="bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 px-3 py-1.5 rounded font-bold text-xs transition-colors flex items-center gap-1">
+                              <RotateCcw size={14} /> Resincronizar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {snapshotsPaginados.length === 0 && (
+                        <tr>
+                          <td colSpan="5" className="px-4 py-8 text-center text-slate-400 font-medium">Nenhum dado sincronizado encontrado para este relatório.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {snapshotsFiltrados.length > 0 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 bg-slate-900 p-4 rounded-xl shadow-lg border border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-slate-400">Mostrar</span>
+                      <select 
+                        className="border border-slate-700 rounded p-1 text-sm text-slate-300 bg-slate-800 outline-none"
+                        value={registrosPorPaginaSnapshots}
+                        onChange={(e) => {
+                          setRegistrosPorPaginaSnapshots(Number(e.target.value));
+                          setPaginaSnapshots(1);
+                        }}
+                      >
+                        <option value={10}>10</option>
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                      <span className="text-sm text-slate-400">por página</span>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm font-medium text-slate-400">
+                        Página {paginaSnapshots} de {totalPaginasSnapshots}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setPaginaSnapshots(p => Math.max(1, p - 1))}
+                          disabled={paginaSnapshots === 1}
+                          className="p-1.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <ChevronLeft size={16} />
+                        </button>
+                        <button
+                          onClick={() => setPaginaSnapshots(p => Math.min(totalPaginasSnapshots, p + 1))}
+                          disabled={paginaSnapshots === totalPaginasSnapshots}
+                          className="p-1.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

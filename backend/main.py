@@ -25,22 +25,81 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- SISTEMA DE CACHE EM MEMÓRIA (60 SEGUNDOS) ---
-API_CACHE = {}
+from database import SessionLocal
+from models import SyncSnapshot
 
+def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global", **kwargs):
+    db = SessionLocal()
+    try:
+        snap = db.query(SyncSnapshot).filter(SyncSnapshot.cache_key == cache_key).first()
+        if snap:
+            return snap.dados
+        
+        dados = fetch_fn(*args, **kwargs)
+        if dados is not None:
+            novo_snap = SyncSnapshot(
+                cache_key=cache_key,
+                tipo_relatorio=tipo_relatorio,
+                data_referencia=data_ref,
+                dados=dados
+            )
+            db.add(novo_snap)
+            db.commit()
+        return dados
+    finally:
+        db.close()
 
-def get_from_cache(chave_cache):
-    if chave_cache in API_CACHE:
-        if datetime.now() < API_CACHE[chave_cache]["expira_em"]:
-            return API_CACHE[chave_cache]["dados"]
-    return None
-
-
-def set_to_cache(chave_cache, dados, tempo_segundos=65):
-    API_CACHE[chave_cache] = {
-        "dados": dados,
-        "expira_em": datetime.now() + timedelta(seconds=tempo_segundos),
-    }
+def obter_fatiado_db(data_inicio, data_fim, tipo_relatorio, cache_key_prefix, fetch_fn, extract_date_fn):
+    db = SessionLocal()
+    try:
+        dt_inicio = pd.to_datetime(data_inicio)
+        dt_fim = pd.to_datetime(data_fim)
+        todas_datas = pd.date_range(dt_inicio, dt_fim)
+        datas_str = [d.strftime("%Y-%m-%d") for d in todas_datas]
+        
+        chaves_buscadas = [f"{cache_key_prefix}_{d}" for d in datas_str]
+        
+        salvos = db.query(SyncSnapshot).filter(
+            SyncSnapshot.tipo_relatorio == tipo_relatorio,
+            SyncSnapshot.cache_key.in_(chaves_buscadas)
+        ).all()
+        
+        datas_salvas = {snap.data_referencia: snap.dados for snap in salvos}
+        datas_faltantes = [d for d in todas_datas if d.strftime("%Y-%m-%d") not in datas_salvas]
+        
+        todos_dados = []
+        for d in datas_salvas.values():
+            todos_dados.extend(d)
+            
+        if datas_faltantes:
+            min_f = min(datas_faltantes)
+            max_f = max(datas_faltantes)
+            
+            novos_dados = fetch_fn(min_f.strftime("%Y-%m-%d"), max_f.strftime("%Y-%m-%d"))
+            
+            dados_por_dia = {d.strftime("%Y-%m-%d"): [] for d in datas_faltantes}
+            
+            for item in novos_dados:
+                item_date = extract_date_fn(item)
+                if item_date in dados_por_dia:
+                    dados_por_dia[item_date].append(item)
+                    
+            for dia_str, itens in dados_por_dia.items():
+                cache_key = f"{cache_key_prefix}_{dia_str}"
+                snap = SyncSnapshot(
+                    cache_key=cache_key,
+                    tipo_relatorio=tipo_relatorio,
+                    data_referencia=dia_str,
+                    dados=itens
+                )
+                db.add(snap)
+                todos_dados.extend(itens)
+                
+            db.commit()
+            
+        return todos_dados
+    finally:
+        db.close()
 
 
 # --- MODELOS DE DADOS PARA AÇÃO ---
@@ -75,13 +134,8 @@ def safe_float(valor):
 
 
 # --- FUNÇÕES DE EXTRAÇÃO DA API OMIE ---
-def extrair_contas_pagar_abertas():
-    cache_key = "contas_pagar_abertas_geral"
-    dados_cacheados = get_from_cache(cache_key)
-
-    if dados_cacheados:
-        return dados_cacheados
-
+def _omie_extrair_contas_pagar_abertas(min_f_str=None, max_f_str=None):
+    # A Omie não tem filtro fácil de data para contas em aberto, então puxamos tudo
     url = "https://app.omie.com.br/api/v1/financas/contapagar/"
     pagina_atual, total_paginas = 1, 1
     todas_contas = []
@@ -116,17 +170,28 @@ def extrair_contas_pagar_abertas():
         pagina_atual += 1
         time.sleep(0.3)
 
-    set_to_cache(cache_key, todas_contas, tempo_segundos=120)
     return todas_contas
 
+def extrair_contas_pagar_abertas(data_inicio: str, data_fim: str):
+    def extract_date(item):
+        d = item.get("data_previsao")
+        if not d: return "1970-01-01"
+        try:
+            return pd.to_datetime(d, format="%d/%m/%Y").strftime("%Y-%m-%d")
+        except:
+            return "1970-01-01"
+            
+    return obter_fatiado_db(
+        data_inicio,
+        data_fim,
+        "Contas a Pagar (Abertas)",
+        "contas_pagar_abertas",
+        _omie_extrair_contas_pagar_abertas,
+        extract_date
+    )
 
-def extrair_contas_receber_abertas():
-    cache_key = "contas_receber_abertas_geral"
-    dados_cacheados = get_from_cache(cache_key)
 
-    if dados_cacheados:
-        return dados_cacheados
-
+def _omie_extrair_contas_receber_abertas(min_f_str=None, max_f_str=None):
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
     pagina_atual, total_paginas = 1, 1
     todas_contas = []
@@ -161,16 +226,28 @@ def extrair_contas_receber_abertas():
         pagina_atual += 1
         time.sleep(0.3)
 
-    set_to_cache(cache_key, todas_contas, tempo_segundos=120)
     return todas_contas
 
+def extrair_contas_receber_abertas(data_inicio: str, data_fim: str):
+    def extract_date(item):
+        d = item.get("data_previsao")
+        if not d: return "1970-01-01"
+        try:
+            return pd.to_datetime(d, format="%d/%m/%Y").strftime("%Y-%m-%d")
+        except:
+            return "1970-01-01"
+            
+    return obter_fatiado_db(
+        data_inicio,
+        data_fim,
+        "Contas a Receber (Abertas)",
+        "contas_receber_abertas",
+        _omie_extrair_contas_receber_abertas,
+        extract_date
+    )
 
-def extrair_dicionario_fornecedores():
-    cache_key = "dicionario_fornecedores"
-    dados_cacheados = get_from_cache(cache_key)
-    if dados_cacheados:
-        return dados_cacheados
 
+def _omie_extrair_dicionario_fornecedores():
     url = "https://app.omie.com.br/api/v1/geral/clientes/"
     pagina_atual, total_paginas = 1, 1
     dicionario = {}
@@ -198,16 +275,17 @@ def extrair_dicionario_fornecedores():
         pagina_atual += 1
         time.sleep(0.3)
 
-    set_to_cache(cache_key, dicionario)
     return dicionario
 
+def extrair_dicionario_fornecedores():
+    return obter_global_db(
+        "dicionario_fornecedores",
+        "Dicionário Fornecedores",
+        _omie_extrair_dicionario_fornecedores
+    )
 
-def extrair_dicionario_categorias():
-    cache_key = "dicionario_categorias"
-    dados_cacheados = get_from_cache(cache_key)
-    if dados_cacheados:
-        return dados_cacheados
 
+def _omie_extrair_dicionario_categorias():
     url = "https://app.omie.com.br/api/v1/geral/categorias/"
     pagina_atual, total_paginas = 1, 1
     dicionario = {}
@@ -233,16 +311,17 @@ def extrair_dicionario_categorias():
         pagina_atual += 1
         time.sleep(0.3)
 
-    set_to_cache(cache_key, dicionario)
     return dicionario
 
+def extrair_dicionario_categorias():
+    return obter_global_db(
+        "dicionario_categorias",
+        "Dicionário Categorias",
+        _omie_extrair_dicionario_categorias
+    )
 
-def extrair_dicionario_contas_correntes():
-    cache_key = "dicionario_contas_correntes"
-    dados_cacheados = get_from_cache(cache_key)
-    if dados_cacheados:
-        return dados_cacheados
 
+def _omie_extrair_dicionario_contas_correntes():
     url = "https://app.omie.com.br/api/v1/geral/contacorrente/"
     pagina_atual, total_paginas = 1, 1
     dicionario = {}
@@ -270,17 +349,17 @@ def extrair_dicionario_contas_correntes():
         pagina_atual += 1
         time.sleep(0.3)
 
-    set_to_cache(cache_key, dicionario)
     return dicionario
 
+def extrair_dicionario_contas_correntes():
+    return obter_global_db(
+        "dicionario_contas_correntes",
+        "Dicionário Contas Correntes",
+        _omie_extrair_dicionario_contas_correntes
+    )
 
-def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
-    cache_key = f"mov_pagos_{data_inicio}_{data_fim}"
-    dados_cacheados = get_from_cache(cache_key)
 
-    if dados_cacheados:
-        return dados_cacheados
-
+def _omie_extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
     url = "https://app.omie.com.br/api/v1/financas/mf/"
     dt_inicio_omie = pd.to_datetime(data_inicio).strftime("%d/%m/%Y")
     dt_fim_omie = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
@@ -319,8 +398,17 @@ def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
         pagina_atual += 1
         time.sleep(0.3)
 
-    set_to_cache(cache_key, todos_movimentos, tempo_segundos=120)
     return todos_movimentos
+
+def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
+    return obter_fatiado_db(
+        data_inicio,
+        data_fim,
+        "Contas Pagas",
+        "mov_pagos",
+        _omie_extrair_movimentos_pagos_periodo,
+        lambda mov: pd.to_datetime(mov.get("detalhes", {}).get("dDtPagamento", "01/01/1900"), format="%d/%m/%Y", errors="coerce").strftime("%Y-%m-%d")
+    )
 
 
 def extrair_movimento_vendas(data_inicio: str, data_fim: str):
@@ -348,11 +436,7 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
           cItemCancelado → "S" = item cancelado (ignorar)
           cItemDevolvido → "S" = devolvido (ignorar)
     """
-    cache_key = f"movimento_vendas_pdv_{data_inicio}_{data_fim}"
-    dados_cacheados = get_from_cache(cache_key)
-    if dados_cacheados:
-        return dados_cacheados
-
+def _omie_extrair_movimento_vendas(data_inicio: str, data_fim: str):
     url = "https://app.omie.com.br/api/v1/produtos/cupomfiscalconsultar/"
     dt_inicio_omie = pd.to_datetime(data_inicio).strftime("%d/%m/%Y")
     dt_fim_omie = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
@@ -392,14 +476,14 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
                 cab = cupom.get("cabecalhoCupom", {})
                 info_cupom = cupom.get("info", {})
 
-                # Ignora cupons cancelados ou devolvidos
                 if str(info_cupom.get("cCupomCancelado", "N")).upper() == "S":
                     continue
                 if str(info_cupom.get("cCupomDevolvido", "N")).upper() == "S":
                     continue
+                    
+                data_emissao = str(cab.get("dDtEmissao", cab.get("dDtEmissaoCupom", ""))).strip()
 
                 for item in cupom.get("itensCupom", []):
-                    # Ignora itens cancelados ou devolvidos
                     if str(item.get("cItemCancelado", "N")).upper() == "S":
                         continue
                     if str(item.get("cItemDevolvido", "N")).upper() == "S":
@@ -407,21 +491,20 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
 
                     descricao    = str(item.get("xProd", "Produto sem descrição")).strip()
                     quantidade   = safe_float(item.get("nQuant", 0))
-                    # vItem = valor líquido do item (já descontado/acrescido)
                     valor_item   = safe_float(item.get("vItem", 0))
-                    # vDesc = desconto concedido no item na NFC-e
                     desconto_item = safe_float(item.get("vDesc", 0))
                     cmc_total    = safe_float(item.get("nCMCTotal", 0))
 
                     if quantidade == 0 and valor_item == 0:
-                        continue  # linha vazia, ignora
+                        continue
 
                     todos_itens.append(
                         {
+                            "data_emissao":        data_emissao,
                             "descricao_produto":   descricao,
                             "quantidade":          quantidade,
                             "total_nf":            valor_item,
-                            "descontos_item":      desconto_item,   # vDesc da NFC-e
+                            "descontos_item":      desconto_item,
                             "cmc_total_movimento": cmc_total,
                         }
                     )
@@ -433,8 +516,17 @@ def extrair_movimento_vendas(data_inicio: str, data_fim: str):
         pagina_atual += 1
         time.sleep(0.3)
 
-    set_to_cache(cache_key, todos_itens, tempo_segundos=120)
     return todos_itens
+
+def extrair_movimento_vendas(data_inicio: str, data_fim: str):
+    return obter_fatiado_db(
+        data_inicio,
+        data_fim,
+        "Vendas PDV",
+        "movimento_vendas_pdv",
+        _omie_extrair_movimento_vendas,
+        lambda item: pd.to_datetime(item.get("data_emissao", "01/01/1900"), format="%d/%m/%Y", errors="coerce").strftime("%Y-%m-%d")
+    )
 
 
 def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
@@ -445,12 +537,7 @@ def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
       dict_cmc    = { descricao_normalizada_upper: cmc_unitario }
       dict_familia = { descricao_normalizada_upper: nome_familia }
     """
-    cache_key = f"cmc_familia_produtos_{data_fim}"
-    dados_cacheados = get_from_cache(cache_key)
-    if dados_cacheados:
-        return dados_cacheados
-
-    # --- 1. CMC via posição de estoque ---
+def _omie_extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
     url_estoque = "https://app.omie.com.br/api/v1/estoque/consulta/"
     dt_posicao = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
 
@@ -494,11 +581,9 @@ def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
                 chave = descricao.upper()
                 cmc = safe_float(prod.get("nCMC", 0))
 
-                # CMC: mantém o maior (evita sobrescrever com 0)
                 if chave not in dict_cmc or cmc > 0:
                     dict_cmc[chave] = cmc
 
-                # Família via posição de estoque (fallback)
                 familia = (
                     str(prod.get("cDescricaoFamilia", "") or "").strip()
                     or str(prod.get("xFamilia", "") or "").strip()
@@ -514,35 +599,26 @@ def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
         pagina_atual += 1
         time.sleep(0.3)
 
-    # --- 2. Família via cadastro de produtos (fonte primária) ---
     dict_familia_cadastro = extrair_familias_do_cadastro_produtos()
-
-    # Mescla: cadastro tem prioridade; fallback = estoque
     dict_familia = {**dict_familia_estoque, **dict_familia_cadastro}
+    
+    # SQLAlchemy JSONB não aceita tuplas como root, vamos converter para dict
+    return {"cmc": dict_cmc, "familia": dict_familia}
 
-    resultado = (dict_cmc, dict_familia)
-    set_to_cache(cache_key, resultado, tempo_segundos=120)
-    return resultado
+def extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
+    cache_key = f"cmc_familia_produtos_{data_fim}"
+    resultado = obter_global_db(
+        cache_key,
+        "Dicionário CMC (Estoque)",
+        _omie_extrair_dicionario_cmc_e_familia_produtos,
+        data_fim,
+        data_ref=data_fim
+    )
+    # Reverter para formato de tupla original (dit_cmc, dict_familia)
+    return (resultado["cmc"], resultado["familia"])
 
 
-def extrair_familias_do_cadastro_produtos():
-    """
-    Busca a família de cada produto diretamente do cadastro de produtos Omie.
-
-    Endpoint: /api/v1/geral/produtos/
-    Call: ListarProdutos
-    Campos relevantes:
-      - descricao         → nome do produto
-      - familia_produto   → descrição da família (campo direto)
-      - cDescricaoFamilia → alternativa (pode vir no objeto detalhado)
-    Retorna:
-      dict_familia = { descricao_normalizada_upper: nome_familia }
-    """
-    cache_key = "familias_cadastro_produtos"
-    dados_cacheados = get_from_cache(cache_key)
-    if dados_cacheados:
-        return dados_cacheados
-
+def _omie_extrair_familias_do_cadastro_produtos():
     url = "https://app.omie.com.br/api/v1/geral/produtos/"
     pagina_atual, total_paginas = 1, 1
     dict_familia = {}
@@ -576,7 +652,6 @@ def extrair_familias_do_cadastro_produtos():
             total_paginas = res.get("total_de_paginas", 1)
 
             for prod in res.get("produto_servico_cadastro", []):
-                # A descrição do produto pode estar em campos diferentes
                 descricao = (
                     str(prod.get("descricao", "") or "").strip()
                     or str(prod.get("descricao_complementar", "") or "").strip()
@@ -586,7 +661,6 @@ def extrair_familias_do_cadastro_produtos():
 
                 chave = descricao.upper()
 
-                # Campo confirmado via diagnóstico: "descricao_familia" é o campo correto
                 familia = (
                     str(prod.get("descricao_familia", "") or "").strip()
                     or str(prod.get("familia_produto", "") or "").strip()
@@ -604,11 +678,48 @@ def extrair_familias_do_cadastro_produtos():
         time.sleep(0.3)
 
     print(f"[OMIE] Famílias do cadastro: {len(dict_familia)} produtos com família mapeada")
-    set_to_cache(cache_key, dict_familia, tempo_segundos=300)
     return dict_familia
+
+def extrair_familias_do_cadastro_produtos():
+    return obter_global_db(
+        "familias_cadastro_produtos",
+        "Famílias de Produtos",
+        _omie_extrair_familias_do_cadastro_produtos
+    )
 
 
 # --- ENDPOINTS ---
+
+@app.get("/api/snapshots")
+def listar_snapshots():
+    db = SessionLocal()
+    try:
+        snaps = db.query(SyncSnapshot.id, SyncSnapshot.cache_key, SyncSnapshot.tipo_relatorio, SyncSnapshot.data_referencia, SyncSnapshot.created_at).all()
+        lista = []
+        for s in snaps:
+            lista.append({
+                "id": s.id,
+                "cache_key": s.cache_key,
+                "tipo_relatorio": s.tipo_relatorio,
+                "data_referencia": s.data_referencia,
+                "created_at": s.created_at.strftime("%d/%m/%Y %H:%M:%S")
+            })
+        return lista
+    finally:
+        db.close()
+
+@app.delete("/api/snapshots/{snap_id}")
+def deletar_snapshot(snap_id: int):
+    db = SessionLocal()
+    try:
+        snap = db.query(SyncSnapshot).filter(SyncSnapshot.id == snap_id).first()
+        if snap:
+            db.delete(snap)
+            db.commit()
+            return {"status": "ok", "mensagem": "Snapshot removido com sucesso"}
+        return JSONResponse(status_code=404, content={"detail": "Snapshot não encontrado"})
+    finally:
+        db.close()
 
 @app.get("/api/geral/bancos")
 def obter_bancos():
@@ -831,7 +942,7 @@ def obter_dados_tela(data_inicio: str, data_fim: str):
         dict_forn_str = {str(k): v for k, v in dict_fornecedores.items()}
         dict_cat_str = {str(k): v for k, v in dict_categorias.items()}
 
-        contas_brutas = extrair_contas_pagar_abertas()
+        contas_brutas = extrair_contas_pagar_abertas(data_inicio, data_fim)
         if not contas_brutas:
             return JSONResponse(content={"total": 0.0, "contas": []})
 
@@ -1007,7 +1118,7 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str):
 
 
 @app.get("/api/relatorios/recebimentos/dados")
-def obter_recebimentos_abertos():
+def obter_recebimentos_abertos(data_inicio: str, data_fim: str):
     try:
         dict_clientes = extrair_dicionario_fornecedores()
         dict_categorias = extrair_dicionario_categorias()
@@ -1016,7 +1127,7 @@ def obter_recebimentos_abertos():
         dict_cli_str = {str(k): v for k, v in dict_clientes.items()}
         dict_cat_str = {str(k): v for k, v in dict_categorias.items()}
 
-        contas_brutas = extrair_contas_receber_abertas()
+        contas_brutas = extrair_contas_receber_abertas(data_inicio, data_fim)
         if not contas_brutas:
             return JSONResponse(content={"total": 0.0, "contas": []})
 
