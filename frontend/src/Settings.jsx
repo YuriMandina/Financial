@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon } from 'lucide-react';
+import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff } from 'lucide-react';
 
 export const Settings = ({ token }) => {
   const [activeTab, setActiveTab] = useState('omie');
@@ -10,6 +10,8 @@ export const Settings = ({ token }) => {
   // Omie Keys
   const [appKey, setAppKey] = useState('');
   const [appSecret, setAppSecret] = useState('');
+  const [showAppKey, setShowAppKey] = useState(false);
+  const [showAppSecret, setShowAppSecret] = useState(false);
 
   // Invites
   const [inviteEmail, setInviteEmail] = useState('');
@@ -136,24 +138,42 @@ export const Settings = ({ token }) => {
 
               <div>
                 <label className="block text-sm font-bold text-slate-300 mb-2">APP_KEY</label>
-                <input 
-                  type="text" 
-                  value={appKey}
-                  onChange={e => setAppKey(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-colors font-medium"
-                  placeholder="Sua App Key"
-                />
+                <div className="relative">
+                  <input 
+                    type={showAppKey ? "text" : "password"} 
+                    value={appKey}
+                    onChange={e => setAppKey(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl pl-4 pr-12 py-3 outline-none focus:border-indigo-500 transition-colors font-medium"
+                    placeholder="Sua App Key"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAppKey(!showAppKey)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  >
+                    {showAppKey ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-bold text-slate-300 mb-2">APP_SECRET</label>
-                <input 
-                  type="text" 
-                  value={appSecret}
-                  onChange={e => setAppSecret(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-colors font-medium"
-                  placeholder="Seu App Secret"
-                />
+                <div className="relative">
+                  <input 
+                    type={showAppSecret ? "text" : "password"} 
+                    value={appSecret}
+                    onChange={e => setAppSecret(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl pl-4 pr-12 py-3 outline-none focus:border-indigo-500 transition-colors font-medium"
+                    placeholder="Seu App Secret"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAppSecret(!showAppSecret)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  >
+                    {showAppSecret ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
               </div>
 
               <button 
