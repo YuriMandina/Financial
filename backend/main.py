@@ -5,6 +5,14 @@ import traceback
 import pandas as pd
 from datetime import datetime, timedelta  # Para controlar o tempo do cache
 from dotenv import load_dotenv
+import contextvars
+from fastapi import Depends, HTTPException
+import auth
+from api_auth import router as auth_router
+from api_invites import router as invites_router
+from api_settings import router as settings_router
+import models
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -12,8 +20,6 @@ from pydantic import BaseModel
 
 # --- SETUP DA APLICAÇÃO ---
 load_dotenv()
-APP_KEY = os.getenv("OMIE_APP_KEY")
-APP_SECRET = os.getenv("OMIE_APP_SECRET")
 
 app = FastAPI(title="API GabaritoBI", version="5.0")
 
@@ -27,6 +33,13 @@ app.add_middleware(
 
 from database import SessionLocal
 from models import SyncSnapshot
+
+app.include_router(auth_router)
+app.include_router(invites_router)
+app.include_router(settings_router)
+
+current_org = contextvars.ContextVar("current_org")
+
 
 def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global", **kwargs):
     db = SessionLocal()
@@ -143,8 +156,8 @@ def _omie_extrair_contas_pagar_abertas(min_f_str=None, max_f_str=None):
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarContasPagar",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [
                 {
                     "pagina": pagina_atual,
@@ -199,8 +212,8 @@ def _omie_extrair_contas_receber_abertas(min_f_str=None, max_f_str=None):
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarContasReceber",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [
                 {
                     "pagina": pagina_atual,
@@ -254,8 +267,8 @@ def _omie_extrair_dicionario_fornecedores():
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarClientes",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [{"pagina": pagina_atual, "registros_por_pagina": 100}],
         }
         try:
@@ -292,8 +305,8 @@ def _omie_extrair_dicionario_categorias():
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarCategorias",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [{"pagina": pagina_atual, "registros_por_pagina": 100}],
         }
         try:
@@ -328,8 +341,8 @@ def _omie_extrair_dicionario_contas_correntes():
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarContasCorrentes",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [{"pagina": pagina_atual, "registros_por_pagina": 100}],
         }
         try:
@@ -369,8 +382,8 @@ def _omie_extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarMovimentos",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [
                 {
                     "nPagina": pagina_atual,
@@ -447,8 +460,8 @@ def _omie_extrair_movimento_vendas(data_inicio: str, data_fim: str):
     while pagina_atual <= total_paginas:
         payload = {
             "call": "CuponsFiscais",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [
                 {
                     "nPagina": pagina_atual,
@@ -548,8 +561,8 @@ def _omie_extrair_dicionario_cmc_e_familia_produtos(data_fim: str):
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarPosEstoque",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [
                 {
                     "nPagina": pagina_atual,
@@ -626,8 +639,8 @@ def _omie_extrair_familias_do_cadastro_produtos():
     while pagina_atual <= total_paginas:
         payload = {
             "call": "ListarProdutos",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [
                 {
                     "pagina": pagina_atual,
@@ -691,7 +704,7 @@ def extrair_familias_do_cadastro_produtos():
 # --- ENDPOINTS ---
 
 @app.get("/api/snapshots")
-def listar_snapshots():
+def listar_snapshots(current_user: models.User = Depends(auth.get_current_user)):
     db = SessionLocal()
     try:
         snaps = db.query(SyncSnapshot.id, SyncSnapshot.cache_key, SyncSnapshot.tipo_relatorio, SyncSnapshot.data_referencia, SyncSnapshot.created_at).all()
@@ -737,8 +750,8 @@ def debug_campos_produto():
     url = "https://app.omie.com.br/api/v1/geral/produtos/"
     payload = {
         "call": "ListarProdutos",
-        "app_key": APP_KEY,
-        "app_secret": APP_SECRET,
+        "app_key": current_org.get().omie_app_key,
+        "app_secret": current_org.get().omie_app_secret,
         "param": [{"pagina": 1, "registros_por_pagina": 3, "apenas_importado_api": "N", "filtrar_apenas_omiepdv": "N"}],
     }
     try:
@@ -1211,8 +1224,8 @@ def baixar_recebimento_lote(req: BaixaLoteRequest):
 
         payload = {
             "call": "LancarRecebimento",
-            "app_key": APP_KEY,
-            "app_secret": APP_SECRET,
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
             "param": [
                 {
                     "codigo_lancamento": pag.codigo_lancamento,

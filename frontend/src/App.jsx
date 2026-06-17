@@ -1,12 +1,14 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import html2canvas from 'html2canvas';
 import {
-  LayoutDashboard, FileText, TrendingUp, Users, Search, CalendarDays,
+  Settings as SettingsIcon, LayoutDashboard, FileText, TrendingUp, Users, Search, CalendarDays,
   Loader2, Database, Printer, Filter, CreditCard, CheckCircle,
   CheckSquare, Square, Calculator, Zap, ArrowDownToLine, ChevronLeft, ChevronRight,
   Receipt, Copy, RotateCcw, X
 } from 'lucide-react';
 import DateRangePicker from './DateRangePicker';
+import { AuthScreen } from './Auth';
+import { Settings } from './Settings';
 
 // --- FUNÇÕES GLOBAIS DE FORMATAÇÃO E CÁLCULO ---
 const converterDataBrParaDate = (dataStr) => {
@@ -223,6 +225,38 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
 
 // --- COMPONENTE PRINCIPAL ---
 function App() {
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [userName, setUserName] = useState('');
+
+  const fetchWithAuth = async (url, options = {}) => {
+    const defaultHeaders = { 'Authorization': `Bearer ${token}` };
+    if (options.headers) {
+      Object.assign(options.headers, defaultHeaders);
+    } else {
+      options.headers = defaultHeaders;
+    }
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+      setToken('');
+      localStorage.removeItem('token');
+      throw new Error('Sessão expirada');
+    }
+    return res;
+  };
+
+  useEffect(() => {
+    if (token) {
+      fetchWithAuth('http://localhost:8000/api/auth/me')
+        .then(res => res.json())
+        .then(data => {
+          if (data.name) setUserName(data.name);
+          else setUserName(data.email.split('@')[0]);
+        })
+        .catch(err => console.error(err));
+    }
+  }, [token]);
+
+
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
   const [carregandoTela, setCarregandoTela] = useState(false);
@@ -278,7 +312,7 @@ function App() {
 
   const carregarSnapshots = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/snapshots');
+      const res = await fetchWithAuth('http://localhost:8000/api/snapshots');
       const dados = await res.json();
       setListaSnapshots(dados);
     } catch (e) {
@@ -294,7 +328,7 @@ function App() {
 
   const handleDeletarSnapshot = async (id) => {
     try {
-      await fetch(`http://localhost:8000/api/snapshots/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`http://localhost:8000/api/snapshots/${id}`, { method: 'DELETE' });
       carregarSnapshots();
     } catch (e) {
       console.error(e);
@@ -303,7 +337,7 @@ function App() {
 
   const handleResincronizarSnapshot = async (snap) => {
     try {
-      await fetch(`http://localhost:8000/api/snapshots/${snap.id}`, { method: 'DELETE' });
+      await fetchWithAuth(`http://localhost:8000/api/snapshots/${snap.id}`, { method: 'DELETE' });
       
       let url = "";
       if (snap.tipo_relatorio === 'Contas Pagas') {
@@ -319,7 +353,7 @@ function App() {
       }
       
       if (url) {
-        await fetch(url);
+        await fetchWithAuth(url);
       }
       carregarSnapshots();
     } catch (e) {
@@ -388,9 +422,9 @@ function App() {
         const urlRec = `http://localhost:8000/api/relatorios/recebimentos/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         
         const [resPagar, resPagas, resRec] = await Promise.all([
-          fetch(urlPagar),
-          fetch(urlPagas),
-          fetch(urlRec)
+          fetchWithAuth(urlPagar),
+          fetchWithAuth(urlPagas),
+          fetchWithAuth(urlRec)
         ]);
         
         const dadosPagar = resPagar.ok ? await resPagar.json() : { contas: [] };
@@ -404,7 +438,7 @@ function App() {
         });
       } else if (menuAtivo === 'curva-abc') {
         const url = `http://localhost:8000/api/relatorios/curva-abc/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
-        const resposta = await fetch(url);
+        const resposta = await fetchWithAuth(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
         const dados = await resposta.json();
         // Armazena o resumo financeiro global no estado dedicado
@@ -419,13 +453,13 @@ function App() {
         const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' : menuAtivo === 'recebimentos' ? 'recebimentos' : 'contas-a-pagar';
         const url = `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
 
-        const resposta = await fetch(url);
+        const resposta = await fetchWithAuth(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
         const dados = await resposta.json();
         setContasBrutas(dados.contas || []);
 
         if (menuAtivo === 'recebimentos' && listaBancos.length === 0) {
-          fetch('http://localhost:8000/api/geral/bancos')
+          fetchWithAuth('http://localhost:8000/api/geral/bancos')
             .then(res => res.json())
             .then(data => setListaBancos(data))
             .catch(e => console.error(e));
@@ -745,7 +779,7 @@ function App() {
         }))
       };
 
-      const res = await fetch('http://localhost:8000/api/relatorios/recebimentos/baixar', {
+      const res = await fetchWithAuth('http://localhost:8000/api/relatorios/recebimentos/baixar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -966,7 +1000,11 @@ function App() {
   );
 
   return (
-    <div className="flex h-screen bg-slate-950 font-sans overflow-hidden print:!block print:bg-white print:text-slate-900 print:!h-auto print:!overflow-visible">
+    <>
+      {!token ? (
+        <AuthScreen onLogin={setToken} />
+      ) : (
+        <div className="flex h-screen bg-slate-950 font-sans overflow-hidden print:!block print:bg-white print:text-slate-900 print:!h-auto print:!overflow-visible">
 
       {/* SIDEBAR */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20 print:hidden">
@@ -995,13 +1033,30 @@ function App() {
         <div className="absolute bottom-[-10%] right-[-5%] w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden"></div>
 
         <header className="h-20 bg-slate-900/95 border-b border-slate-800 flex items-center justify-end px-8 z-50 sticky top-0 print:hidden">
-          <div className="flex items-center gap-3 pl-6 border-l border-slate-800">
-            <p className="text-sm font-medium text-slate-200 hidden md:block">Admin Financeiro</p>
-            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-600"><Users size={20} className="text-slate-300" /></div>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setMenuAtivo('configuracoes')}
+              className={`p-2 rounded-xl transition-all ${menuAtivo === 'configuracoes' ? 'bg-indigo-600/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+              title="Configurações"
+            >
+              <SettingsIcon size={20} />
+            </button>
+            <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-xl border border-slate-800 shadow-inner">
+              <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30">
+                <Users size={16} className="text-indigo-400" />
+              </div>
+              <p className="text-sm font-medium text-slate-200 hidden md:block">{userName || 'Carregando...'}</p>
+            </div>
           </div>
         </header>
 
-        <div className="flex-1 p-8 z-10 print:!p-0 print:!m-0 print:!block print:!overflow-visible">
+        
+        {menuAtivo === 'configuracoes' ? (
+          <Settings token={token} />
+        ) : (
+          <>
+          <div className="flex-1 p-8 z-10 print:!p-0 print:!m-0 print:!block print:!overflow-visible">
+
 
           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 mb-8 print:hidden">
             <div>
@@ -2260,9 +2315,14 @@ function App() {
             </div>
           </div>
         )}
+        </>
+        )}
       </main>
     </div>
+      )}
+    </>
   );
 }
 
 export default App;
+
