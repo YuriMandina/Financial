@@ -40,11 +40,18 @@ app.include_router(settings_router)
 
 current_org = contextvars.ContextVar("current_org")
 
+async def get_current_user_and_set_org(user: models.User = Depends(auth.get_current_user)):
+    if not user.organization:
+        raise HTTPException(status_code=400, detail="User has no organization")
+    current_org.set(user.organization)
+    return user
+
+
 
 def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global", **kwargs):
     db = SessionLocal()
     try:
-        snap = db.query(SyncSnapshot).filter(SyncSnapshot.cache_key == cache_key).first()
+        snap = db.query(SyncSnapshot).filter(SyncSnapshot.cache_key == cache_key, SyncSnapshot.organization_id == current_org.get().id).first()
         if snap:
             return snap.dados
         
@@ -54,7 +61,8 @@ def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global
                 cache_key=cache_key,
                 tipo_relatorio=tipo_relatorio,
                 data_referencia=data_ref,
-                dados=dados
+                dados=dados,
+                organization_id=current_org.get().id
             )
             db.add(novo_snap)
             db.commit()
@@ -103,7 +111,8 @@ def obter_fatiado_db(data_inicio, data_fim, tipo_relatorio, cache_key_prefix, fe
                     cache_key=cache_key,
                     tipo_relatorio=tipo_relatorio,
                     data_referencia=dia_str,
-                    dados=itens
+                    dados=itens,
+                    organization_id=current_org.get().id
                 )
                 db.add(snap)
                 todos_dados.extend(itens)
@@ -704,7 +713,7 @@ def extrair_familias_do_cadastro_produtos():
 # --- ENDPOINTS ---
 
 @app.get("/api/snapshots")
-def listar_snapshots(current_user: models.User = Depends(auth.get_current_user)):
+def listar_snapshots(current_user: models.User = Depends(get_current_user_and_set_org)):
     db = SessionLocal()
     try:
         snaps = db.query(SyncSnapshot.id, SyncSnapshot.cache_key, SyncSnapshot.tipo_relatorio, SyncSnapshot.data_referencia, SyncSnapshot.created_at).all()
@@ -722,7 +731,8 @@ def listar_snapshots(current_user: models.User = Depends(auth.get_current_user))
         db.close()
 
 @app.delete("/api/snapshots/{snap_id}")
-def deletar_snapshot(snap_id: int):
+def deletar_snapshot(snap_id: int, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
     db = SessionLocal()
     try:
         snap = db.query(SyncSnapshot).filter(SyncSnapshot.id == snap_id).first()
@@ -735,14 +745,16 @@ def deletar_snapshot(snap_id: int):
         db.close()
 
 @app.get("/api/geral/bancos")
-def obter_bancos():
+def obter_bancos(current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
     dict_contas = extrair_dicionario_contas_correntes()
     bancos = [{"id": k, "nome": v} for k, v in dict_contas.items()]
     return sorted(bancos, key=lambda x: x["nome"])
 
 
 @app.get("/api/debug/campos-produto")
-def debug_campos_produto():
+def debug_campos_produto(current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
     """
     Endpoint de diagnóstico: retorna os primeiros 3 produtos do cadastro Omie
     com TODOS os campos da API, para identificar o campo correto de família.
@@ -763,7 +775,8 @@ def debug_campos_produto():
 
 
 @app.get("/api/relatorios/curva-abc/dados")
-def obter_curva_abc(data_inicio: str, data_fim: str):
+def obter_curva_abc(data_inicio: str, data_fim: str, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
     """
     Retorna a Curva ABC de lucratividade agrupada por produto para o período.
 
@@ -947,7 +960,8 @@ def obter_curva_abc(data_inicio: str, data_fim: str):
 
 
 @app.get("/api/relatorios/contas-a-pagar/dados")
-def obter_dados_tela(data_inicio: str, data_fim: str):
+def obter_dados_tela(data_inicio: str, data_fim: str, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
     try:
         dict_fornecedores = extrair_dicionario_fornecedores()
         dict_categorias = extrair_dicionario_categorias()
@@ -1042,7 +1056,8 @@ def obter_dados_tela(data_inicio: str, data_fim: str):
 
 
 @app.get("/api/relatorios/contas-pagas/dados")
-def obter_dados_contas_pagas(data_inicio: str, data_fim: str):
+def obter_dados_contas_pagas(data_inicio: str, data_fim: str, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
     try:
         dict_fornecedores = extrair_dicionario_fornecedores()
         dict_categorias = extrair_dicionario_categorias()
@@ -1131,7 +1146,8 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str):
 
 
 @app.get("/api/relatorios/recebimentos/dados")
-def obter_recebimentos_abertos(data_inicio: str, data_fim: str):
+def obter_recebimentos_abertos(data_inicio: str, data_fim: str, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
     try:
         dict_clientes = extrair_dicionario_fornecedores()
         dict_categorias = extrair_dicionario_categorias()
@@ -1215,7 +1231,8 @@ def obter_recebimentos_abertos(data_inicio: str, data_fim: str):
 
 
 @app.post("/api/relatorios/recebimentos/baixar")
-def baixar_recebimento_lote(req: BaixaLoteRequest):
+def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
     erros = []
 
