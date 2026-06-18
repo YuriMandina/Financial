@@ -546,19 +546,26 @@ def _omie_extrair_movimento_vendas(data_inicio: str, data_fim: str):
 
             for cupom in res.get("cupons", []):
                 cab = cupom.get("cabecalhoCupom", {})
-                info_cupom = cupom.get("info", {})
+                info_cupom = cab.get("info", {})
 
-                if str(info_cupom.get("cCupomCancelado", "N")).upper() == "S":
+                is_cancelado = str(info_cupom.get("cCupomCancelado", "N")).strip().upper()
+                is_devolvido = str(info_cupom.get("cCupomDevolvido", "N")).strip().upper()
+                status_cab = str(cab.get("cStatus", "")).strip().upper()
+
+                if is_cancelado in ["S", "SIM", "1", "TRUE"] or status_cab == "C":
                     continue
-                if str(info_cupom.get("cCupomDevolvido", "N")).upper() == "S":
+                if is_devolvido in ["S", "SIM", "1", "TRUE"]:
                     continue
                     
                 data_emissao = str(cab.get("dDtEmissao", cab.get("dDtEmissaoCupom", ""))).strip()
 
                 for item in cupom.get("itensCupom", []):
-                    if str(item.get("cItemCancelado", "N")).upper() == "S":
+                    is_item_cancelado = str(item.get("cItemCancelado", "N")).strip().upper()
+                    is_item_devolvido = str(item.get("cItemDevolvido", "N")).strip().upper()
+
+                    if is_item_cancelado in ["S", "SIM", "1", "TRUE"]:
                         continue
-                    if str(item.get("cItemDevolvido", "N")).upper() == "S":
+                    if is_item_devolvido in ["S", "SIM", "1", "TRUE"]:
                         continue
 
                     descricao    = str(item.get("xProd", "Produto sem descrição")).strip()
