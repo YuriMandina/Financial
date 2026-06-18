@@ -49,13 +49,18 @@ async def get_current_user_and_set_org(user: models.User = Depends(auth.get_curr
 
 
 
-def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global", **kwargs):
+def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global", force_sync=False, return_metadata=False, **kwargs):
     db = SessionLocal()
     try:
         snap = db.query(SyncSnapshot).filter(SyncSnapshot.cache_key == cache_key, SyncSnapshot.organization_id == current_org.get().id).first()
-        if snap:
-            return snap.dados
         
+        if snap and not force_sync:
+            return (snap.dados, snap.created_at) if return_metadata else snap.dados
+            
+        if snap and force_sync:
+            db.delete(snap)
+            db.commit()
+            
         dados = fetch_fn(*args, **kwargs)
         if dados is not None:
             novo_snap = SyncSnapshot(
@@ -67,7 +72,9 @@ def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global
             )
             db.add(novo_snap)
             db.commit()
-        return dados
+            db.refresh(novo_snap)
+            return (dados, novo_snap.created_at) if return_metadata else dados
+        return (None, None) if return_metadata else None
     finally:
         db.close()
 
@@ -215,58 +222,100 @@ def extrair_contas_pagar_abertas(data_inicio: str, data_fim: str):
 
 
 def _omie_extrair_contas_receber_abertas(min_f_str=None, max_f_str=None):
+    import time
+    import random
+
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
-    pagina_atual, total_paginas = 1, 1
-    todas_contas = []
+    app_key = current_org.get().omie_app_key
+    app_secret = current_org.get().omie_app_secret
 
-    while pagina_atual <= total_paginas:
-        payload = {
+    def realizar_requisicao_com_retry(payload, max_retries=5):
+        for attempt in range(max_retries):
+            try:
+                res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+                
+                # Trata bloqueio severo da Omie (MISUSE_API_PROCESS)
+                if res.status_code == 425 and "MISUSE_API_PROCESS" in res.text:
+                    print(f"[Omie] HTTP 425 MISUSE_API_PROCESS recebido. Aguardando 305 segundos (5 min)...")
+                    if attempt < max_retries - 1:
+                        time.sleep(305)
+                        continue
+                    else:
+                        raise Exception("Falha após máximo de tentativas: Bloqueio 425 MISUSE_API_PROCESS persistente.")
+                
+                # Trata Rate Limit (429) ou instabilidades do lado do servidor (5xx)
+                if res.status_code == 429 or res.status_code >= 500:
+                    sleep_time = (2 ** attempt) + random.uniform(0, 1)
+                    print(f"[Omie] Rate Limit/Erro {res.status_code}. Tentativa {attempt+1}/{max_retries}. Esperando {sleep_time:.2f}s...")
+                    if attempt < max_retries - 1:
+                        time.sleep(sleep_time)
+                        continue
+                    else:
+                        raise Exception(f"Falha após {max_retries} tentativas. Status code: {res.status_code}.")
+                
+                # Qualquer outro erro cliente (4xx) que não seja Rate Limit/425 não deve ter retry cego
+                if res.status_code != 200:
+                    raise Exception(f"Erro HTTP {res.status_code} na Omie: {res.text}")
+                
+                json_data = res.json()
+                if "faultstring" in json_data:
+                    raise Exception(f"Erro da API Omie: {json_data['faultstring']}")
+                    
+                return json_data
+                
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                sleep_time = (2 ** attempt) + random.uniform(0, 1)
+                print(f"[Omie] Timeout/Falha de Conexão. Tentativa {attempt+1}/{max_retries}. Esperando {sleep_time:.2f}s...")
+                if attempt < max_retries - 1:
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    raise Exception(f"Falha de conexão persistente na Omie: {str(e)}")
+                    
+        raise Exception("Falha na requisição à Omie após máximo de tentativas permitidas.")
+
+    # Primeira página
+    payload_inicial = {
+        "call": "ListarContasReceber",
+        "app_key": app_key,
+        "app_secret": app_secret,
+        "param": [{"pagina": 1, "registros_por_pagina": 100, "filtrar_apenas_titulos_em_aberto": "S"}],
+    }
+    
+    # Lançará Exception (abortando a sincronização) caso falhe após todos os retries
+    data = realizar_requisicao_com_retry(payload_inicial)
+
+    total_paginas = data.get("total_de_paginas", 1)
+    todas_contas = list(data.get("conta_receber_cadastro", []))
+
+    if total_paginas <= 1:
+        return todas_contas
+
+    # Loop Sequencial Padrão para não engatilhar bloqueios (Max 3 req/seg da Omie)
+    for pagina in range(2, total_paginas + 1):
+        page_payload = {
             "call": "ListarContasReceber",
-            "app_key": current_org.get().omie_app_key,
-            "app_secret": current_org.get().omie_app_secret,
-            "param": [
-                {
-                    "pagina": pagina_atual,
-                    "registros_por_pagina": 100,
-                    "filtrar_apenas_titulos_em_aberto": "S",
-                }
-            ],
+            "app_key": app_key,
+            "app_secret": app_secret,
+            "param": [{"pagina": pagina, "registros_por_pagina": 100, "filtrar_apenas_titulos_em_aberto": "S"}],
         }
-        try:
-            res = requests.post(
-                url,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=15,
-            ).json()
-            if "faultstring" in res:
-                break
-            total_paginas = res.get("total_de_paginas", 1)
-            todas_contas.extend(res.get("conta_receber_cadastro", []))
-        except:
-            break
-
-        pagina_atual += 1
-        time.sleep(0.3)
+        
+        json_data = realizar_requisicao_com_retry(page_payload)
+        todas_contas.extend(json_data.get("conta_receber_cadastro", []))
+        
+        # Delay fixo
+        time.sleep(0.35)
 
     return todas_contas
 
-def extrair_contas_receber_abertas(data_inicio: str, data_fim: str):
-    def extract_date(item):
-        d = item.get("data_previsao")
-        if not d: return "1970-01-01"
-        try:
-            return pd.to_datetime(d, format="%d/%m/%Y").strftime("%Y-%m-%d")
-        except:
-            return "1970-01-01"
-            
-    return obter_fatiado_db(
-        data_inicio,
-        data_fim,
+
+def extrair_contas_receber_abertas(force_sync=False, return_metadata=False):
+    return obter_global_db(
+        "contas_receber_abertas_global",
         "Contas a Receber (Abertas)",
-        "contas_receber_abertas",
         _omie_extrair_contas_receber_abertas,
-        extract_date
+        force_sync=force_sync,
+        return_metadata=return_metadata
     )
 
 
@@ -1147,7 +1196,7 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str, current_user: mode
 
 
 @app.get("/api/relatorios/recebimentos/dados")
-def obter_recebimentos_abertos(data_inicio: str, data_fim: str, current_user: models.User = Depends(get_current_user_and_set_org)):
+def obter_recebimentos_abertos(data_inicio: str = None, data_fim: str = None, force_sync: bool = False, current_user: models.User = Depends(get_current_user_and_set_org)):
     current_org.set(current_user.organization)
     try:
         dict_clientes = extrair_dicionario_fornecedores()
@@ -1157,9 +1206,11 @@ def obter_recebimentos_abertos(data_inicio: str, data_fim: str, current_user: mo
         dict_cli_str = {str(k): v for k, v in dict_clientes.items()}
         dict_cat_str = {str(k): v for k, v in dict_categorias.items()}
 
-        contas_brutas = extrair_contas_receber_abertas(data_inicio, data_fim)
+        contas_brutas, ultima_sync = extrair_contas_receber_abertas(force_sync=force_sync, return_metadata=True)
+        ultima_sync_str = ultima_sync.strftime("%d/%m/%Y %H:%M:%S") if ultima_sync else None
+
         if not contas_brutas:
-            return JSONResponse(content={"total": 0.0, "contas": []})
+            return JSONResponse(content={"total": 0.0, "contas": [], "ultima_sincronizacao": ultima_sync_str})
 
         contas_lista = []
         total = 0.0
@@ -1225,7 +1276,7 @@ def obter_recebimentos_abertos(data_inicio: str, data_fim: str, current_user: mo
                 else pd.Timestamp.min
             ),
         )
-        return JSONResponse(content={"total": total, "contas": contas_lista})
+        return JSONResponse(content={"total": total, "contas": contas_lista, "ultima_sincronizacao": ultima_sync_str})
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"detail": str(e)})
@@ -1236,6 +1287,7 @@ def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = D
     current_org.set(current_user.organization)
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
     erros = []
+    baixas_sucesso = []
 
     for pag in req.pagamentos:
         time.sleep(0.3)
@@ -1264,6 +1316,11 @@ def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = D
                 erros.append(
                     f"Erro na nota {pag.codigo_lancamento}: {res['faultstring']}"
                 )
+            else:
+                baixas_sucesso.append({
+                    "codigo_lancamento": pag.codigo_lancamento,
+                    "codigo_baixa": res.get("codigo_baixa")
+                })
         except Exception as e:
             erros.append(f"Erro na comunicação: {str(e)}")
 
@@ -1271,8 +1328,127 @@ def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = D
         return JSONResponse(status_code=400, content={"detail": " | ".join(erros)})
 
     return JSONResponse(
-        content={"status": "success", "mensagem": "Recebimentos em lote registrados!"}
+        content={
+            "status": "success", 
+            "mensagem": "Recebimentos em lote registrados!",
+            "baixas": baixas_sucesso
+        }
     )
+
+class RecebimentoReciboCreate(BaseModel):
+    cliente: str
+    banco: str | None
+    data_pagamento: str
+    totalOriginal: float
+    totalDesconto: float
+    totalJuros: float
+    totalPago: float
+    notas: list
+
+@app.post("/api/recibos")
+def salvar_recibo(req: RecebimentoReciboCreate, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
+    db = SessionLocal()
+    try:
+        novo_recibo = models.PaymentReceipt(
+            cliente=req.cliente,
+            banco=req.banco,
+            data_pagamento=req.data_pagamento,
+            total_original=req.totalOriginal,
+            total_desconto=req.totalDesconto,
+            total_juros=req.totalJuros,
+            total_pago=req.totalPago,
+            notas=req.notas,
+            organization_id=current_org.get().id
+        )
+        db.add(novo_recibo)
+        db.commit()
+        db.refresh(novo_recibo)
+        return {"status": "success", "id": novo_recibo.id}
+    finally:
+        db.close()
+
+@app.get("/api/recibos")
+def listar_recibos(current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
+    db = SessionLocal()
+    try:
+        recibos = db.query(models.PaymentReceipt).filter(models.PaymentReceipt.organization_id == current_org.get().id).order_by(models.PaymentReceipt.id.desc()).all()
+        return [
+            {
+                "id": r.id,
+                "cliente": r.cliente,
+                "banco": r.banco,
+                "data_pagamento": r.data_pagamento,
+                "totalOriginal": r.total_original,
+                "totalDesconto": r.total_desconto,
+                "totalJuros": r.total_juros,
+                "totalPago": r.total_pago,
+                "notas": r.notas,
+                "created_at": r.created_at.strftime("%d/%m/%Y %H:%M:%S")
+            }
+            for r in recibos
+        ]
+    finally:
+        db.close()
+
+@app.delete("/api/recibos/{id}")
+def deletar_recibo(id: int, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
+    db = SessionLocal()
+    try:
+        recibo = db.query(models.PaymentReceipt).filter(models.PaymentReceipt.id == id, models.PaymentReceipt.organization_id == current_org.get().id).first()
+        if not recibo:
+            return JSONResponse(status_code=404, content={"detail": "Recibo não encontrado"})
+        db.delete(recibo)
+        db.commit()
+        return {"status": "success"}
+    finally:
+        db.close()
+
+@app.post("/api/recibos/{id}/desfazer")
+def desfazer_baixa(id: int, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
+    db = SessionLocal()
+    try:
+        recibo = db.query(models.PaymentReceipt).filter(models.PaymentReceipt.id == id, models.PaymentReceipt.organization_id == current_org.get().id).first()
+        if not recibo:
+            return JSONResponse(status_code=404, content={"detail": "Recibo não encontrado"})
+        
+        url = "https://app.omie.com.br/api/v1/financas/contareceber/"
+        erros = []
+        for nota in recibo.notas:
+            codigo_baixa = nota.get("codigo_baixa")
+            codigo_lancamento = nota.get("codigo_lancamento")
+            if not codigo_baixa:
+                continue
+                
+            payload = {
+                "call": "CancelarRecebimento",
+                "app_key": current_org.get().omie_app_key,
+                "app_secret": current_org.get().omie_app_secret,
+                "param": [
+                    {
+                        "codigo_baixa": codigo_baixa
+                    }
+                ]
+            }
+            try:
+                res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}).json()
+                if "faultstring" in res:
+                    erros.append(f"Erro na baixa {codigo_baixa}: {res['faultstring']}")
+            except Exception as e:
+                erros.append(f"Erro na comunicação: {str(e)}")
+            time.sleep(0.3)
+            
+        if erros:
+            return JSONResponse(status_code=400, content={"detail": " | ".join(erros)})
+            
+        db.delete(recibo)
+        db.commit()
+        return {"status": "success", "mensagem": "Baixas desfeitas com sucesso no Omie e histórico removido!"}
+    finally:
+        db.close()
 
 
 # ==============================================================================

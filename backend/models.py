@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
@@ -54,3 +54,19 @@ class SyncSnapshot(Base):
     __table_args__ = (
         UniqueConstraint('organization_id', 'cache_key', name='uq_org_cache_key'),
     )
+
+class PaymentReceipt(Base):
+    __tablename__ = "payment_receipts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cliente = Column(String, nullable=False)
+    banco = Column(String, nullable=True)
+    data_pagamento = Column(String, nullable=False)
+    total_original = Column(Float, nullable=False)
+    total_desconto = Column(Float, nullable=False)
+    total_juros = Column(Float, nullable=False)
+    total_pago = Column(Float, nullable=False)
+    notas = Column(JSONB, nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

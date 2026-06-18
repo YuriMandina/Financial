@@ -279,6 +279,14 @@ function App() {
   const [gerandoImagem, setGerandoImagem] = useState(false);
   const reciboCobrancaRef = useRef(null);
 
+  const reciboPagamentoRef = useRef(null);
+  const [modalHistoricoRecibosAberto, setModalHistoricoRecibosAberto] = useState(false);
+  const [historicoRecibos, setHistoricoRecibos] = useState([]);
+  const [filtroHistoricoCliente, setFiltroHistoricoCliente] = useState('');
+  const [filtroHistoricoData, setFiltroHistoricoData] = useState('');
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false);
+  const [ultimaSincronizacaoRecebimentos, setUltimaSincronizacaoRecebimentos] = useState(null);
+
   const getHojeBR = () => {
     const d = new Date();
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -310,6 +318,14 @@ function App() {
   const [registrosPorPaginaSnapshots, setRegistrosPorPaginaSnapshots] = useState(10);
   const [modalDataInicial, setModalDataInicial] = useState('');
   const [modalDataFinal, setModalDataFinal] = useState('');
+
+  useEffect(() => {
+    if (menuAtivo === 'recebimentos') {
+      handleBuscarDados(false);
+    }
+  }, [menuAtivo]);
+
+  const [dropClienteAberto, setDropClienteAberto] = useState(false);
 
   const carregarSnapshots = async () => {
     try {
@@ -404,8 +420,8 @@ function App() {
       })).sort((a, b) => b.total - a.total);
   };
 
-  const handleBuscarDados = async () => {
-    if (!dataInicial || !dataFinal) {
+  const handleBuscarDados = async (isForceSync = false) => {
+    if ((!dataInicial || !dataFinal) && menuAtivo !== 'recebimentos') {
       alert("Por favor, selecione a Data Inicial e a Data Final.");
       return;
     }
@@ -420,7 +436,7 @@ function App() {
       if (menuAtivo === 'dashboard') {
         const urlPagar = `http://localhost:8000/api/relatorios/contas-a-pagar/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         const urlPagas = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
-        const urlRec = `http://localhost:8000/api/relatorios/recebimentos/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const urlRec = `http://localhost:8000/api/relatorios/recebimentos/dados`;
         
         const [resPagar, resPagas, resRec] = await Promise.all([
           fetchWithAuth(urlPagar),
@@ -452,12 +468,18 @@ function App() {
         setContasBrutas(dados.itens || []);
       } else {
         const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' : menuAtivo === 'recebimentos' ? 'recebimentos' : 'contas-a-pagar';
-        const url = `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const isForce = isForceSync === true;
+        const url = menuAtivo === 'recebimentos' 
+          ? `http://localhost:8000/api/relatorios/recebimentos/dados?force_sync=${isForce}`
+          : `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
 
         const resposta = await fetchWithAuth(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
         const dados = await resposta.json();
         setContasBrutas(dados.contas || []);
+        if (menuAtivo === 'recebimentos') {
+          setUltimaSincronizacaoRecebimentos(dados.ultima_sincronizacao || null);
+        }
 
         if (menuAtivo === 'recebimentos' && listaBancos.length === 0) {
           fetchWithAuth('http://localhost:8000/api/geral/bancos')
@@ -532,8 +554,21 @@ function App() {
   const copiarImagemCobranca = async () => {
     if (!reciboCobrancaRef.current) return;
     setGerandoImagem(true);
+    
+    const element = reciboCobrancaRef.current;
+    const modal = element.closest('.overflow-y-auto');
+    const originalScroll = modal ? modal.scrollTop : 0;
+    if (modal) modal.scrollTop = 0;
+
     try {
-      const canvas = await html2canvas(reciboCobrancaRef.current, { backgroundColor: '#0f172a', scale: 2 });
+      const canvas = await html2canvas(element, { 
+        backgroundColor: '#0f172a', 
+        scale: 4,
+        useCORS: true
+      });
+      
+      if (modal) modal.scrollTop = originalScroll;
+
       canvas.toBlob(async (blob) => {
         try {
           const item = new ClipboardItem({ 'image/png': blob });
@@ -547,9 +582,86 @@ function App() {
         }
       }, 'image/png');
     } catch (err) {
+      if (modal) modal.scrollTop = originalScroll;
       alert('Erro interno ao tentar gerar a imagem.');
       console.error(err);
       setGerandoImagem(false);
+    }
+  };
+
+  const copiarImagemRecibo = async () => {
+    if (!reciboPagamentoRef.current) return;
+    setGerandoImagem(true);
+    
+    const element = reciboPagamentoRef.current;
+    const modal = element.closest('.overflow-y-auto');
+    const originalScroll = modal ? modal.scrollTop : 0;
+    if (modal) modal.scrollTop = 0;
+
+    // Workaround: Elevar a assinatura especificamente para o html2canvas
+    const assinaturaEl = element.querySelector('#assinatura-modal');
+    const originalMarginBottom = assinaturaEl ? assinaturaEl.style.marginBottom : '';
+    if (assinaturaEl) assinaturaEl.style.marginBottom = '24px';
+
+    try {
+      const canvas = await html2canvas(element, { 
+        backgroundColor: '#ffffff', 
+        scale: 4,
+        useCORS: true
+      });
+      
+      if (assinaturaEl) assinaturaEl.style.marginBottom = originalMarginBottom;
+      if (modal) modal.scrollTop = originalScroll;
+
+      canvas.toBlob(async (blob) => {
+        try {
+          const item = new ClipboardItem({ 'image/png': blob });
+          await navigator.clipboard.write([item]);
+          alert('Recibo copiado com sucesso! Abra o WhatsApp do cliente e aperte Ctrl+V para colar.');
+        } catch (err) {
+          alert('Ocorreu um erro ao copiar. Seu navegador pode não suportar a cópia direta de imagens.');
+          console.error(err);
+        } finally {
+          setGerandoImagem(false);
+        }
+      }, 'image/png');
+    } catch (err) {
+      if (assinaturaEl) assinaturaEl.style.marginBottom = originalMarginBottom;
+      if (modal) modal.scrollTop = originalScroll;
+      alert('Erro interno ao tentar gerar a imagem.');
+      console.error(err);
+      setGerandoImagem(false);
+    }
+  };
+
+  const handleCarregarHistoricoRecibos = async () => {
+    setCarregandoHistorico(true);
+    try {
+      const res = await fetchWithAuth('http://localhost:8000/api/recibos');
+      if (res.ok) {
+        const data = await res.json();
+        setHistoricoRecibos(data);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar historico", e);
+    } finally {
+      setCarregandoHistorico(false);
+    }
+  };
+
+  const handleDesfazerBaixa = async (recibo) => {
+    if (!window.confirm(`Deseja realmente desfazer as baixas do recibo #${recibo.id} na Omie? Isso não pode ser revertido e o recibo será excluído do histórico.`)) return;
+    try {
+      const res = await fetchWithAuth(`http://localhost:8000/api/recibos/${recibo.id}/desfazer`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Falha ao desfazer a baixa.");
+      alert("Baixa desfeita com sucesso na Omie!");
+      handleCarregarHistoricoRecibos();
+      handleBuscarDados(); // Refresh current page
+    } catch (e) {
+      alert("Erro: " + e.message);
     }
   };
 
@@ -603,8 +715,16 @@ function App() {
 
   const imprimirRecibo = () => {
     if (!reciboGerado) return;
-    const linhas = reciboGerado.notas.map(n => `
+    
+    const notasOrdenadas = [...reciboGerado.notas].sort((a, b) => {
+      const dataA = converterDataBrParaDate(a.contaOriginal.data_emissao).getTime();
+      const dataB = converterDataBrParaDate(b.contaOriginal.data_emissao).getTime();
+      return dataB - dataA;
+    });
+
+    const linhas = notasOrdenadas.map(n => `
       <tr>
+        <td style="padding:6px 10px;border:1px solid #e2e8f0;">${n.contaOriginal.data_emissao || '-'}</td>
         <td style="padding:6px 10px;border:1px solid #e2e8f0;">${n.contaOriginal.numero_documento_fiscal} - ${n.contaOriginal.numero_parcela}</td>
         <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">R$ ${n.contaOriginal.saldo_devedor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
         <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">${n.desconto > 0 ? `<span style="color:#ef4444;">-R$ ${n.desconto.toLocaleString('pt-BR')}</span>` : ''
@@ -612,6 +732,7 @@ function App() {
         <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:bold;color:#059669;">R$ ${n.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
       </tr>`).join('');
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Recibo de Pagamento</title>
+      <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
       <style>
         @page { size: A4 portrait; margin: 15mm 20mm; }
         body { font-family: Arial, sans-serif; color: #1e293b; background: #fff; margin: 0; }
@@ -645,12 +766,13 @@ function App() {
       <div class="row"><span class="label">Descontos / Juros:</span><span class="value">-R$ ${reciboGerado.totalDesconto.toLocaleString('pt-BR')} / +R$ ${reciboGerado.totalJuros.toLocaleString('pt-BR')}</span></div>
       <p class="section-title">Composição das Notas Recebidas</p>
       <table>
-        <thead><tr><th>Nota / Parcela</th><th style="text-align:right">Original</th><th style="text-align:right">Desc/Juros</th><th style="text-align:right">Pago</th></tr></thead>
+        <thead><tr><th>Emissão</th><th>Nota / Parcela</th><th style="text-align:right">Original</th><th style="text-align:right">Desc/Juros</th><th style="text-align:right">Pago</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table>
       <div class="assinatura">
-        <p>Assinatura do Recebedor / Responsável</p>
+        <div style="font-family: 'Great Vibes', cursive; font-size: 44px; color: #1e293b; margin-bottom: 4px;">${userName}</div>
         <div class="linha"></div>
+        <p style="margin-top: 8px;">Assinatura do Recebedor / Responsável</p>
       </div>
     </body></html>`;
     const janela = window.open('', '_blank', 'width=800,height=900');
@@ -792,7 +914,15 @@ function App() {
       const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
       const totais = calcularTotaisModal();
 
-      setReciboGerado({
+      const pagamentosComBaixa = pagamentosTratados.map(p => {
+        const baixaEncontrada = data.baixas?.find(b => b.codigo_lancamento === p.codigo_lancamento);
+        return {
+           ...p,
+           codigo_baixa: baixaEncontrada ? baixaEncontrada.codigo_baixa : null
+        };
+      });
+
+      const novoRecibo = {
         cliente: modalBaixa.cliente,
         banco: bancoSelecionado,
         data_pagamento: `${dia}/${mes}/${ano}`,
@@ -800,8 +930,20 @@ function App() {
         totalDesconto: totais.totalDesconto,
         totalJuros: totais.totalJuros,
         totalPago: totais.totalPago,
-        notas: pagamentosTratados
-      });
+        notas: pagamentosComBaixa
+      };
+
+      try {
+        await fetchWithAuth('http://localhost:8000/api/recibos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(novoRecibo)
+        });
+      } catch (err) {
+        console.error("Erro ao salvar recibo:", err);
+      }
+
+      setReciboGerado(novoRecibo);
 
       setModalBaixa({ aberto: false, cliente: '', contas: [] });
       handleBuscarDados();
@@ -1072,22 +1214,39 @@ function App() {
             </div>
 
             <div className="bg-slate-900/80 border border-white/[0.05] rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
-              <DateRangePicker
-                startValue={dataInicial}
-                endValue={dataFinal}
-                onStartChange={setDataInicial}
-                onEndChange={setDataFinal}
-                disabled={carregandoTela}
-              />
+              {menuAtivo !== 'recebimentos' && (
+                <DateRangePicker
+                  startValue={dataInicial}
+                  endValue={dataFinal}
+                  onStartChange={setDataInicial}
+                  onEndChange={setDataFinal}
+                  disabled={carregandoTela}
+                />
+              )}
 
-              <button onClick={handleBuscarDados} disabled={carregandoTela} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold transition-all disabled:opacity-50">
+              <button onClick={() => handleBuscarDados(menuAtivo === 'recebimentos')} disabled={carregandoTela} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold transition-all disabled:opacity-50">
                 {carregandoTela ? <Loader2 className="animate-spin" size={16} /> : <Database size={16} />}
                 SINCRONIZAR DADOS
               </button>
-              <button onClick={handleAbrirSnapshots} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-lg font-bold transition-all">
-                <Database size={16} />
-                BASE DE DADOS
-              </button>
+              {menuAtivo !== 'recebimentos' ? (
+                <button onClick={handleAbrirSnapshots} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-lg font-bold transition-all">
+                  <Database size={16} />
+                  BASE DE DADOS
+                </button>
+              ) : (
+                ultimaSincronizacaoRecebimentos && (
+                  <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-300 font-medium text-sm">
+                    <Database size={16} className="text-slate-500" />
+                    Última sincronização: {ultimaSincronizacaoRecebimentos}
+                  </div>
+                )
+              )}
+              {menuAtivo === 'recebimentos' && (
+                <button onClick={() => { handleCarregarHistoricoRecibos(); setModalHistoricoRecibosAberto(true); }} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-lg font-bold transition-all">
+                  <Receipt size={16} />
+                  HISTÓRICO DE RECIBOS
+                </button>
+              )}
             </div>
           </div>
 
@@ -1103,7 +1262,9 @@ function App() {
             </div>
             <div className="text-right">
               <h2 className="text-lg font-bold text-slate-800 uppercase">{tituloRelatorio}</h2>
-              <p className="text-sm font-medium text-slate-600 mt-1">Período: {dataInicial.split('-').reverse().join('/')} a {dataFinal.split('-').reverse().join('/')}</p>
+              {menuAtivo !== 'recebimentos' && (
+                <p className="text-sm font-medium text-slate-600 mt-1">Período: {dataInicial.split('-').reverse().join('/')} a {dataFinal.split('-').reverse().join('/')}</p>
+              )}
             </div>
           </div>
 
@@ -2053,8 +2214,9 @@ function App() {
         {/* MODAL 2: RECIBO DE PAGAMENTO (TELA DE SUCESSO) */}
         {reciboGerado && (
           <div className="fixed inset-0 z-[100] bg-slate-900/90 flex items-center justify-center p-4 print:p-0 print:bg-white print:block overflow-y-auto">
-            <div className="bg-white text-slate-900 p-10 rounded-2xl max-w-2xl w-full shadow-2xl print:shadow-none print:w-full print:max-w-none relative my-8 print:my-0">
-
+            <div className="flex flex-col items-center max-w-2xl w-full my-8 print:my-0 print:w-full print:max-w-none">
+            <div className="bg-white text-slate-900 rounded-2xl w-full shadow-2xl print:shadow-none print:w-full print:max-w-none relative print:my-0 overflow-hidden">
+              <div ref={reciboPagamentoRef} className="bg-white p-10 print:p-0">
               <div className="text-center mb-8 border-b-2 border-slate-200 pb-6">
                 <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 print:hidden">
                   <CheckCircle size={32} className="text-emerald-600" />
@@ -2095,16 +2257,22 @@ function App() {
                 <table className="w-full text-xs text-left">
                   <thead className="bg-slate-100 text-slate-600">
                     <tr>
-                      <th className="py-2 px-3 rounded-l-lg">Nota/Parc</th>
+                      <th className="py-2 px-3 rounded-l-lg">Emissão</th>
+                      <th className="py-2 px-3">Nota/Parc</th>
                       <th className="py-2 px-3 text-right">Original</th>
                       <th className="py-2 px-3 text-right">Desc/Juros</th>
                       <th className="py-2 px-3 text-right rounded-r-lg font-bold">Pago</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {reciboGerado.notas.map(n => (
+                    {[...reciboGerado.notas].sort((a,b) => {
+                      const dataA = converterDataBrParaDate(a.contaOriginal?.data_emissao || '').getTime();
+                      const dataB = converterDataBrParaDate(b.contaOriginal?.data_emissao || '').getTime();
+                      return dataB - dataA;
+                    }).map(n => (
                       <tr key={n.codigo_lancamento} className="border-b border-slate-100">
-                        <td className="py-2 px-3">{n.contaOriginal.numero_documento_fiscal} - {n.contaOriginal.numero_parcela}</td>
+                        <td className="py-2 px-3">{n.contaOriginal?.data_emissao || '-'}</td>
+                        <td className="py-2 px-3">{n.contaOriginal?.numero_documento_fiscal} - {n.contaOriginal?.numero_parcela}</td>
                         <td className="py-2 px-3 text-right">R$ {n.contaOriginal.saldo_devedor.toLocaleString('pt-BR')}</td>
                         <td className="py-2 px-3 text-right text-slate-500">
                           {n.desconto > 0 && <span className="text-red-500">-R${n.desconto.toLocaleString('pt-BR')}</span>}
@@ -2118,17 +2286,24 @@ function App() {
                 </table>
               </div>
 
-              <div className="text-center pt-8 border-t border-slate-200">
-                <p className="text-slate-400 text-sm mb-12">Assinatura do Recebedor / Responsável</p>
-                <div className="w-72 h-[1px] bg-slate-800 mx-auto"></div>
+              <div className="text-center pt-8 border-t border-slate-200 mt-8">
+                <div id="assinatura-modal" style={{ fontFamily: "'Great Vibes', cursive" }} className="text-5xl text-slate-800 mb-2 relative z-10">{userName}</div>
+                <div className="w-72 h-[1px] bg-slate-800 mx-auto relative z-0"></div>
+                <p className="text-slate-400 text-sm mt-2">Assinatura do Recebedor / Responsável</p>
+              </div>
               </div>
 
-              <div className="flex gap-4 mt-12 print:hidden">
+              <div className="flex gap-4 mt-2 px-10 pb-10 print:hidden w-full">
                 <button onClick={() => setReciboGerado(null)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-3 rounded-xl transition">Fechar</button>
+                <button onClick={copiarImagemRecibo} disabled={gerandoImagem} className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900 disabled:text-indigo-400 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2">
+                  {gerandoImagem ? <Loader2 size={18} className="animate-spin" /> : <Copy size={18} />}
+                  {gerandoImagem ? 'Gerando...' : 'Copiar Imagem'}
+                </button>
                 <button onClick={imprimirRecibo} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2">
                   <Printer size={18} /> Imprimir Recibo
                 </button>
               </div>
+            </div>
             </div>
           </div>
         )}
@@ -2215,6 +2390,88 @@ function App() {
             </div>
           </div>
         )}
+        {/* MODAL HISTORICO DE RECIBOS */}
+        {modalHistoricoRecibosAberto && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+              <div className="p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:justify-between sm:items-center bg-slate-900 gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">Histórico de Recibos</h2>
+                  <p className="text-sm text-slate-400 font-medium">Consulte, imprima ou desfaça recebimentos anteriores</p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex bg-slate-800/50 border border-white/[0.05] rounded-xl p-1 shadow-sm gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Cliente..." 
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none w-32 md:w-48"
+                      value={filtroHistoricoCliente}
+                      onChange={(e) => setFiltroHistoricoCliente(e.target.value)}
+                    />
+                    <input 
+                      type="date" 
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none [color-scheme:dark]"
+                      value={filtroHistoricoData}
+                      onChange={(e) => setFiltroHistoricoData(e.target.value)}
+                    />
+                  </div>
+                  <button onClick={() => setModalHistoricoRecibosAberto(false)} className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400">
+                    <X size={24} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 overflow-y-auto bg-slate-950 flex-1">
+                <div className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-800/50 border-b border-slate-800">
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">ID</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Cliente</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Data Pgto</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Valor Total</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {carregandoHistorico ? (
+                        <tr><td colSpan="5" className="text-center py-8 text-slate-400"><Loader2 className="animate-spin mx-auto" /></td></tr>
+                      ) : (
+                        historicoRecibos.filter(r => {
+                          const matchCli = r.cliente.toLowerCase().includes(filtroHistoricoCliente.toLowerCase());
+                          const dataFiltroBr = filtroHistoricoData ? filtroHistoricoData.split('-').reverse().join('/') : '';
+                          const matchData = dataFiltroBr ? r.data_pagamento === dataFiltroBr : true;
+                          return matchCli && matchData;
+                        }).map(rec => (
+                          <tr key={rec.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                            <td className="px-4 py-3 text-sm text-slate-400 font-medium">#{rec.id}</td>
+                            <td className="px-4 py-3 text-sm text-slate-300 font-bold">{rec.cliente}</td>
+                            <td className="px-4 py-3 text-sm text-slate-400">{rec.data_pagamento}</td>
+                            <td className="px-4 py-3 text-sm text-emerald-400 font-bold">R$ {rec.totalPago.toLocaleString('pt-BR', {minimumFractionDigits:2})}</td>
+                            <td className="px-4 py-3 text-sm text-right flex justify-end gap-2">
+                              <button onClick={() => handleDesfazerBaixa(rec)} className="bg-red-500/10 text-red-400 hover:bg-red-500/20 px-3 py-1.5 rounded font-bold text-xs transition-colors flex items-center gap-1">
+                                <RotateCcw size={14} /> Desfazer
+                              </button>
+                              <button onClick={() => { setReciboGerado(rec); setModalHistoricoRecibosAberto(false); }} className="bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 px-3 py-1.5 rounded font-bold text-xs transition-colors flex items-center gap-1">
+                                <Printer size={14} /> Abrir Recibo
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                      {!carregandoHistorico && historicoRecibos.length === 0 && (
+                        <tr>
+                          <td colSpan="5" className="px-4 py-8 text-center text-slate-400 font-medium">Nenhum recibo salvo.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* MODAL SNAPSHOTS */}
         {modalSnapshotsAberto && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
