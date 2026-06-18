@@ -4,7 +4,7 @@ import {
   Settings as SettingsIcon, LayoutDashboard, FileText, TrendingUp, Users, Search, CalendarDays,
   Loader2, Database, Printer, Filter, CreditCard, CheckCircle,
   CheckSquare, Square, Calculator, Zap, ArrowDownToLine, ChevronLeft, ChevronRight,
-  Receipt, Copy, RotateCcw, X, Target
+  Receipt, Copy, RotateCcw, X, Target, LogOut
 } from 'lucide-react';
 import DateRangePicker from './DateRangePicker';
 import { AuthScreen } from './Auth';
@@ -244,6 +244,12 @@ function App() {
       throw new Error('Sessão expirada');
     }
     return res;
+  };
+
+  const handleLogout = () => {
+    setToken('');
+    localStorage.removeItem('token');
+    window.location.href = '/';
   };
 
   useEffect(() => {
@@ -1193,6 +1199,13 @@ function App() {
               title="Configurações"
             >
               <SettingsIcon size={20} />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-xl text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
+              title="Sair da Conta"
+            >
+              <LogOut size={20} />
             </button>
             <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-xl border border-slate-800 shadow-inner">
               <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30">
