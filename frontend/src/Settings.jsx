@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck } from 'lucide-react';
 
 export const Settings = ({ token }) => {
   const [activeTab, setActiveTab] = useState('omie');
@@ -89,6 +89,48 @@ export const Settings = ({ token }) => {
       if (!res.ok) throw new Error(data.detail || 'Erro ao enviar convite');
       setSuccess('Convite enviado com sucesso para ' + inviteEmail);
       setInviteEmail('');
+      loadSettings();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelInvite = async (inviteId) => {
+    if (!window.confirm("Tem certeza que deseja cancelar este convite?")) return;
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch(`http://localhost:8000/api/invites/${inviteId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Erro ao cancelar convite');
+      setSuccess('Convite cancelado.');
+      loadSettings();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleStatus = async (userId) => {
+    if (!window.confirm("Tem certeza que deseja alterar o status deste membro?")) return;
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch(`http://localhost:8000/api/invites/users/${userId}/toggle-status`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Erro ao alterar status');
+      setSuccess(data.message);
       loadSettings();
     } catch (err) {
       setError(err.message);
@@ -216,12 +258,26 @@ export const Settings = ({ token }) => {
                 <h3 className="text-lg font-bold text-slate-300 mb-4">Membros Ativos ({members.length})</h3>
                 <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
                   {members.map(m => (
-                    <div key={m.id} className="p-4 border-b border-slate-800 flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center"><Users size={16} className="text-slate-400"/></div>
-                      <div>
-                        <p className="text-white font-bold text-sm">{m.email}</p>
-                        <p className="text-slate-500 text-xs">Membro desde {new Date(m.joined_at).toLocaleDateString('pt-BR')}</p>
+                    <div key={m.id} className="p-4 border-b border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${m.is_active ? 'bg-slate-800' : 'bg-red-500/20'}`}>
+                          <Users size={16} className={m.is_active ? "text-slate-400" : "text-red-400"}/>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-white font-bold text-sm">{m.email}</p>
+                            {!m.is_active && <span className="text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded font-bold uppercase">Inativo</span>}
+                          </div>
+                          <p className="text-slate-500 text-xs">Membro desde {new Date(m.joined_at).toLocaleDateString('pt-BR')}</p>
+                        </div>
                       </div>
+                      <button 
+                        onClick={() => handleToggleStatus(m.id)}
+                        disabled={loading}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors disabled:opacity-50 ${m.is_active ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'}`}
+                      >
+                        {m.is_active ? <><UserX size={14}/> Bloquear</> : <><UserCheck size={14}/> Ativar</>}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -237,7 +293,17 @@ export const Settings = ({ token }) => {
                           <p className="text-white font-bold text-sm">{i.email}</p>
                           <p className="text-slate-500 text-xs">Enviado em {new Date(i.created_at).toLocaleDateString('pt-BR')}</p>
                         </div>
-                        <span className="text-xs font-bold text-amber-500 bg-amber-500/10 px-2 py-1 rounded">Pendente</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-bold text-amber-500 bg-amber-500/10 px-2 py-1 rounded">Pendente</span>
+                          <button 
+                            onClick={() => handleCancelInvite(i.id)}
+                            disabled={loading}
+                            className="bg-red-500/10 text-red-400 hover:bg-red-500/20 p-1.5 rounded-lg transition-colors"
+                            title="Cancelar Convite"
+                          >
+                            <X size={16}/>
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

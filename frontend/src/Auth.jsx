@@ -10,14 +10,20 @@ export const AuthScreen = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [inviteToken, setInviteToken] = useState('');
+  const [isEmailLocked, setIsEmailLocked] = useState(false);
 
   useEffect(() => {
     // Check if there is an invite token in the URL
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
+    const emailParam = params.get('email');
     if (token) {
       setInviteToken(token);
       setIsLogin(false); // Default to register if they clicked an invite
+    }
+    if (emailParam) {
+      setEmail(emailParam);
+      setIsEmailLocked(true);
     }
   }, []);
 
@@ -35,6 +41,10 @@ export const AuthScreen = ({ onLogin }) => {
     try {
       const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
       const payload = isLogin ? { email, password } : { name, email, password, password_confirm: confirmPassword };
+      if (!isLogin && inviteToken) {
+        payload.invite_token = inviteToken;
+      }
+      
       const res = await fetch(`http://localhost:8000${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,9 +80,15 @@ export const AuthScreen = ({ onLogin }) => {
         
         onLogin(data.access_token);
       } else {
-        // Registered successfully, switch to login or login automatically
-        setIsLogin(true);
-        setError('Conta criada com sucesso! Faça login.');
+        // Se tinha convite, a conta foi criada e ativada.
+        if (inviteToken) {
+          setIsLogin(true);
+          setError('🌟 Conta ativada com sucesso! Sua conta foi vinculada à organização. Faça login para acessar o painel.');
+        } else {
+          // Se não, precisa confirmar e-mail
+          setIsLogin(true);
+          setError('✉️ Conta pré-criada com sucesso! Enviamos um link de ativação para o seu e-mail. Por favor, verifique sua caixa de entrada ou spam para liberar seu acesso.');
+        }
       }
     } catch (err) {
       setError(err.message);
@@ -124,15 +140,19 @@ export const AuthScreen = ({ onLogin }) => {
           <div>
             <label className="block text-sm font-bold text-slate-300 mb-2">E-mail</label>
             <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <Mail className={`absolute left-4 top-1/2 -translate-y-1/2 ${isEmailLocked ? 'text-indigo-500/50' : 'text-slate-500'}`} size={18} />
               <input 
                 type="email" 
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
-                className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl pl-12 pr-4 py-3 outline-none focus:border-indigo-500 transition-colors font-medium"
+                disabled={isEmailLocked}
+                className={`w-full border text-white rounded-xl pl-12 pr-10 py-3 outline-none focus:border-indigo-500 transition-colors font-medium ${isEmailLocked ? 'bg-indigo-950/20 border-indigo-500/30 text-indigo-300 cursor-not-allowed shadow-[0_0_15px_rgba(99,102,241,0.1)_inset]' : 'bg-slate-950 border-slate-800'}`}
                 placeholder="seu@email.com"
               />
+              {isEmailLocked && (
+                <Lock className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-500/50" size={16} title="O e-mail foi trancado pelo convite" />
+              )}
             </div>
           </div>
           

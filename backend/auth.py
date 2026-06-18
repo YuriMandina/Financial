@@ -48,4 +48,10 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(models.User).filter(models.User.id == int(user_id)).first()
     if user is None:
         raise credentials_exception
+    if not getattr(user, 'is_active', True):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Esta conta foi inativada pelo administrador.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user

@@ -38,8 +38,8 @@ def create_invite(invite: InviteCreate, db: Session = Depends(get_db), current_u
         db.commit()
 
     # Link for frontend (assuming frontend runs on localhost:5173 for dev, we can pass it dynamically later, but hardcoding for now or using generic link)
-    # The frontend needs to handle this token, perhaps /register?token=XYZ
-    link = f"http://localhost:5173/accept-invite?token={token}"
+    # The frontend needs to handle this token, perhaps /register?token=XYZ&email=abc
+    link = f"http://localhost:5173/accept-invite?token={token}&email={invite.email}"
     
     sucesso = mailer.enviar_email_convite(invite.email, link, current_user.email)
     if not sucesso:
@@ -53,9 +53,30 @@ def list_invites(db: Session = Depends(get_db), current_user: models.User = Depe
     users = db.query(models.User).filter(models.User.organization_id == current_user.organization_id).all()
     
     return {
-        "members": [{"id": u.id, "email": u.email, "joined_at": u.created_at} for u in users],
+        "members": [{"id": u.id, "email": u.email, "joined_at": u.created_at, "is_active": u.is_active} for u in users],
         "pending_invites": [{"id": i.id, "email": i.email, "status": i.status, "created_at": i.created_at} for i in invites if i.status == "PENDING"]
     }
+
+@router.delete("/{invite_id}")
+def cancel_invite(invite_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    invite = db.query(models.Invitation).filter(models.Invitation.id == invite_id, models.Invitation.organization_id == current_user.organization_id).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Convite não encontrado.")
+    db.delete(invite)
+    db.commit()
+    return {"message": "Convite cancelado."}
+
+@router.put("/users/{user_id}/toggle-status")
+def toggle_user_status(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Você não pode inativar a si mesmo.")
+    user = db.query(models.User).filter(models.User.id == user_id, models.User.organization_id == current_user.organization_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado na sua organização.")
+    
+    user.is_active = not user.is_active
+    db.commit()
+    return {"message": f"Usuário {'ativado' if user.is_active else 'inativado'} com sucesso.", "is_active": user.is_active}
 
 @router.post("/accept")
 def accept_invite(payload: InviteAccept, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import DateRangePicker from './DateRangePicker';
 import { AuthScreen } from './Auth';
+import { VerifyEmail } from './VerifyEmail';
 import { Settings } from './Settings';
 import { DreGerencial } from './DreGerencial';
 
@@ -1145,9 +1146,14 @@ function App() {
     </button>
   );
 
+  // Roteamento manual básico
+  const path = window.location.pathname;
+
   return (
     <>
-      {!token ? (
+      {path === '/verify-email' ? (
+        <VerifyEmail onVerified={setToken} />
+      ) : !token ? (
         <AuthScreen onLogin={setToken} />
       ) : (
         <div className="flex h-screen bg-slate-950 font-sans overflow-hidden print:!block print:bg-white print:text-slate-900 print:!h-auto print:!overflow-visible">
