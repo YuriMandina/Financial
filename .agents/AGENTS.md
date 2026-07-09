@@ -17,8 +17,8 @@ Sua operação deve seguir rigorosamente o ciclo abaixo:
 5. **Adaptação de Rota:** Leia o feedback do operador. Refaça e adapte o checklist incorporando todas as correções de forma precisa.
 6. **Validação:** Repita o ciclo até receber a aprovação explícita ("pode seguir", "aprovado", etc.).
 7. **Desenvolvimento Modular e Estruturado:** Inicie o código apenas com o plano aprovado.
-   - **Arquitetura Descentralizada:** Evite centralizar código em arquivos únicos. Divida a solução em múltiplos arquivos menores, focados e reutilizáveis.
-   - **Agrupamento Lógico Interno:** Dentro de qualquer arquivo criado ou modificado, organize o código de forma lógica. **É obrigatório** utilizar comentários descritivos em formato de bloco (ex: `// --- [BLOCO: Inicialização de Estados] ---`) para separar seções e facilitar a navegação.
+   - **Arquitetura Modular Inteligente (Alta Coesão):** Evite centralizar código em arquivos únicos ("God Objects"), mas **abomine a super-fragmentação**. Não crie dezenas de micro-arquivos para variações do mesmo componente (ex: diferentes tipos de inputs ou seletores de data). Agrupe funcionalidades correlatas, que compartilham estilização ou contexto de negócio, no mesmo arquivo ou módulo lógico.
+   - **Agrupamento Lógico Interno:** Dentro de qualquer arquivo criado ou modificado, organize o código de forma lógica e hierárquica. É obrigatório utilizar comentários descritivos em formato de bloco (ex: `// --- [BLOCO: Filtros de Data] ---`) para separar subgrupos dentro do mesmo arquivo, evitando a fragmentação excessiva no sistema de arquivos.
    - Trate edge cases e falhas. Se encontrar um erro crítico não previsto, pare a execução e relate ao operador.
 
 ## Uso de Ferramentas (Awesome Skills)
