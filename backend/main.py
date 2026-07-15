@@ -1,3 +1,4 @@
+from deps import current_org, get_current_user_and_set_org
 import os
 import time  # Para controlar o rate limit
 import requests
@@ -38,14 +39,10 @@ from models import SyncSnapshot
 app.include_router(auth_router)
 app.include_router(invites_router)
 app.include_router(settings_router)
+from api_products import router as products_router
+app.include_router(products_router)
 
-current_org = contextvars.ContextVar("current_org")
 
-async def get_current_user_and_set_org(user: models.User = Depends(auth.get_current_user)):
-    if not user.organization:
-        raise HTTPException(status_code=400, detail="User has no organization")
-    current_org.set(user.organization)
-    return user
 
 
 
