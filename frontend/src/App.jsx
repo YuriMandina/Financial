@@ -11,7 +11,6 @@ import { AuthScreen } from './Auth';
 import { VerifyEmail } from './VerifyEmail';
 import { Settings } from './Settings';
 import { DreGerencial } from './DreGerencial';
-import { CusteioConjunto } from './CusteioConjunto';
 
 
 // --- FUNÇÕES GLOBAIS DE FORMATAÇÃO E CÁLCULO ---
@@ -1184,7 +1183,6 @@ function App() {
           <SidebarItem id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênio)" />
           <SidebarItem id="curva-abc" icone={TrendingUp} texto="Curva ABC e Lucratividade" />
           <SidebarItem id="dre-gerencial" icone={Target} texto="DRE Gerencial" />
-          <SidebarItem id="custeio-conjunto" icone={Calculator} texto="Custeio Conjunto" />
         </nav>
       </aside>
 
@@ -1224,8 +1222,6 @@ function App() {
           <Settings token={token} />
         ) : menuAtivo === 'dre-gerencial' ? (
           <DreGerencial token={token} />
-        ) : menuAtivo === 'custeio-conjunto' ? (
-          <CusteioConjunto token={token} />
         ) : (
           <>
           <div className="flex-1 p-8 z-10 print:!p-0 print:!m-0 print:!block print:!overflow-visible">

@@ -71,17 +71,4 @@ class PaymentReceipt(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-class CmcUpdateHistory(Base):
-    __tablename__ = "cmc_update_history"
 
-    id = Column(Integer, primary_key=True, index=True)
-    produto_id = Column(Integer, index=True, nullable=False)
-    codigo_produto = Column(String, nullable=True)
-    descricao = Column(String, nullable=False)
-    custo_antigo = Column(Float, nullable=False)
-    custo_novo = Column(Float, nullable=False)
-    quantidade_utilizada = Column(Float, nullable=True)
-    valor_mercado_unitario = Column(Float, nullable=True)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
-    status = Column(String, default="PENDING") 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
