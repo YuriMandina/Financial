@@ -326,13 +326,23 @@ function TemplatesTab({ token }) {
               </div>
             ))}
           </div>
-          <div className="flex justify-between items-center border-t border-slate-700 pt-4 mt-6">
-             <button onClick={addItem} className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"><Plus size={18}/> Adicionar Corte</button>
-             <div className="text-right">
-                <p className="text-sm text-slate-400">Total Alocado</p>
-                <p className={`text-xl font-bold ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
-                   {newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0).toFixed(2)}%
-                </p>
+          <div className="flex justify-between items-end border-t border-slate-700 pt-4 mt-6">
+             <button onClick={addItem} className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mb-2"><Plus size={18}/> Adicionar Corte</button>
+             <div className="flex gap-4 text-left">
+                <div className={`bg-slate-900/80 border rounded-lg p-3 flex flex-col justify-center relative overflow-hidden w-36 ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'border-red-500/30' : 'border-emerald-500/30'}`}>
+                  <div className={`absolute top-0 right-0 w-16 h-16 blur-xl rounded-full translate-x-1/2 -translate-y-1/2 ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}></div>
+                  <p className="text-xs text-slate-400 font-medium z-10">Total Alocado</p>
+                  <p className={`text-xl font-mono font-bold z-10 truncate ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+                     {newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0).toFixed(2)}%
+                  </p>
+                </div>
+                <div className="bg-slate-900/80 border border-red-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden w-36">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
+                  <p className="text-xs text-slate-400 font-medium z-10">Perda Estimada</p>
+                  <p className="text-xl font-mono font-bold text-red-400 z-10 truncate">
+                     {(100 - newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0)).toFixed(2)}%
+                  </p>
+                </div>
              </div>
           </div>
           <div className="mt-6 flex justify-end">
@@ -359,8 +369,21 @@ function TemplatesTab({ token }) {
                 </div>
               ))}
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-700 text-right font-bold text-slate-400 text-sm">
-              Total do Padrão: {t.items.reduce((a,c) => a + c.expected_yield_percentage, 0).toFixed(2)}%
+            <div className="mt-4 pt-3 border-t border-slate-700 grid grid-cols-2 gap-4">
+              <div className={`bg-slate-900/80 border rounded-lg p-3 flex flex-col justify-center relative overflow-hidden ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'border-red-500/30' : 'border-emerald-500/30'}`}>
+                <div className={`absolute top-0 right-0 w-16 h-16 blur-xl rounded-full translate-x-1/2 -translate-y-1/2 ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}></div>
+                <p className="text-xs text-slate-400 font-medium z-10">Total Alocado</p>
+                <p className={`text-xl font-mono font-bold z-10 truncate ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {t.items.reduce((a,c) => a + c.expected_yield_percentage, 0).toFixed(2)}%
+                </p>
+              </div>
+              <div className="bg-slate-900/80 border border-red-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
+                <p className="text-xs text-slate-400 font-medium z-10">Perda Estimada</p>
+                <p className="text-xl font-mono font-bold text-red-400 z-10 truncate">
+                  {(100 - t.items.reduce((a,c) => a + c.expected_yield_percentage, 0)).toFixed(2)}%
+                </p>
+              </div>
             </div>
           </div>
         ))}
