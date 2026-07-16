@@ -197,7 +197,11 @@ async def update_template(
         
     # Exclui samples antigas e recria
     if schema.samples is not None:
-        db.query(models.BoningTemplateSample).filter_by(template_id=template_id).delete()
+        old_samples = db.query(models.BoningTemplateSample).filter_by(template_id=template_id).all()
+        old_sample_ids = [s.id for s in old_samples]
+        if old_sample_ids:
+            db.query(models.BoningTemplateSampleItem).filter(models.BoningTemplateSampleItem.sample_id.in_(old_sample_ids)).delete(synchronize_session=False)
+        db.query(models.BoningTemplateSample).filter_by(template_id=template_id).delete(synchronize_session=False)
         for s in schema.samples:
             db_sample = models.BoningTemplateSample(
                 template_id=template.id,
