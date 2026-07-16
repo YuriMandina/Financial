@@ -102,6 +102,7 @@ class BoningTemplate(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     items = relationship("BoningTemplateItem", back_populates="template", cascade="all, delete-orphan")
+    samples = relationship("BoningTemplateSample", back_populates="template", cascade="all, delete-orphan")
     family = relationship("BoningFamily")
 
 class BoningTemplateItem(Base):
@@ -141,4 +142,27 @@ class BoningProcessItem(Base):
     unit_cost = Column(Float, nullable=False)
     
     process = relationship("BoningProcess", back_populates="items")
+    product = relationship("BoningProduct")
+
+class BoningTemplateSample(Base):
+    __tablename__ = "boning_template_samples"
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("boning_templates.id"), nullable=False)
+    date = Column(String, nullable=False)
+    carcass_weight = Column(Float, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    template = relationship("BoningTemplate", back_populates="samples")
+    items = relationship("BoningTemplateSampleItem", back_populates="sample", cascade="all, delete-orphan")
+
+class BoningTemplateSampleItem(Base):
+    __tablename__ = "boning_template_sample_items"
+    id = Column(Integer, primary_key=True, index=True)
+    sample_id = Column(Integer, ForeignKey("boning_template_samples.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("boning_products.id"), nullable=False)
+    weight = Column(Float, nullable=False)
+    percentage = Column(Float, nullable=False)
+    
+    sample = relationship("BoningTemplateSample", back_populates="items")
     product = relationship("BoningProduct")

@@ -29,10 +29,22 @@ class TemplateItemSchema(BaseModel):
     product_id: int
     expected_yield_percentage: float
 
+class SampleItemSchema(BaseModel):
+    product_id: int
+    weight: float
+    percentage: float
+
+class SampleSchema(BaseModel):
+    date: str
+    carcass_weight: float
+    is_active: bool
+    items: List[SampleItemSchema]
+
 class TemplateSchema(BaseModel):
     name: str
     family_id: int
     items: List[TemplateItemSchema]
+    samples: Optional[List[SampleSchema]] = None
 
 # --- [BLOCO: OMIE SYNC & CONFIG] ---
 @router.post("/sync-omie")
@@ -130,6 +142,27 @@ async def create_template(
             expected_yield_percentage=item.expected_yield_percentage
         )
         db.add(ti)
+        
+    if schema.samples:
+        for s in schema.samples:
+            db_sample = models.BoningTemplateSample(
+                template_id=template.id,
+                date=s.date,
+                carcass_weight=s.carcass_weight,
+                is_active=s.is_active
+            )
+            db.add(db_sample)
+            db.commit()
+            db.refresh(db_sample)
+            for s_item in s.items:
+                db_s_item = models.BoningTemplateSampleItem(
+                    sample_id=db_sample.id,
+                    product_id=s_item.product_id,
+                    weight=s_item.weight,
+                    percentage=s_item.percentage
+                )
+                db.add(db_s_item)
+                
     db.commit()
     return {"message": "Template criado", "id": template.id}
 
@@ -154,7 +187,6 @@ async def update_template(
     
     # Exclui itens antigos e recria
     db.query(models.BoningTemplateItem).filter_by(template_id=template_id).delete()
-    
     for item in schema.items:
         ti = models.BoningTemplateItem(
             template_id=template.id,
@@ -163,6 +195,27 @@ async def update_template(
         )
         db.add(ti)
         
+    # Exclui samples antigas e recria
+    if schema.samples is not None:
+        db.query(models.BoningTemplateSample).filter_by(template_id=template_id).delete()
+        for s in schema.samples:
+            db_sample = models.BoningTemplateSample(
+                template_id=template.id,
+                date=s.date,
+                carcass_weight=s.carcass_weight,
+                is_active=s.is_active
+            )
+            db.add(db_sample)
+            db.flush()
+            for s_item in s.items:
+                db_s_item = models.BoningTemplateSampleItem(
+                    sample_id=db_sample.id,
+                    product_id=s_item.product_id,
+                    weight=s_item.weight,
+                    percentage=s_item.percentage
+                )
+                db.add(db_s_item)
+
     db.commit()
     return {"message": "Template atualizado com sucesso"}
 
@@ -175,12 +228,23 @@ async def get_templates(
     result = []
     for t in templates:
         items = [{"product_id": i.product_id, "name": i.product.name, "expected_yield_percentage": i.expected_yield_percentage} for i in t.items]
+        samples = []
+        for s in t.samples:
+            s_items = [{"product_id": si.product_id, "weight": si.weight, "percentage": si.percentage} for si in s.items]
+            samples.append({
+                "id": s.id,
+                "date": s.date,
+                "carcass_weight": s.carcass_weight,
+                "is_active": s.is_active,
+                "items": s_items
+            })
         result.append({
             "id": t.id, 
             "name": t.name, 
             "family_id": t.family_id,
             "family_name": t.family.name if t.family else "Sem Família",
-            "items": items
+            "items": items,
+            "samples": samples
         })
     return {"templates": result}
 

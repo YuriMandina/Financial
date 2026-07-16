@@ -190,7 +190,27 @@ function TemplatesTab({ token }) {
   
   const [newTemplateName, setNewTemplateName] = useState('');
   const [newTemplateFamily, setNewTemplateFamily] = useState('');
-  const [newTemplateItems, setNewTemplateItems] = useState([]);
+  const [newTemplateSamples, setNewTemplateSamples] = useState([]);
+
+  const calculatedItems = useMemo(() => {
+    const activeSamples = newTemplateSamples.filter(s => s.is_active);
+    if (activeSamples.length === 0 || activeSamples[0].items.length === 0) return [];
+    
+    const numItems = activeSamples[0].items.length;
+    const result = [];
+    for (let i = 0; i < numItems; i++) {
+      const product_id = activeSamples[0].items[i].product_id;
+      let sumPerc = 0;
+      activeSamples.forEach(s => {
+        sumPerc += Number(s.items[i].percentage || 0);
+      });
+      result.push({
+        product_id,
+        expected_yield_percentage: (sumPerc / activeSamples.length).toFixed(2)
+      });
+    }
+    return result;
+  }, [newTemplateSamples]);
 
   useEffect(() => { loadData(); }, []);
 
@@ -210,33 +230,111 @@ function TemplatesTab({ token }) {
     } catch (e) { console.error(e); }
   };
 
-  const addItem = () => {
-    setNewTemplateItems([...newTemplateItems, { product_id: '', expected_yield_percentage: '' }]);
+  const addSample = () => {
+    const baseItems = newTemplateSamples.length > 0 
+      ? newTemplateSamples[0].items.map(i => ({ product_id: i.product_id, weight: '', percentage: '' })) 
+      : [];
+    setNewTemplateSamples([...newTemplateSamples, { id: Date.now(), date: new Date().toISOString().split('T')[0], carcass_weight: '', is_active: true, items: baseItems }]);
   };
 
-  const updateItem = (index, field, value) => {
-    const updated = [...newTemplateItems];
-    updated[index][field] = value;
-    setNewTemplateItems(updated);
-  };
-
-  const removeItem = (index) => {
-    const updated = [...newTemplateItems];
+  const removeSample = (index) => {
+    const updated = [...newTemplateSamples];
     updated.splice(index, 1);
-    setNewTemplateItems(updated);
+    setNewTemplateSamples(updated);
+  };
+
+  const toggleSampleActive = (index) => {
+    const updated = [...newTemplateSamples];
+    updated[index].is_active = !updated[index].is_active;
+    setNewTemplateSamples(updated);
+  };
+
+  const updateSampleField = (index, field, value) => {
+    const updated = [...newTemplateSamples];
+    updated[index][field] = value;
+    if (field === 'carcass_weight') {
+      const cw = Number(value);
+      if (cw > 0) {
+        updated[index].items = updated[index].items.map(it => {
+          if (it.percentage) return { ...it, weight: ((Number(it.percentage) / 100) * cw).toFixed(2) };
+          return it;
+        });
+      }
+    }
+    setNewTemplateSamples(updated);
+  };
+
+  const addCut = () => {
+    const updatedSamples = newTemplateSamples.map(s => ({
+      ...s,
+      items: [...s.items, { product_id: '', weight: '', percentage: '' }]
+    }));
+    setNewTemplateSamples(updatedSamples);
+  };
+
+  const updateCutProduct = (itemIndex, productId) => {
+    const updatedSamples = newTemplateSamples.map(s => {
+      const newItems = [...s.items];
+      newItems[itemIndex] = { ...newItems[itemIndex], product_id: productId };
+      return { ...s, items: newItems };
+    });
+    setNewTemplateSamples(updatedSamples);
+  };
+
+  const updateCutValue = (sampleIndex, itemIndex, field, value) => {
+    const updatedSamples = [...newTemplateSamples];
+    const sample = { ...updatedSamples[sampleIndex] };
+    const items = [...sample.items];
+    const item = { ...items[itemIndex] };
+    
+    if (field === 'weight') {
+      item.weight = value;
+      if (sample.carcass_weight && Number(sample.carcass_weight) > 0) {
+        item.percentage = ((Number(value) / Number(sample.carcass_weight)) * 100).toFixed(2);
+      }
+    } else if (field === 'percentage') {
+      item.percentage = value;
+      if (sample.carcass_weight && Number(sample.carcass_weight) > 0) {
+        item.weight = ((Number(value) / 100) * Number(sample.carcass_weight)).toFixed(2);
+      }
+    }
+    
+    items[itemIndex] = item;
+    sample.items = items;
+    updatedSamples[sampleIndex] = sample;
+    setNewTemplateSamples(updatedSamples);
+  };
+
+  const removeCut = (itemIndex) => {
+    const updatedSamples = newTemplateSamples.map(s => {
+      const newItems = [...s.items];
+      newItems.splice(itemIndex, 1);
+      return { ...s, items: newItems };
+    });
+    setNewTemplateSamples(updatedSamples);
   };
 
   const handleSave = async () => {
-    const totalYield = newTemplateItems.reduce((acc, curr) => acc + Number(curr.expected_yield_percentage), 0);
-    if (totalYield > 100) return alert('A soma dos rendimentos não pode ser maior que 100%');
+    const totalYield = calculatedItems.reduce((acc, curr) => acc + Number(curr.expected_yield_percentage), 0);
+    if (totalYield > 100) return alert('A média dos rendimentos não pode ser maior que 100%');
     if (!newTemplateName) return alert('Dê um nome ao padrão de rendimento');
     if (!newTemplateFamily) return alert('Selecione uma família para o padrão');
-    if (newTemplateItems.length === 0) return alert('Adicione pelo menos um corte');
+    if (newTemplateSamples.length === 0 || newTemplateSamples[0].items.length === 0) return alert('Adicione pelo menos uma carcaça com um corte');
 
     const schema = {
       name: newTemplateName,
       family_id: Number(newTemplateFamily),
-      items: newTemplateItems.map(i => ({ product_id: Number(i.product_id), expected_yield_percentage: Number(i.expected_yield_percentage) }))
+      items: calculatedItems.map(i => ({ product_id: Number(i.product_id), expected_yield_percentage: Number(i.expected_yield_percentage) })),
+      samples: newTemplateSamples.map(s => ({
+          date: s.date,
+          carcass_weight: Number(s.carcass_weight || 0),
+          is_active: s.is_active,
+          items: s.items.map(i => ({
+              product_id: Number(i.product_id),
+              weight: Number(i.weight || 0),
+              percentage: Number(i.percentage || 0)
+          }))
+      }))
     };
 
     const url = editingTemplateId 
@@ -264,10 +362,32 @@ function TemplatesTab({ token }) {
     setEditingTemplateId(template.id);
     setNewTemplateName(template.name);
     setNewTemplateFamily(template.family_id.toString());
-    setNewTemplateItems(template.items.map(i => ({
-      product_id: i.product_id.toString(),
-      expected_yield_percentage: i.expected_yield_percentage.toString()
-    })));
+    
+    if (template.samples && template.samples.length > 0) {
+        setNewTemplateSamples(template.samples.map(s => ({
+            id: s.id,
+            date: s.date,
+            carcass_weight: s.carcass_weight.toString(),
+            is_active: s.is_active,
+            items: s.items.map(i => ({
+                product_id: i.product_id.toString(),
+                weight: i.weight.toString(),
+                percentage: i.percentage.toString()
+            }))
+        })));
+    } else {
+        setNewTemplateSamples([{
+            id: Date.now(),
+            date: new Date().toISOString().split('T')[0],
+            carcass_weight: '0',
+            is_active: true,
+            items: template.items.map(i => ({
+                product_id: i.product_id.toString(),
+                weight: '0',
+                percentage: i.expected_yield_percentage.toString()
+            }))
+        }]);
+    }
     setCreating(true);
   };
 
@@ -276,7 +396,7 @@ function TemplatesTab({ token }) {
     setEditingTemplateId(null);
     setNewTemplateName('');
     setNewTemplateFamily('');
-    setNewTemplateItems([]);
+    setNewTemplateSamples([]);
   };
 
   const deleteTemplate = async (id) => {
@@ -314,33 +434,91 @@ function TemplatesTab({ token }) {
               <input type="text" value={newTemplateName} onChange={e => setNewTemplateName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:border-indigo-500" />
             </div>
           </div>
-          <div className="space-y-3 mb-4">
-            {newTemplateItems.map((item, idx) => (
-              <div key={idx} className="flex gap-4 items-center">
-                <select value={item.product_id} onChange={e => updateItem(idx, 'product_id', e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
-                  <option value="">Selecione o Corte Padrão...</option>
-                  {products.filter(p => !newTemplateFamily || p.family_id === Number(newTemplateFamily)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <input type="number" step="0.01" placeholder="Rendimento (%)" value={item.expected_yield_percentage} onChange={e => updateItem(idx, 'expected_yield_percentage', e.target.value)} className="w-40 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white" />
-                <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-300"><Trash2 size={18}/></button>
+          <div className="mb-4">
+            <h5 className="font-bold text-slate-300 mb-2">Amostras (Carcaças)</h5>
+            {newTemplateSamples.length === 0 && <button onClick={addSample} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium text-sm">Adicionar Primeira Carcaça</button>}
+            
+            {newTemplateSamples.length > 0 && (
+              <div className="flex gap-4 overflow-x-auto pb-4 mb-4 snap-x">
+                {newTemplateSamples.map((s, idx) => (
+                  <div key={s.id} className={`snap-center flex-shrink-0 w-[22rem] bg-slate-900 border rounded-xl p-4 ${s.is_active ? 'border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.15)]' : 'border-slate-700 opacity-50 bg-slate-900/50'}`}>
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="flex items-center gap-3">
+                        <input type="checkbox" checked={s.is_active} onChange={() => toggleSampleActive(idx)} className="rounded bg-slate-800 border-slate-600 text-indigo-500 focus:ring-0 w-5 h-5 cursor-pointer" title="Incluir na média?" />
+                        <span className="font-bold text-lg text-indigo-300">Carcaça {idx + 1}</span>
+                      </div>
+                      <button onClick={() => removeSample(idx)} className="text-red-400/80 hover:text-red-400 bg-red-400/10 p-1.5 rounded-lg"><Trash2 size={16}/></button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-400 mb-1 block">Data</label>
+                        <input type="date" value={s.date} onChange={e => updateSampleField(idx, 'date', e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white focus:border-indigo-500 outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-400 mb-1 block">Peso Total (Kg)</label>
+                        <input type="number" step="0.01" value={s.carcass_weight} onChange={e => updateSampleField(idx, 'carcass_weight', e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white focus:border-indigo-500 outline-none font-mono" />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      {s.items.map((it, itemIdx) => (
+                        <div key={itemIdx} className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/50 relative">
+                          {idx === 0 ? (
+                             <div className="flex justify-between items-center mb-2">
+                               <select value={it.product_id} onChange={e => updateCutProduct(itemIdx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1 text-xs text-white focus:border-indigo-500 outline-none">
+                                 <option value="">Selecione o Corte...</option>
+                                 {products.filter(p => !newTemplateFamily || p.family_id === Number(newTemplateFamily)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                               </select>
+                               <button onClick={() => removeCut(itemIdx)} className="text-red-400 hover:text-red-300 ml-2"><Trash2 size={14}/></button>
+                             </div>
+                          ) : (
+                             <div className="text-sm text-slate-200 mb-2 font-bold truncate">
+                               {products.find(p => p.id === Number(it.product_id))?.name || 'Corte Padrão'}
+                             </div>
+                          )}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="relative">
+                               <input type="number" step="0.01" placeholder="Kg" value={it.weight} onChange={e => updateCutValue(idx, itemIdx, 'weight', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-7" />
+                               <span className="absolute left-2 top-1.5 text-xs text-slate-500 font-mono">KG</span>
+                            </div>
+                            <div className="relative">
+                               <input type="number" step="0.01" placeholder="%" value={it.percentage} onChange={e => updateCutValue(idx, itemIdx, 'percentage', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-6" />
+                               <span className="absolute left-2 top-1.5 text-xs text-slate-500 font-mono">%</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {idx === 0 && (
+                      <button onClick={addCut} className="mt-3 w-full border border-dashed border-indigo-500/50 text-indigo-400 hover:bg-indigo-500/10 text-xs py-2 rounded-lg flex items-center justify-center gap-1 font-bold transition-colors"><Plus size={16}/> Adicionar Corte à Grade</button>
+                    )}
+                  </div>
+                ))}
+                
+                <div className="flex-shrink-0 w-32 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center cursor-pointer hover:border-indigo-500 hover:text-indigo-400 hover:bg-indigo-500/5 transition-colors group" onClick={addSample}>
+                   <div className="text-center">
+                     <Plus size={32} className="mx-auto mb-2 text-slate-500 group-hover:text-indigo-400" />
+                     <span className="text-sm font-bold text-slate-400 group-hover:text-indigo-400">Nova<br/>Carcaça</span>
+                   </div>
+                </div>
               </div>
-            ))}
+            )}
           </div>
-          <div className="flex justify-between items-end border-t border-slate-700 pt-4 mt-6">
-             <button onClick={addItem} className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mb-2"><Plus size={18}/> Adicionar Corte</button>
+
+          <div className="flex justify-end items-end border-t border-slate-700 pt-5 mt-6">
              <div className="flex gap-4 text-left">
-                <div className={`bg-slate-900/80 border rounded-lg p-3 flex flex-col justify-center relative overflow-hidden w-36 ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'border-red-500/30' : 'border-emerald-500/30'}`}>
-                  <div className={`absolute top-0 right-0 w-16 h-16 blur-xl rounded-full translate-x-1/2 -translate-y-1/2 ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}></div>
-                  <p className="text-xs text-slate-400 font-medium z-10">Total Alocado</p>
-                  <p className={`text-xl font-mono font-bold z-10 truncate ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
-                     {newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0).toFixed(2)}%
+                <div className={`bg-slate-900/80 border rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44 ${calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
+                  <div className={`absolute top-0 right-0 w-24 h-24 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2 ${calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}></div>
+                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Média Alocada</p>
+                  <p className={`text-2xl font-mono font-bold z-10 truncate ${calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+                     {calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0).toFixed(2)}%
                   </p>
                 </div>
-                <div className="bg-slate-900/80 border border-red-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden w-36">
-                  <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-                  <p className="text-xs text-slate-400 font-medium z-10">Perda Estimada</p>
-                  <p className="text-xl font-mono font-bold text-red-400 z-10 truncate">
-                     {(100 - newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0)).toFixed(2)}%
+                <div className="bg-slate-900/80 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/20 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
+                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Perda Estimada</p>
+                  <p className="text-2xl font-mono font-bold text-red-400 z-10 truncate">
+                     {(100 - calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0)).toFixed(2)}%
                   </p>
                 </div>
              </div>
