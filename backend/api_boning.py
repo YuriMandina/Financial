@@ -31,6 +31,7 @@ class TemplateItemSchema(BaseModel):
 
 class TemplateSchema(BaseModel):
     name: str
+    family_id: int
     items: List[TemplateItemSchema]
 
 # --- [BLOCO: OMIE SYNC & CONFIG] ---
@@ -57,7 +58,7 @@ async def get_products(
     user: models.User = Depends(get_current_user_and_set_org),
     db: Session = Depends(get_db)
 ):
-    prods = db.query(models.BoningProduct).filter(models.BoningProduct.organization_id == current_org.get().id).all()
+    prods = db.query(models.BoningProduct).filter(models.BoningProduct.organization_id == current_org.get().id).order_by(models.BoningProduct.name).all()
     return {"products": [{
         "id": p.id, 
         "name": p.name, 
@@ -80,6 +81,31 @@ async def toggle_standard_cut(
     db.commit()
     return {"message": "Atualizado", "is_standard_cut": prod.is_standard_cut}
 
+@router.get("/families")
+async def get_families(
+    user: models.User = Depends(get_current_user_and_set_org),
+    db: Session = Depends(get_db)
+):
+    fams = db.query(models.BoningFamily).filter(models.BoningFamily.organization_id == current_org.get().id).order_by(models.BoningFamily.name).all()
+    return {"families": [{"id": f.id, "name": f.name, "is_active_for_boning": f.is_active_for_boning} for f in fams]}
+
+@router.put("/families/{family_id}/toggle-active")
+async def toggle_family_active(
+    family_id: int,
+    user: models.User = Depends(get_current_user_and_set_org),
+    db: Session = Depends(get_db)
+):
+    fam = db.query(models.BoningFamily).filter(
+        models.BoningFamily.id == family_id,
+        models.BoningFamily.organization_id == current_org.get().id
+    ).first()
+    if not fam:
+        raise HTTPException(status_code=404, detail="Família não encontrada")
+    
+    fam.is_active_for_boning = not fam.is_active_for_boning
+    db.commit()
+    return {"message": "Status atualizado", "is_active_for_boning": fam.is_active_for_boning}
+
 # --- [BLOCO: TEMPLATES CRUD] ---
 @router.post("/templates")
 async def create_template(
@@ -92,7 +118,7 @@ async def create_template(
     if total_yield > 100.0:
         raise HTTPException(status_code=400, detail="O somatório dos rendimentos não pode ultrapassar 100%")
     
-    template = models.BoningTemplate(name=schema.name, organization_id=org_id)
+    template = models.BoningTemplate(name=schema.name, organization_id=org_id, family_id=schema.family_id)
     db.add(template)
     db.commit()
     db.refresh(template)
@@ -116,7 +142,13 @@ async def get_templates(
     result = []
     for t in templates:
         items = [{"product_id": i.product_id, "name": i.product.name, "expected_yield_percentage": i.expected_yield_percentage} for i in t.items]
-        result.append({"id": t.id, "name": t.name, "items": items})
+        result.append({
+            "id": t.id, 
+            "name": t.name, 
+            "family_id": t.family_id,
+            "family_name": t.family.name if t.family else "Sem Família",
+            "items": items
+        })
     return {"templates": result}
 
 @router.delete("/templates/{template_id}")

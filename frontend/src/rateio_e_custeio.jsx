@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2 } from 'lucide-react';
 
-export default function DesossaModule({ token }) {
-  const [activeTab, setActiveTab] = useState('sincronizacao');
+export default function RateioECusteio({ token }) {
+  const [activeTab, setActiveTab] = useState('sync');
   
   return (
     <div className="p-6 text-slate-200">
       <div className="flex gap-4 mb-6 border-b border-slate-700 pb-2">
         <button 
-          onClick={() => setActiveTab('sincronizacao')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg transition-all ${activeTab === 'sincronizacao' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+          onClick={() => setActiveTab('sync')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg transition-all ${activeTab === 'sync' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
         >
           <Download size={18} /> Sincronização Omie
         </button>
@@ -27,29 +27,32 @@ export default function DesossaModule({ token }) {
         </button>
       </div>
 
-      {activeTab === 'sincronizacao' && <SyncTab token={token} />}
+      {activeTab === 'sync' && <SyncTab token={token} />}
       {activeTab === 'templates' && <TemplatesTab token={token} />}
       {activeTab === 'operacao' && <OperationTab token={token} />}
     </div>
   );
 }
 
-// --- [BLOCO: ABA 1 - Sincronização Omie] ---
+// --- [BLOCO: Sincronização Omie] ---
 function SyncTab({ token }) {
   const [products, setProducts] = useState([]);
+  const [families, setFamilies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedFamily, setSelectedFamily] = useState('');
+  const [activeView, setActiveView] = useState('families');
 
-  useEffect(() => { loadProducts(); }, []);
+  useEffect(() => { loadData(); }, []);
 
-  const loadProducts = async () => {
+  const loadData = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/boning/products', { 
-        headers: { 'Authorization': `Bearer ${token}` },
-        cache: 'no-store'
-      });
-      const data = await res.json();
-      setProducts(data.products || []);
+      const resF = await fetch('http://localhost:8000/api/boning/families', { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
+      const dataF = await resF.json();
+      setFamilies(dataF.families || []);
+
+      const resP = await fetch('http://localhost:8000/api/boning/products', { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
+      const dataP = await resP.json();
+      setProducts(dataP.products || []);
     } catch (e) { console.error(e); }
   };
 
@@ -61,7 +64,7 @@ function SyncTab({ token }) {
         const err = await res.json();
         throw new Error(err.detail || 'Erro interno no servidor');
       }
-      await loadProducts();
+      await loadData();
       alert('Sincronização concluída!');
     } catch (e) { 
       console.error(e);
@@ -73,52 +76,106 @@ function SyncTab({ token }) {
   const toggleStandard = async (id) => {
     try {
       await fetch(`http://localhost:8000/api/boning/products/${id}/toggle-standard`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
-      await loadProducts();
+      await loadData();
     } catch (e) { console.error(e); }
   };
 
-  const families = [...new Set(products.map(p => p.family_name))].filter(Boolean).sort();
-  const filteredProducts = selectedFamily ? products.filter(p => p.family_name === selectedFamily) : products;
+  const toggleFamilyActive = async (id) => {
+    try {
+      await fetch(`http://localhost:8000/api/boning/families/${id}/toggle-active`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
+      await loadData();
+    } catch (e) { console.error(e); }
+  };
+
+  let filteredProducts = selectedFamily ? products.filter(p => p.family_name === selectedFamily) : [];
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-bold">Produtos Sincronizados</h3>
-        <div className="flex gap-4">
-          <select value={selectedFamily} onChange={e => setSelectedFamily(e.target.value)} className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 outline-none focus:border-indigo-500 transition-colors">
-            <option value="">Todas as Famílias</option>
-            {families.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
-          <button onClick={handleSync} disabled={loading} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2">
-            {loading ? 'Sincronizando...' : <><Download size={18}/> Sincronizar Agora</>}
-          </button>
+      <div className="flex gap-4 mb-6 border-b border-slate-700 pb-4">
+        <button 
+          onClick={() => setActiveView('families')}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${activeView === 'families' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+        >
+          Selecionar famílias para rateio
+        </button>
+        <button 
+          onClick={() => setActiveView('products')}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${activeView === 'products' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+        >
+          Definição de produtos da desossa
+        </button>
+      </div>
+
+      {activeView === 'families' && (
+        <div className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold">Selecionar famílias para rateio e custeio</h3>
+            <button onClick={handleSync} disabled={loading} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2">
+              {loading ? 'Sincronizando...' : <><Download size={18}/> Sincronizar Omie</>}
+            </button>
+          </div>
+          <div className="bg-slate-800 rounded-xl overflow-hidden shadow-lg border border-slate-700">
+            <table className="w-full text-left">
+              <thead className="bg-slate-900 border-b border-slate-700 text-slate-400 sticky top-0">
+                <tr>
+                  <th className="p-4 font-semibold">Família</th>
+                  <th className="p-4 font-semibold text-center w-48">Ativa para Rateio?</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700">
+                {families.map(f => (
+                  <tr key={f.id} className="hover:bg-slate-700/50 transition-colors">
+                    <td className="p-4 font-medium">{f.name}</td>
+                    <td className="p-4 text-center">
+                      <input type="checkbox" checked={f.is_active_for_boning} onChange={() => toggleFamilyActive(f.id)} className="w-5 h-5 accent-indigo-500 cursor-pointer" />
+                    </td>
+                  </tr>
+                ))}
+                {families.length === 0 && <tr><td colSpan="2" className="p-8 text-center text-slate-500">Nenhuma família encontrada. Sincronize com a Omie.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-      <div className="bg-slate-800 rounded-xl overflow-hidden shadow-lg border border-slate-700 max-h-[70vh] overflow-y-auto">
-        <table className="w-full text-left">
-          <thead className="bg-slate-900 border-b border-slate-700 text-slate-400 sticky top-0">
-            <tr>
-              <th className="p-4 font-semibold">Produto</th>
-              <th className="p-4 font-semibold">Família</th>
-              <th className="p-4 font-semibold">Preço Venda Atual</th>
-              <th className="p-4 font-semibold text-center">Corte Padrão?</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-700">
-            {filteredProducts.map(p => (
-              <tr key={p.id} className="hover:bg-slate-700/50 transition-colors">
-                <td className="p-4 font-medium">{p.name}</td>
-                <td className="p-4 text-slate-300">{p.family_name}</td>
-                <td className="p-4 text-emerald-400">R$ {p.unit_price.toFixed(2)}</td>
-                <td className="p-4 text-center">
-                  <input type="checkbox" checked={p.is_standard_cut} onChange={() => toggleStandard(p.id)} className="w-5 h-5 accent-indigo-500 cursor-pointer" />
-                </td>
-              </tr>
-            ))}
-            {filteredProducts.length === 0 && <tr><td colSpan="4" className="p-8 text-center text-slate-500">Nenhum produto encontrado.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      )}
+
+      {activeView === 'products' && (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold">Definição de produtos da desossa</h3>
+            <div className="flex gap-4">
+              <select value={selectedFamily} onChange={e => setSelectedFamily(e.target.value)} className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 outline-none focus:border-indigo-500 transition-colors">
+                <option value="">Selecione uma família...</option>
+                {families.filter(f => f.is_active_for_boning).map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="bg-slate-800 rounded-xl overflow-hidden shadow-lg border border-slate-700">
+            <table className="w-full text-left">
+              <thead className="bg-slate-900 border-b border-slate-700 text-slate-400 sticky top-0">
+                <tr>
+                  <th className="p-4 font-semibold">Produto</th>
+                  <th className="p-4 font-semibold">Família</th>
+                  <th className="p-4 font-semibold">Preço Venda Atual</th>
+                  <th className="p-4 font-semibold text-center w-48">Corte Padrão?</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700">
+                {filteredProducts.map(p => (
+                  <tr key={p.id} className="hover:bg-slate-700/50 transition-colors">
+                    <td className="p-4 font-medium">{p.name}</td>
+                    <td className="p-4 text-slate-300">{p.family_name}</td>
+                    <td className="p-4 text-emerald-400">R$ {p.unit_price.toFixed(2)}</td>
+                    <td className="p-4 text-center">
+                      <input type="checkbox" checked={p.is_standard_cut} onChange={() => toggleStandard(p.id)} className="w-5 h-5 accent-indigo-500 cursor-pointer" />
+                    </td>
+                  </tr>
+                ))}
+                {filteredProducts.length === 0 && <tr><td colSpan="4" className="p-8 text-center text-slate-500">{selectedFamily ? "Nenhum produto listado." : "Selecione uma família acima para visualizar os produtos."}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -127,9 +184,11 @@ function SyncTab({ token }) {
 function TemplatesTab({ token }) {
   const [templates, setTemplates] = useState([]);
   const [products, setProducts] = useState([]);
+  const [families, setFamilies] = useState([]);
   const [creating, setCreating] = useState(false);
   
   const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateFamily, setNewTemplateFamily] = useState('');
   const [newTemplateItems, setNewTemplateItems] = useState([]);
 
   useEffect(() => { loadData(); }, []);
@@ -143,6 +202,10 @@ function TemplatesTab({ token }) {
       const resP = await fetch('http://localhost:8000/api/boning/products', { headers: { 'Authorization': `Bearer ${token}` } });
       const dataP = await resP.json();
       setProducts(dataP.products?.filter(p => p.is_standard_cut) || []);
+
+      const resF = await fetch('http://localhost:8000/api/boning/families', { headers: { 'Authorization': `Bearer ${token}` } });
+      const dataF = await resF.json();
+      setFamilies(dataF.families || []);
     } catch (e) { console.error(e); }
   };
 
@@ -166,10 +229,12 @@ function TemplatesTab({ token }) {
     const totalYield = newTemplateItems.reduce((acc, curr) => acc + Number(curr.expected_yield_percentage), 0);
     if (totalYield > 100) return alert('A soma dos rendimentos não pode ser maior que 100%');
     if (!newTemplateName) return alert('Dê um nome ao padrão de rendimento');
+    if (!newTemplateFamily) return alert('Selecione uma família para o padrão');
     if (newTemplateItems.length === 0) return alert('Adicione pelo menos um corte');
 
     const schema = {
       name: newTemplateName,
+      family_id: Number(newTemplateFamily),
       items: newTemplateItems.map(i => ({ product_id: Number(i.product_id), expected_yield_percentage: Number(i.expected_yield_percentage) }))
     };
 
@@ -182,6 +247,7 @@ function TemplatesTab({ token }) {
       if (res.ok) {
         setCreating(false);
         setNewTemplateName('');
+        setNewTemplateFamily('');
         setNewTemplateItems([]);
         loadData();
       } else {
@@ -210,16 +276,25 @@ function TemplatesTab({ token }) {
 
       {creating && (
         <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 mb-6 shadow-xl">
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-400 mb-1">Nome do Padrão (Ex: Gado Gordo)</label>
-            <input type="text" value={newTemplateName} onChange={e => setNewTemplateName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500" />
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">Família Base</label>
+              <select value={newTemplateFamily} onChange={e => setNewTemplateFamily(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:border-indigo-500">
+                <option value="">Selecione uma família ativa...</option>
+                {families.filter(f => f.is_active_for_boning).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">Nome do Padrão (Ex: Gado Gordo)</label>
+              <input type="text" value={newTemplateName} onChange={e => setNewTemplateName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:border-indigo-500" />
+            </div>
           </div>
           <div className="space-y-3 mb-4">
             {newTemplateItems.map((item, idx) => (
               <div key={idx} className="flex gap-4 items-center">
                 <select value={item.product_id} onChange={e => updateItem(idx, 'product_id', e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
                   <option value="">Selecione o Corte Padrão...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {products.filter(p => !newTemplateFamily || p.family_id === Number(newTemplateFamily)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
                 <input type="number" step="0.01" placeholder="Rendimento (%)" value={item.expected_yield_percentage} onChange={e => updateItem(idx, 'expected_yield_percentage', e.target.value)} className="w-40 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white" />
                 <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-300"><Trash2 size={18}/></button>

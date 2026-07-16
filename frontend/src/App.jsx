@@ -6,7 +6,7 @@ import {
   CheckSquare, Square, Calculator, Zap, ArrowDownToLine, ChevronLeft, ChevronRight,
   Receipt, Copy, RotateCcw, X, Target, LogOut, History, PieChart
 } from 'lucide-react';
-import DesossaModule from './DesossaModule';
+import RateioECusteio from './rateio_e_custeio';
 import DateRangePicker from './DateRangePicker';
 import { AuthScreen } from './Auth';
 import { VerifyEmail } from './VerifyEmail';
@@ -1226,7 +1226,7 @@ function App() {
         {menuAtivo === 'configuracoes' ? (
           <Settings token={token} />
         ) : menuAtivo === 'desossa' ? (
-          <DesossaModule token={token} />
+          <RateioECusteio token={token} />
         ) : menuAtivo === 'dre-gerencial' ? (
           <DreGerencial token={token} />
         ) : (

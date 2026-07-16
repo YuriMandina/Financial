@@ -77,6 +77,7 @@ class BoningFamily(Base):
     omie_id = Column(BigInteger, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    is_active_for_boning = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
 class BoningProduct(Base):
@@ -97,9 +98,11 @@ class BoningTemplate(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    family_id = Column(Integer, ForeignKey("boning_families.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     items = relationship("BoningTemplateItem", back_populates="template", cascade="all, delete-orphan")
+    family = relationship("BoningFamily")
 
 class BoningTemplateItem(Base):
     __tablename__ = "boning_template_items"
