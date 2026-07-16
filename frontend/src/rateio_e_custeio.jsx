@@ -476,16 +476,19 @@ function TemplatesTab({ token }) {
                       {s.items.map((it, itemIdx) => (
                         <div key={itemIdx} className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/50 relative">
                           {idx === 0 ? (
-                             <div className="flex justify-between items-center mb-2">
-                               <select value={it.product_id} onChange={e => updateCutProduct(itemIdx, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1 text-xs text-white focus:border-indigo-500 outline-none">
+                             <div className="flex justify-between items-center mb-2 h-[28px]">
+                               <select value={it.product_id} onChange={e => updateCutProduct(itemIdx, e.target.value)} className="w-full h-full bg-slate-900 border border-slate-700 rounded px-2 py-0 text-xs text-white focus:border-indigo-500 outline-none">
                                  <option value="">Selecione o Corte...</option>
                                  {products.filter(p => !newTemplateFamily || p.family_id === Number(newTemplateFamily)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                </select>
-                               <button onClick={() => removeCut(itemIdx)} className="text-red-400 hover:text-red-300 ml-2"><Trash2 size={14}/></button>
+                               <button onClick={() => removeCut(itemIdx)} className="text-red-400 hover:text-red-300 ml-2 flex-shrink-0"><Trash2 size={14}/></button>
                              </div>
                           ) : (
-                             <div className="text-sm text-slate-200 mb-2 font-bold truncate">
-                               {products.find(p => p.id === Number(it.product_id))?.name || 'Corte Padrão'}
+                             <div className="flex justify-between items-center mb-2 h-[28px]">
+                               <div className="w-full h-full flex items-center border border-transparent rounded px-2 py-0 text-xs text-slate-200 font-bold truncate uppercase tracking-wider">
+                                 {products.find(p => p.id === Number(it.product_id))?.name || 'Corte Padrão'}
+                               </div>
+                               <div className="ml-2 w-[14px] flex-shrink-0"></div>
                              </div>
                           )}
                           <div className="grid grid-cols-2 gap-3">
