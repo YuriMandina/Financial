@@ -555,19 +555,29 @@ function OperationTab({ token }) {
               <div>
                 {derivedCuts.length > 0 && (
                   <div className="mt-4 bg-slate-900/50 p-4 rounded-lg border border-slate-700/50">
-                    <p className="text-xs font-semibold text-slate-500 mb-2 uppercase">Preenchimento Automático (Pesos Calculados):</p>
-                    {derivedCuts.map((dc, idx) => (
-                      <div key={idx} className="flex justify-between text-sm mb-1 bg-slate-900 p-2 rounded">
-                        <span className="text-slate-300">{dc.name}</span>
-                        <span className="font-mono text-indigo-300 font-bold">{dc.expected_weight} Kg</span>
-                      </div>
-                    ))}
+                    <div className="grid grid-cols-3 text-xs font-bold text-slate-500 mb-2 uppercase px-2">
+                      <span>Corte</span>
+                      <span className="text-center">Peso Calculado</span>
+                      <span className="text-right">Percentual Estimado</span>
+                    </div>
+                    {derivedCuts.map((dc, idx) => {
+                      const pct = carcassWeight ? ((Number(dc.expected_weight) / Number(carcassWeight)) * 100).toFixed(2) : 0;
+                      return (
+                        <div key={idx} className="grid grid-cols-3 gap-4 text-sm mb-1 bg-slate-900 p-2 rounded items-center">
+                          <span className="text-slate-300 truncate" title={dc.name}>{dc.name}</span>
+                          <span className="font-mono text-indigo-300 font-bold text-center">{dc.expected_weight} Kg</span>
+                          <span className="font-mono text-indigo-400 text-right">{pct}%</span>
+                        </div>
+                      )
+                    })}
                     {carcassWeight && (
-                      <div className="flex justify-between text-sm mt-2 bg-orange-500/10 border border-orange-500/30 p-2 rounded">
-                        <span className="font-bold text-orange-400">Quebra / Perda Residual</span>
-                        <span className="font-mono text-orange-400 font-bold">
-                          {(Number(carcassWeight) - derivedCuts.reduce((a,c) => a + Number(c.expected_weight), 0)).toFixed(2)} Kg 
-                          ({(100 - activeTemplate.items.reduce((a,c) => a + c.expected_yield_percentage, 0)).toFixed(2)}%)
+                      <div className="grid grid-cols-3 gap-4 text-sm mt-2 bg-orange-500/10 border border-orange-500/30 p-2 rounded items-center">
+                        <span className="font-bold text-orange-400 truncate">Quebra / Perda Residual</span>
+                        <span className="font-mono text-orange-400 font-bold text-center">
+                          {(Number(carcassWeight) - derivedCuts.reduce((a,c) => a + Number(c.expected_weight), 0)).toFixed(2)} Kg
+                        </span>
+                        <span className="font-mono text-orange-400 text-right">
+                          {(100 - activeTemplate.items.reduce((a,c) => a + c.expected_yield_percentage, 0)).toFixed(2)}%
                         </span>
                       </div>
                     )}
