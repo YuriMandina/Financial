@@ -1171,7 +1171,7 @@ function App() {
 
       {/* SIDEBAR */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20 print:hidden">
-        <div className="h-20 flex items-center px-6 border-b border-slate-800">
+        <div className="h-20 shrink-0 flex items-center px-6 border-b border-slate-800">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
               <TrendingUp size={18} className="text-white" />
@@ -1197,7 +1197,7 @@ function App() {
         <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden"></div>
         <div className="absolute bottom-[-10%] right-[-5%] w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden"></div>
 
-        <header className="h-20 bg-slate-900/95 border-b border-slate-800 flex items-center justify-end px-8 z-50 sticky top-0 print:hidden">
+        <header className="h-20 shrink-0 bg-slate-900/95 border-b border-slate-800 flex items-center justify-end px-8 z-50 sticky top-0 print:hidden">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setMenuAtivo('configuracoes')}
