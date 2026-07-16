@@ -407,6 +407,18 @@ function TemplatesTab({ token }) {
     } catch (e) { console.error(e); }
   };
 
+  const avgCarcassWeight = useMemo(() => {
+    const active = newTemplateSamples.filter(s => s.is_active);
+    if (active.length === 0) return 0;
+    const sum = active.reduce((acc, curr) => acc + Number(curr.carcass_weight || 0), 0);
+    return sum / active.length;
+  }, [newTemplateSamples]);
+
+  const totalAllocatedPerc = calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0);
+  const totalAllocatedKg = (totalAllocatedPerc / 100) * avgCarcassWeight;
+  const expectedLossPerc = 100 - totalAllocatedPerc;
+  const expectedLossKg = avgCarcassWeight - totalAllocatedKg;
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -506,19 +518,33 @@ function TemplatesTab({ token }) {
           </div>
 
           <div className="flex justify-end items-end border-t border-slate-700 pt-5 mt-6">
-             <div className="flex gap-4 text-left">
-                <div className={`bg-slate-900/80 border rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44 ${calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
-                  <div className={`absolute top-0 right-0 w-24 h-24 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2 ${calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}></div>
-                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Média Alocada</p>
-                  <p className={`text-2xl font-mono font-bold z-10 truncate ${calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
-                     {calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0).toFixed(2)}%
+             <div className="flex gap-4 text-left flex-wrap justify-end">
+                <div className={`bg-slate-900/80 border rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44 ${totalAllocatedPerc > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
+                  <div className={`absolute top-0 right-0 w-24 h-24 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2 ${totalAllocatedPerc > 100 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}></div>
+                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Alocado (%)</p>
+                  <p className={`text-2xl font-mono font-bold truncate ${totalAllocatedPerc > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+                     {totalAllocatedPerc.toFixed(2)}%
+                  </p>
+                </div>
+                <div className={`bg-slate-900/80 border rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44 ${totalAllocatedPerc > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
+                  <div className={`absolute top-0 right-0 w-24 h-24 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2 ${totalAllocatedPerc > 100 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}></div>
+                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Alocado (Kg)</p>
+                  <p className={`text-2xl font-mono font-bold truncate ${totalAllocatedPerc > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+                     {totalAllocatedKg.toFixed(2)}kg
                   </p>
                 </div>
                 <div className="bg-slate-900/80 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/20 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Perda Estimada</p>
-                  <p className="text-2xl font-mono font-bold text-red-400 z-10 truncate">
-                     {(100 - calculatedItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0)).toFixed(2)}%
+                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Perda (%)</p>
+                  <p className="text-2xl font-mono font-bold text-red-400 truncate">
+                     {expectedLossPerc.toFixed(2)}%
+                  </p>
+                </div>
+                <div className="bg-slate-900/80 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/20 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
+                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Perda (Kg)</p>
+                  <p className="text-2xl font-mono font-bold text-red-400 truncate">
+                     {expectedLossKg.toFixed(2)}kg
                   </p>
                 </div>
              </div>
