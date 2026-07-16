@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2 } from 'lucide-react';
+import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2 } from 'lucide-react';
 
 export default function RateioECusteio({ token }) {
   const [activeTab, setActiveTab] = useState('sync');
@@ -186,6 +186,7 @@ function TemplatesTab({ token }) {
   const [products, setProducts] = useState([]);
   const [families, setFamilies] = useState([]);
   const [creating, setCreating] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
   
   const [newTemplateName, setNewTemplateName] = useState('');
   const [newTemplateFamily, setNewTemplateFamily] = useState('');
@@ -225,7 +226,7 @@ function TemplatesTab({ token }) {
     setNewTemplateItems(updated);
   };
 
-  const handleCreate = async () => {
+  const handleSave = async () => {
     const totalYield = newTemplateItems.reduce((acc, curr) => acc + Number(curr.expected_yield_percentage), 0);
     if (totalYield > 100) return alert('A soma dos rendimentos não pode ser maior que 100%');
     if (!newTemplateName) return alert('Dê um nome ao padrão de rendimento');
@@ -238,23 +239,44 @@ function TemplatesTab({ token }) {
       items: newTemplateItems.map(i => ({ product_id: Number(i.product_id), expected_yield_percentage: Number(i.expected_yield_percentage) }))
     };
 
+    const url = editingTemplateId 
+      ? `http://localhost:8000/api/boning/templates/${editingTemplateId}` 
+      : 'http://localhost:8000/api/boning/templates';
+    const method = editingTemplateId ? 'PUT' : 'POST';
+
     try {
-      const res = await fetch('http://localhost:8000/api/boning/templates', {
-        method: 'POST',
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(schema)
       });
       if (res.ok) {
-        setCreating(false);
-        setNewTemplateName('');
-        setNewTemplateFamily('');
-        setNewTemplateItems([]);
+        cancelForm();
         loadData();
       } else {
         const error = await res.json();
         alert(error.detail);
       }
     } catch (e) { console.error(e); }
+  };
+
+  const handleEdit = (template) => {
+    setEditingTemplateId(template.id);
+    setNewTemplateName(template.name);
+    setNewTemplateFamily(template.family_id.toString());
+    setNewTemplateItems(template.items.map(i => ({
+      product_id: i.product_id.toString(),
+      expected_yield_percentage: i.expected_yield_percentage.toString()
+    })));
+    setCreating(true);
+  };
+
+  const cancelForm = () => {
+    setCreating(false);
+    setEditingTemplateId(null);
+    setNewTemplateName('');
+    setNewTemplateFamily('');
+    setNewTemplateItems([]);
   };
 
   const deleteTemplate = async (id) => {
@@ -269,13 +291,16 @@ function TemplatesTab({ token }) {
     <div>
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-xl font-bold">Padrões de Rendimento (Templates)</h3>
-        <button onClick={() => setCreating(!creating)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2">
+        <button onClick={() => creating ? cancelForm() : setCreating(true)} className={`${creating ? 'bg-slate-600 hover:bg-slate-500' : 'bg-indigo-600 hover:bg-indigo-500'} text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2`}>
           {creating ? 'Cancelar' : <><Plus size={18}/> Novo Padrão</>}
         </button>
       </div>
 
       {creating && (
         <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 mb-6 shadow-xl">
+          <div className="mb-4">
+            <h4 className="text-lg font-bold text-white mb-4">{editingTemplateId ? 'Editar Padrão de Rendimento' : 'Novo Padrão de Rendimento'}</h4>
+          </div>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-1">Família Base</label>
@@ -301,16 +326,17 @@ function TemplatesTab({ token }) {
               </div>
             ))}
           </div>
-          <button onClick={addItem} className="text-indigo-400 hover:text-indigo-300 font-medium mb-6 text-sm">+ Adicionar Corte ao Padrão</button>
-          
-          <div className="flex justify-end pt-4 border-t border-slate-700 gap-4">
-            <div className="text-right">
-              <p className="text-sm text-slate-400">Total Alocado</p>
-              <p className={`text-xl font-bold ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
-                {newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0).toFixed(2)}%
-              </p>
-            </div>
-            <button onClick={handleCreate} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold">Salvar Padrão</button>
+          <div className="flex justify-between items-center border-t border-slate-700 pt-4 mt-6">
+             <button onClick={addItem} className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"><Plus size={18}/> Adicionar Corte</button>
+             <div className="text-right">
+                <p className="text-sm text-slate-400">Total Alocado</p>
+                <p className={`text-xl font-bold ${newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+                   {newTemplateItems.reduce((a,c) => a + Number(c.expected_yield_percentage), 0).toFixed(2)}%
+                </p>
+             </div>
+          </div>
+          <div className="mt-6 flex justify-end">
+            <button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold">{editingTemplateId ? 'Salvar Alterações' : 'Criar Padrão'}</button>
           </div>
         </div>
       )}
@@ -320,7 +346,10 @@ function TemplatesTab({ token }) {
           <div key={t.id} className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg flex flex-col h-full">
             <div className="flex justify-between items-start mb-4">
               <h4 className="font-bold text-lg text-indigo-300">{t.name}</h4>
-              <button onClick={() => deleteTemplate(t.id)} className="text-red-400 hover:text-red-300"><Trash2 size={18}/></button>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => handleEdit(t)} className="p-2 text-indigo-400 hover:bg-indigo-400/10 rounded-lg transition-colors"><Edit2 size={18}/></button>
+                <button onClick={() => deleteTemplate(t.id)} className="p-2 text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"><Trash2 size={18}/></button>
+              </div>
             </div>
             <div className="flex-1 space-y-2">
               {t.items.map((i, idx) => (

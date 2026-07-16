@@ -133,6 +133,39 @@ async def create_template(
     db.commit()
     return {"message": "Template criado", "id": template.id}
 
+@router.put("/templates/{template_id}")
+async def update_template(
+    template_id: int,
+    schema: TemplateSchema,
+    user: models.User = Depends(get_current_user_and_set_org),
+    db: Session = Depends(get_db)
+):
+    org_id = current_org.get().id
+    template = db.query(models.BoningTemplate).filter_by(id=template_id, organization_id=org_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template não encontrado")
+        
+    total_yield = sum(item.expected_yield_percentage for item in schema.items)
+    if total_yield > 100.0:
+        raise HTTPException(status_code=400, detail="O somatório dos rendimentos não pode ultrapassar 100%")
+        
+    template.name = schema.name
+    template.family_id = schema.family_id
+    
+    # Exclui itens antigos e recria
+    db.query(models.BoningTemplateItem).filter_by(template_id=template_id).delete()
+    
+    for item in schema.items:
+        ti = models.BoningTemplateItem(
+            template_id=template.id,
+            product_id=item.product_id,
+            expected_yield_percentage=item.expected_yield_percentage
+        )
+        db.add(ti)
+        
+    db.commit()
+    return {"message": "Template atualizado com sucesso"}
+
 @router.get("/templates")
 async def get_templates(
     user: models.User = Depends(get_current_user_and_set_org),
