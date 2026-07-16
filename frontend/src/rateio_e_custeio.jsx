@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
+const formatWeight = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(Number(val) || 0);
+const formatPerc = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(val) || 0);
+const formatMoney = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(val) || 0);
+
 import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2 } from 'lucide-react';
 
 export default function RateioECusteio({ token }) {
@@ -167,7 +171,7 @@ function SyncTab({ token }) {
                     </td>
                     <td className="p-4 font-medium">{p.name}</td>
                     <td className="p-4 text-slate-300">{p.family_name}</td>
-                    <td className="p-4 text-emerald-400">R$ {p.unit_price.toFixed(2)}</td>
+                    <td className="p-4 text-emerald-400">R$ {formatMoney(p.unit_price)}</td>
                   </tr>
                 ))}
                 {filteredProducts.length === 0 && <tr><td colSpan="4" className="p-8 text-center text-slate-500">{selectedFamily ? "Nenhum produto listado." : "Selecione uma família acima para visualizar os produtos."}</td></tr>}
@@ -206,7 +210,7 @@ function TemplatesTab({ token }) {
       });
       result.push({
         product_id,
-        expected_yield_percentage: (sumPerc / activeSamples.length).toFixed(2)
+        expected_yield_percentage: (sumPerc / activeSamples.length).toFixed(3)
       });
     }
     return result;
@@ -256,7 +260,7 @@ function TemplatesTab({ token }) {
       const cw = Number(value);
       if (cw > 0) {
         updated[index].items = updated[index].items.map(it => {
-          if (it.percentage) return { ...it, weight: ((Number(it.percentage) / 100) * cw).toFixed(2) };
+          if (it.percentage) return { ...it, weight: ((Number(it.percentage) / 100) * cw).toFixed(3) };
           return it;
         });
       }
@@ -290,12 +294,12 @@ function TemplatesTab({ token }) {
     if (field === 'weight') {
       item.weight = value;
       if (sample.carcass_weight && Number(sample.carcass_weight) > 0) {
-        item.percentage = ((Number(value) / Number(sample.carcass_weight)) * 100).toFixed(2);
+        item.percentage = ((Number(value) / Number(sample.carcass_weight)) * 100).toFixed(3);
       }
     } else if (field === 'percentage') {
       item.percentage = value;
       if (sample.carcass_weight && Number(sample.carcass_weight) > 0) {
-        item.weight = ((Number(value) / 100) * Number(sample.carcass_weight)).toFixed(2);
+        item.weight = ((Number(value) / 100) * Number(sample.carcass_weight)).toFixed(3);
       }
     }
     
@@ -468,7 +472,7 @@ function TemplatesTab({ token }) {
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-slate-400 mb-1 block">Peso Total (Kg)</label>
-                        <input type="number" step="0.01" value={s.carcass_weight} onChange={e => updateSampleField(idx, 'carcass_weight', e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white focus:border-indigo-500 outline-none font-mono" />
+                        <input type="number" step="0.001" value={s.carcass_weight} onChange={e => updateSampleField(idx, 'carcass_weight', e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white focus:border-indigo-500 outline-none font-mono" />
                       </div>
                     </div>
                     
@@ -493,11 +497,11 @@ function TemplatesTab({ token }) {
                           )}
                           <div className="grid grid-cols-2 gap-3">
                             <div className="relative">
-                               <input type="number" step="0.01" placeholder="Kg" value={it.weight} onChange={e => updateCutValue(idx, itemIdx, 'weight', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-7" />
+                               <input type="number" step="0.001" placeholder="Kg" value={it.weight} onChange={e => updateCutValue(idx, itemIdx, 'weight', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-7" />
                                <span className="absolute left-2 top-1.5 text-xs text-slate-500 font-mono">KG</span>
                             </div>
                             <div className="relative">
-                               <input type="number" step="0.01" placeholder="%" value={it.percentage} onChange={e => updateCutValue(idx, itemIdx, 'percentage', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-6" />
+                               <input type="number" step="0.001" placeholder="%" value={it.percentage} onChange={e => updateCutValue(idx, itemIdx, 'percentage', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-6" />
                                <span className="absolute left-2 top-1.5 text-xs text-slate-500 font-mono">%</span>
                             </div>
                           </div>
@@ -526,28 +530,28 @@ function TemplatesTab({ token }) {
                   <div className={`absolute top-0 right-0 w-24 h-24 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2 ${totalAllocatedPerc > 100 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}></div>
                   <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Alocado (%)</p>
                   <p className={`text-2xl font-mono font-bold truncate ${totalAllocatedPerc > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
-                     {totalAllocatedPerc.toFixed(2)}%
+                     {formatPerc(totalAllocatedPerc)}%
                   </p>
                 </div>
                 <div className={`bg-slate-900/80 border rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44 ${totalAllocatedPerc > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
                   <div className={`absolute top-0 right-0 w-24 h-24 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2 ${totalAllocatedPerc > 100 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}></div>
                   <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Alocado (Kg)</p>
                   <p className={`text-2xl font-mono font-bold truncate ${totalAllocatedPerc > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
-                     {totalAllocatedKg.toFixed(2)}kg
+                     {formatWeight(totalAllocatedKg)}kg
                   </p>
                 </div>
                 <div className="bg-slate-900/80 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/20 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
                   <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Perda (%)</p>
                   <p className="text-2xl font-mono font-bold text-red-400 truncate">
-                     {expectedLossPerc.toFixed(2)}%
+                     {formatPerc(expectedLossPerc)}%
                   </p>
                 </div>
                 <div className="bg-slate-900/80 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/20 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
                   <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Perda (Kg)</p>
                   <p className="text-2xl font-mono font-bold text-red-400 truncate">
-                     {expectedLossKg.toFixed(2)}kg
+                     {formatWeight(expectedLossKg)}kg
                   </p>
                 </div>
              </div>
@@ -581,14 +585,14 @@ function TemplatesTab({ token }) {
                 <div className={`absolute top-0 right-0 w-16 h-16 blur-xl rounded-full translate-x-1/2 -translate-y-1/2 ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}></div>
                 <p className="text-xs text-slate-400 font-medium z-10">Total Alocado</p>
                 <p className={`text-xl font-mono font-bold z-10 truncate ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
-                  {t.items.reduce((a,c) => a + c.expected_yield_percentage, 0).toFixed(2)}%
+                  {formatPerc(t.items.reduce((a,c) => a + c.expected_yield_percentage, 0))}%
                 </p>
               </div>
               <div className="bg-slate-900/80 border border-red-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
                 <p className="text-xs text-slate-400 font-medium z-10">Perda Estimada</p>
                 <p className="text-xl font-mono font-bold text-red-400 z-10 truncate">
-                  {(100 - t.items.reduce((a,c) => a + c.expected_yield_percentage, 0)).toFixed(2)}%
+                  {formatPerc(100 - t.items.reduce((a,c) => a + c.expected_yield_percentage, 0))}%
                 </p>
               </div>
             </div>
@@ -762,20 +766,20 @@ function OperationTab({ token }) {
             <div className="bg-slate-900/80 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden focus-within:border-indigo-500/60 transition-colors">
               <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
               <label className="text-xs text-slate-400 font-medium z-10 mb-1">Peso Total (Kg)</label>
-              <input type="number" step="0.01" value={carcassWeight} onChange={e => setCarcassWeight(e.target.value)} className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600" placeholder="Ex: 300.00" />
+              <input type="number" step="0.001" value={carcassWeight} onChange={e => setCarcassWeight(e.target.value)} className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600" placeholder="Ex: 300.00" />
             </div>
             
             <div className="bg-slate-900/80 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden focus-within:border-indigo-500/60 transition-colors">
               <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
               <label className="text-xs text-slate-400 font-medium z-10 mb-1">Preço / Kg (R$)</label>
-              <input type="number" step="0.01" value={carcassCost} onChange={e => setCarcassCost(e.target.value)} className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600" placeholder="Ex: 10.00" />
+              <input type="number" step="0.001" value={carcassCost} onChange={e => setCarcassCost(e.target.value)} className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600" placeholder="Ex: 10.00" />
             </div>
 
             <div className="bg-slate-900/80 border border-emerald-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden">
               <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
               <p className="text-xs text-slate-400 font-medium z-10">Custo Total</p>
               <p className="text-2xl font-mono font-bold text-emerald-400 z-10 truncate">
-                {(carcassWeight && carcassCost) ? `R$ ${(Number(carcassWeight)*Number(carcassCost)).toFixed(2)}` : '---'}
+                {(carcassWeight && carcassCost) ? `R$ ${formatMoney(Number(carcassWeight)*Number(carcassCost))}` : '---'}
               </p>
             </div>
           </div>
@@ -791,7 +795,7 @@ function OperationTab({ token }) {
                       <span className="text-right">Percentual Estimado</span>
                     </div>
                     {derivedCuts.map((dc, idx) => {
-                      const pct = carcassWeight ? ((Number(dc.expected_weight) / Number(carcassWeight)) * 100).toFixed(2) : 0;
+                      const pct = carcassWeight ? formatPerc((Number(dc.expected_weight) / Number(carcassWeight)) * 100) : formatPerc(0);
                       return (
                         <div key={idx} className="grid grid-cols-3 gap-4 text-sm mb-1 bg-slate-900 p-2 rounded items-center">
                           <span className="text-slate-300 truncate" title={dc.name}>{dc.name}</span>
@@ -804,10 +808,10 @@ function OperationTab({ token }) {
                       <div className="grid grid-cols-3 gap-4 text-sm mt-2 bg-orange-500/10 border border-orange-500/30 p-2 rounded items-center">
                         <span className="font-bold text-orange-400 truncate">Quebra / Perda Residual</span>
                         <span className="font-mono text-orange-400 font-bold text-center">
-                          {(Number(carcassWeight) - derivedCuts.reduce((a,c) => a + Number(c.expected_weight), 0)).toFixed(2)} Kg
+                          {formatWeight(Number(carcassWeight) - derivedCuts.reduce((a,c) => a + Number(c.expected_weight), 0))} Kg
                         </span>
                         <span className="font-mono text-orange-400 text-right">
-                          {(100 - activeTemplate.items.reduce((a,c) => a + c.expected_yield_percentage, 0)).toFixed(2)}%
+                          {formatPerc(100 - activeTemplate.items.reduce((a,c) => a + c.expected_yield_percentage, 0))}%
                         </span>
                       </div>
                     )}
@@ -831,7 +835,7 @@ function OperationTab({ token }) {
                         <option value="">Selecione o Corte...</option>
                         {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
-                      <input type="number" step="0.01" placeholder="Peso (Kg)" value={mc.actual_weight} onChange={e => updateManualCut(idx, 'actual_weight', e.target.value)} className="w-24 bg-slate-900 border border-slate-700 rounded-md px-2 py-2 text-sm font-mono text-white focus:border-indigo-500" />
+                      <input type="number" step="0.001" placeholder="Peso (Kg)" value={mc.actual_weight} onChange={e => updateManualCut(idx, 'actual_weight', e.target.value)} className="w-24 bg-slate-900 border border-slate-700 rounded-md px-2 py-2 text-sm font-mono text-white focus:border-indigo-500" />
                       <button onClick={() => removeManualCut(idx)} className="text-red-400 hover:text-red-300 p-1"><Trash2 size={16}/></button>
                     </div>
                   ))}
@@ -841,10 +845,10 @@ function OperationTab({ token }) {
                     <div className="flex gap-2 items-center bg-orange-500/10 border border-orange-500/30 rounded-md px-3 py-2 mt-2">
                       <div className="flex-1 text-sm font-bold text-orange-400">Quebra / Perda Residual</div>
                       <div className="text-right text-sm font-mono text-orange-400 font-bold">
-                        {(Number(carcassWeight) - manualCuts.reduce((acc, c) => acc + Number(c.actual_weight || 0), 0)).toFixed(2)} Kg
+                        {formatWeight(Number(carcassWeight) - manualCuts.reduce((acc, c) => acc + Number(c.actual_weight || 0), 0))} Kg
                       </div>
                       <div className="w-16 text-right text-xs font-mono text-orange-400/80 font-bold">
-                        {(((Number(carcassWeight) - manualCuts.reduce((acc, c) => acc + Number(c.actual_weight || 0), 0)) / Number(carcassWeight)) * 100).toFixed(1)}%
+                        {formatPerc(((Number(carcassWeight) - manualCuts.reduce((acc, c) => acc + Number(c.actual_weight || 0), 0)) / Number(carcassWeight)) * 100)}%
                       </div>
                       <div className="w-6"></div> {/* Espaçador para alinhar com o botão da lixeira */}
                     </div>
@@ -874,19 +878,19 @@ function OperationTab({ token }) {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
                  <p className="text-xs text-slate-400">Total Desossado (Carcaça)</p>
-                 <p className="text-xl font-mono text-white">{calculationResult.total_carcass_weight.toFixed(2)} Kg</p>
+                 <p className="text-xl font-mono text-white">{formatWeight(calculationResult.total_carcass_weight)} Kg</p>
                </div>
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
                  <p className="text-xs text-slate-400">Custo Total Alocado</p>
-                 <p className="text-xl font-mono text-red-400">R$ {calculationResult.total_carcass_cost.toFixed(2)}</p>
+                 <p className="text-xl font-mono text-red-400">R$ {formatMoney(calculationResult.total_carcass_cost)}</p>
                </div>
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
                  <p className="text-xs text-slate-400">VPL Total (Desossa)</p>
-                 <p className="text-xl font-mono text-indigo-400">R$ {calculationResult.total_vpl.toFixed(2)}</p>
+                 <p className="text-xl font-mono text-indigo-400">R$ {formatMoney(calculationResult.total_vpl)}</p>
                </div>
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
                  <p className="text-xs text-slate-400">Quebra (Não Rateada)</p>
-                 <p className="text-xl font-mono text-orange-400">{calculationResult.loss_weight.toFixed(2)} Kg</p>
+                 <p className="text-xl font-mono text-orange-400">{formatWeight(calculationResult.loss_weight)} Kg</p>
                </div>
             </div>
 
@@ -907,12 +911,12 @@ function OperationTab({ token }) {
                   {calculationResult.items.map(i => (
                     <tr key={i.product_id} className="hover:bg-slate-700/30">
                       <td className="p-3 font-medium text-white">{i.product_name}</td>
-                      <td className="p-3 text-right font-mono text-slate-300">{i.actual_weight.toFixed(2)}</td>
-                      <td className="p-3 text-right font-mono text-slate-400">R$ {i.unit_price.toFixed(2)}</td>
-                      <td className="p-3 text-right font-mono text-indigo-300 font-medium">R$ {i.vpl.toFixed(2)}</td>
-                      <td className="p-3 text-right font-mono text-amber-300 font-medium">{i.participation_percentage.toFixed(2)}%</td>
-                      <td className="p-3 text-right font-mono text-red-300">R$ {i.allocated_cost.toFixed(2)}</td>
-                      <td className="p-3 text-right font-mono text-emerald-400 bg-emerald-900/10 font-bold text-base">R$ {i.unit_cost.toFixed(2)} / Kg</td>
+                      <td className="p-3 text-right font-mono text-slate-300">{formatWeight(i.actual_weight)}</td>
+                      <td className="p-3 text-right font-mono text-slate-400">R$ {formatMoney(i.unit_price)}</td>
+                      <td className="p-3 text-right font-mono text-indigo-300 font-medium">R$ {formatMoney(i.vpl)}</td>
+                      <td className="p-3 text-right font-mono text-amber-300 font-medium">{formatPerc(i.participation_percentage)}%</td>
+                      <td className="p-3 text-right font-mono text-red-300">R$ {formatMoney(i.allocated_cost)}</td>
+                      <td className="p-3 text-right font-mono text-emerald-400 bg-emerald-900/10 font-bold text-base">R$ {formatMoney(i.unit_cost)} / Kg</td>
                     </tr>
                   ))}
                 </tbody>
