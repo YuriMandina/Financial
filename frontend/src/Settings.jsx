@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck } from 'lucide-react';
+import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck, Zap } from 'lucide-react';
 
 export const Settings = ({ token }) => {
   const [activeTab, setActiveTab] = useState('omie');
@@ -12,6 +12,9 @@ export const Settings = ({ token }) => {
   const [appSecret, setAppSecret] = useState('');
   const [showAppKey, setShowAppKey] = useState(false);
   const [showAppSecret, setShowAppSecret] = useState(false);
+
+  // Performance
+  const [performanceMode, setPerformanceMode] = useState(() => localStorage.getItem('performanceMode') === 'true');
 
   // Invites
   const [inviteEmail, setInviteEmail] = useState('');
@@ -139,6 +142,14 @@ export const Settings = ({ token }) => {
     }
   };
 
+  const handleTogglePerformanceMode = () => {
+    const newVal = !performanceMode;
+    setPerformanceMode(newVal);
+    localStorage.setItem('performanceMode', String(newVal));
+    if (newVal) document.body.classList.add('performance-mode');
+    else document.body.classList.remove('performance-mode');
+  };
+
   return (
     <div className="flex-1 p-8 z-10 print:hidden overflow-y-auto">
       <div className="flex items-center gap-4 mb-8">
@@ -164,6 +175,12 @@ export const Settings = ({ token }) => {
             className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === 'invites' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
           >
             <Users size={18} /> Membros e Convites
+          </button>
+          <button 
+            onClick={() => setActiveTab('preferences')}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === 'preferences' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+          >
+            <Zap size={18} /> Preferências
           </button>
         </div>
 
@@ -309,6 +326,26 @@ export const Settings = ({ token }) => {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'preferences' && (
+            <div className="space-y-8">
+              <div>
+                <h3 className="text-xl font-bold text-white mb-2">Interface e Desempenho</h3>
+                <p className="text-sm text-slate-400 mb-6">Ajuste como o sistema é renderizado no seu navegador.</p>
+                
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex items-center justify-between hover:bg-slate-900/50 transition-colors">
+                  <div>
+                    <h4 className="text-white font-bold">Modo de Desempenho</h4>
+                    <p className="text-sm text-slate-400 mt-1">Desativa animações e transições graduais (ideal para PCs mais lentos)</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" className="sr-only peer" checked={performanceMode} onChange={handleTogglePerformanceMode} />
+                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
+                </div>
+              </div>
             </div>
           )}
         </div>

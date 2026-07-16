@@ -153,21 +153,21 @@ function SyncTab({ token }) {
             <table className="w-full text-left">
               <thead className="bg-slate-900 border-b border-slate-700 text-slate-400 sticky top-0">
                 <tr>
+                  <th className="p-4 font-semibold text-center w-48">Corte Padrão?</th>
                   <th className="p-4 font-semibold">Produto</th>
                   <th className="p-4 font-semibold">Família</th>
                   <th className="p-4 font-semibold">Preço Venda Atual</th>
-                  <th className="p-4 font-semibold text-center w-48">Corte Padrão?</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700">
                 {filteredProducts.map(p => (
                   <tr key={p.id} className="hover:bg-slate-700/50 transition-colors">
+                    <td className="p-4 text-center w-48">
+                      <input type="checkbox" checked={p.is_standard_cut} onChange={() => toggleStandard(p.id)} className="w-5 h-5 accent-indigo-500 cursor-pointer" />
+                    </td>
                     <td className="p-4 font-medium">{p.name}</td>
                     <td className="p-4 text-slate-300">{p.family_name}</td>
                     <td className="p-4 text-emerald-400">R$ {p.unit_price.toFixed(2)}</td>
-                    <td className="p-4 text-center">
-                      <input type="checkbox" checked={p.is_standard_cut} onChange={() => toggleStandard(p.id)} className="w-5 h-5 accent-indigo-500 cursor-pointer" />
-                    </td>
                   </tr>
                 ))}
                 {filteredProducts.length === 0 && <tr><td colSpan="4" className="p-8 text-center text-slate-500">{selectedFamily ? "Nenhum produto listado." : "Selecione uma família acima para visualizar os produtos."}</td></tr>}
