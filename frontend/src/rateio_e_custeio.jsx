@@ -381,6 +381,7 @@ function OperationTab({ token }) {
   
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [manualCuts, setManualCuts] = useState([]);
+  const [copyTemplateId, setCopyTemplateId] = useState('');
 
   const [calculationResult, setCalculationResult] = useState(null);
   const [exporting, setExporting] = useState(false);
@@ -409,6 +410,17 @@ function OperationTab({ token }) {
     const arr = [...manualCuts];
     arr.splice(idx, 1);
     setManualCuts(arr);
+  };
+
+  const copyFromTemplate = () => {
+    if (!copyTemplateId || !carcassWeight) return alert('Informe o Peso da Carcaça e selecione o Padrão para copiar.');
+    const t = templates.find(x => x.id === Number(copyTemplateId));
+    if (!t) return;
+    const copied = t.items.map(i => ({
+      product_id: i.product_id.toString(),
+      actual_weight: (Number(carcassWeight) * (i.expected_yield_percentage / 100)).toFixed(2)
+    }));
+    setManualCuts(copied);
   };
 
   const activeTemplate = useMemo(() => templates.find(t => t.id === Number(selectedTemplate)), [templates, selectedTemplate]);
@@ -525,6 +537,15 @@ function OperationTab({ token }) {
                         <span className="font-mono text-indigo-300 font-bold">{dc.expected_weight} Kg</span>
                       </div>
                     ))}
+                    {carcassWeight && (
+                      <div className="flex justify-between text-sm mt-2 bg-orange-500/10 border border-orange-500/30 p-2 rounded">
+                        <span className="font-bold text-orange-400">Quebra / Perda Residual</span>
+                        <span className="font-mono text-orange-400 font-bold">
+                          {(Number(carcassWeight) - derivedCuts.reduce((a,c) => a + Number(c.expected_weight), 0)).toFixed(2)} Kg 
+                          ({(100 - activeTemplate.items.reduce((a,c) => a + c.expected_yield_percentage, 0)).toFixed(2)}%)
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
                 {activeTemplate && !carcassWeight && (
@@ -532,24 +553,48 @@ function OperationTab({ token }) {
                 )}
               </div>
             ) : (
-              <div>
+              <div className="flex flex-col h-full">
+                <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 mb-4">
+                  <p className="text-xs font-semibold text-slate-400 mb-2">Copiar de um Padrão (Opcional)</p>
+                  <div className="flex gap-2">
+                    <select value={copyTemplateId} onChange={e => setCopyTemplateId(e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-sm text-white focus:border-indigo-500">
+                      <option value="">Selecione um Padrão...</option>
+                      {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                    <button onClick={copyFromTemplate} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded-md text-xs font-bold transition-colors">Copiar</button>
+                  </div>
+                </div>
+
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-sm font-medium text-slate-400">Cortes Gerados (Lançamento Manual)</label>
-                  <button onClick={addManualCut} className="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-white font-bold">+ Adicionar</button>
+                  <button onClick={addManualCut} className="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-white font-bold flex items-center gap-1"><Plus size={14}/> Adicionar Corte</button>
                 </div>
                 {/* LÓGICA REATIVA: INPUTS LIVRES PARA DIGITAÇÃO NO MODO MANUAL */}
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                <div className="space-y-2 pr-1">
                   {manualCuts.map((mc, idx) => (
                     <div key={idx} className="flex gap-2 items-center">
-                      <select value={mc.product_id} onChange={e => updateManualCut(idx, 'product_id', e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-2 py-2 text-sm text-white focus:border-indigo-500">
+                      <select value={mc.product_id} onChange={e => updateManualCut(idx, 'product_id', e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-2 py-2 text-sm text-white focus:border-indigo-500 min-w-0">
                         <option value="">Selecione o Corte...</option>
                         {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                       <input type="number" step="0.01" placeholder="Peso (Kg)" value={mc.actual_weight} onChange={e => updateManualCut(idx, 'actual_weight', e.target.value)} className="w-24 bg-slate-900 border border-slate-700 rounded-md px-2 py-2 text-sm font-mono text-white focus:border-indigo-500" />
-                      <button onClick={() => removeManualCut(idx)} className="text-red-400 hover:text-red-300"><Trash2 size={16}/></button>
+                      <button onClick={() => removeManualCut(idx)} className="text-red-400 hover:text-red-300 p-1"><Trash2 size={16}/></button>
                     </div>
                   ))}
                   {manualCuts.length === 0 && <p className="text-xs text-slate-500 italic text-center py-4">Nenhum corte adicionado manualmente.</p>}
+                  
+                  {carcassWeight && manualCuts.length > 0 && (
+                    <div className="flex gap-2 items-center bg-orange-500/10 border border-orange-500/30 rounded-md px-3 py-2 mt-2">
+                      <div className="flex-1 text-sm font-bold text-orange-400">Quebra / Perda Residual</div>
+                      <div className="text-right text-sm font-mono text-orange-400 font-bold">
+                        {(Number(carcassWeight) - manualCuts.reduce((acc, c) => acc + Number(c.actual_weight || 0), 0)).toFixed(2)} Kg
+                      </div>
+                      <div className="w-16 text-right text-xs font-mono text-orange-400/80 font-bold">
+                        {(((Number(carcassWeight) - manualCuts.reduce((acc, c) => acc + Number(c.actual_weight || 0), 0)) / Number(carcassWeight)) * 100).toFixed(1)}%
+                      </div>
+                      <div className="w-6"></div> {/* Espaçador para alinhar com o botão da lixeira */}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -591,7 +636,7 @@ function OperationTab({ token }) {
                </div>
             </div>
 
-            <div className="overflow-x-auto flex-1 border border-slate-700 rounded-lg max-h-[50vh]">
+            <div className="overflow-x-auto flex-1 border border-slate-700 rounded-lg">
               <table className="w-full text-left text-sm whitespace-nowrap">
                 <thead className="bg-slate-900 text-slate-400 sticky top-0 shadow">
                   <tr>
