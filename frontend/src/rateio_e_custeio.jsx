@@ -799,7 +799,7 @@ function OperationTab({ token }) {
                       return (
                         <div key={idx} className="grid grid-cols-3 gap-4 text-sm mb-1 bg-slate-900 p-2 rounded items-center">
                           <span className="text-slate-300 truncate" title={dc.name}>{dc.name}</span>
-                          <span className="font-mono text-indigo-300 font-bold text-center">{dc.expected_weight} Kg</span>
+                          <span className="font-mono text-indigo-300 font-bold text-center">{formatWeight(dc.expected_weight)} Kg</span>
                           <span className="font-mono text-indigo-400 text-right">{pct}%</span>
                         </div>
                       )
