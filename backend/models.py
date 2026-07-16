@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Float, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Float, Boolean, BigInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
@@ -71,4 +71,71 @@ class PaymentReceipt(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class BoningFamily(Base):
+    __tablename__ = "boning_families"
+    id = Column(Integer, primary_key=True, index=True)
+    omie_id = Column(BigInteger, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+class BoningProduct(Base):
+    __tablename__ = "boning_products"
+    id = Column(Integer, primary_key=True, index=True)
+    omie_id = Column(BigInteger, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    family_id = Column(Integer, ForeignKey("boning_families.id"), nullable=True)
+    unit_price = Column(Float, nullable=False)
+    is_standard_cut = Column(Boolean, default=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    family = relationship("BoningFamily")
+
+class BoningTemplate(Base):
+    __tablename__ = "boning_templates"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    items = relationship("BoningTemplateItem", back_populates="template", cascade="all, delete-orphan")
+
+class BoningTemplateItem(Base):
+    __tablename__ = "boning_template_items"
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("boning_templates.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("boning_products.id"), nullable=False)
+    expected_yield_percentage = Column(Float, nullable=False)
+    
+    template = relationship("BoningTemplate", back_populates="items")
+    product = relationship("BoningProduct")
+
+class BoningProcess(Base):
+    __tablename__ = "boning_processes"
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    carcass_weight = Column(Float, nullable=False)
+    carcass_cost_per_kg = Column(Float, nullable=False)
+    total_cost = Column(Float, nullable=False)
+    mode = Column(String, nullable=False) # "MANUAL" or "TEMPLATE"
+    template_id = Column(Integer, ForeignKey("boning_templates.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    items = relationship("BoningProcessItem", back_populates="process", cascade="all, delete-orphan")
+    template = relationship("BoningTemplate")
+
+class BoningProcessItem(Base):
+    __tablename__ = "boning_process_items"
+    id = Column(Integer, primary_key=True, index=True)
+    process_id = Column(Integer, ForeignKey("boning_processes.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("boning_products.id"), nullable=False)
+    actual_weight = Column(Float, nullable=False)
+    unit_price = Column(Float, nullable=False) # Price at the time of process
+    vpl = Column(Float, nullable=False)
+    participation_percentage = Column(Float, nullable=False)
+    allocated_cost = Column(Float, nullable=False)
+    unit_cost = Column(Float, nullable=False)
+    
+    process = relationship("BoningProcess", back_populates="items")
+    product = relationship("BoningProduct")

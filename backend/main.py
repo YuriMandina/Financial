@@ -42,6 +42,9 @@ app.include_router(settings_router)
 from api_products import router as products_router
 app.include_router(products_router)
 
+from api_boning import router as boning_router
+app.include_router(boning_router)
+
 
 
 

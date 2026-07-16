@@ -4,8 +4,9 @@ import {
   Settings as SettingsIcon, LayoutDashboard, FileText, TrendingUp, Users, Search, CalendarDays,
   Loader2, Database, Printer, Filter, CreditCard, CheckCircle,
   CheckSquare, Square, Calculator, Zap, ArrowDownToLine, ChevronLeft, ChevronRight,
-  Receipt, Copy, RotateCcw, X, Target, LogOut
+  Receipt, Copy, RotateCcw, X, Target, LogOut, History, PieChart
 } from 'lucide-react';
+import DesossaModule from './DesossaModule';
 import DateRangePicker from './DateRangePicker';
 import { AuthScreen } from './Auth';
 import { VerifyEmail } from './VerifyEmail';
@@ -1130,18 +1131,21 @@ function App() {
       : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
         : menuAtivo === 'dashboard' ? 'Visão Geral Financeira'
           : menuAtivo === 'dre-gerencial' ? 'DRE Gerencial'
+            : menuAtivo === 'desossa' ? 'Rateio e Custeio'
             : 'Módulo de Contas a Pagar';
   const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.'
     : menuAtivo === 'recebimentos' ? 'Acompanhe faturas de convênios, edite pagamentos parciais e gere recibos.'
       : menuAtivo === 'curva-abc' ? 'Avalie o peso e a margem de cada produto na sua operação.'
         : menuAtivo === 'dashboard' ? 'Acompanhe os principais indicadores de saúde financeira do seu negócio.'
           : menuAtivo === 'dre-gerencial' ? 'Demonstrativo de Resultado do Exercício por competência.'
+            : menuAtivo === 'desossa' ? 'Rateio por Preço de Venda do processo de Desossa.'
             : 'Sincronize os dados e imprima o relatório detalhado.';
   const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados'
     : menuAtivo === 'recebimentos' ? 'Títulos a Receber (Convênio)'
       : menuAtivo === 'curva-abc' ? 'Curva ABC e Lucratividade'
         : menuAtivo === 'dashboard' ? 'Dashboard Executivo'
           : menuAtivo === 'dre-gerencial' ? 'DRE Gerencial'
+            : menuAtivo === 'desossa' ? 'Rateio e Custeio'
             : 'Previsão de Pagamentos';
 
   const SidebarItem = ({ id, icone: Icon, texto }) => (
@@ -1183,6 +1187,7 @@ function App() {
           <SidebarItem id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênio)" />
           <SidebarItem id="curva-abc" icone={TrendingUp} texto="Curva ABC e Lucratividade" />
           <SidebarItem id="dre-gerencial" icone={Target} texto="DRE Gerencial" />
+          <SidebarItem id="desossa" icone={PieChart} texto="Rateio e Custeio" />
         </nav>
       </aside>
 
@@ -1220,6 +1225,8 @@ function App() {
         
         {menuAtivo === 'configuracoes' ? (
           <Settings token={token} />
+        ) : menuAtivo === 'desossa' ? (
+          <DesossaModule token={token} />
         ) : menuAtivo === 'dre-gerencial' ? (
           <DreGerencial token={token} />
         ) : (
