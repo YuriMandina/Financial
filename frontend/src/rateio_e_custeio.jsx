@@ -875,7 +875,7 @@ function OperationTab({ token }) {
           </div>
         ) : (
           <div className="flex flex-col h-full">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
                  <p className="text-xs text-slate-400">Total Desossado (Carcaça)</p>
                  <p className="text-xl font-mono text-white">{formatWeight(calculationResult.total_carcass_weight)} Kg</p>
@@ -887,6 +887,14 @@ function OperationTab({ token }) {
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
                  <p className="text-xs text-slate-400">VPL Total (Desossa)</p>
                  <p className="text-xl font-mono text-indigo-400">R$ {formatMoney(calculationResult.total_vpl)}</p>
+               </div>
+               <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                 <p className="text-xs text-slate-400">Lucro Bruto (Carcaça)</p>
+                 <p className="text-xl font-mono text-emerald-400 font-bold">R$ {formatMoney(calculationResult.total_vpl - calculationResult.total_carcass_cost)}</p>
+               </div>
+               <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                 <p className="text-xs text-slate-400">Margem Bruta (Carcaça)</p>
+                 <p className="text-xl font-mono text-emerald-400 font-bold">{formatPerc(((calculationResult.total_vpl - calculationResult.total_carcass_cost) / calculationResult.total_vpl) * 100)}%</p>
                </div>
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
                  <p className="text-xs text-slate-400">Quebra (Não Rateada)</p>
@@ -904,6 +912,7 @@ function OperationTab({ token }) {
                     <th className="p-3 text-right">VPL (Potencial)</th>
                     <th className="p-3 text-right">Participação no Faturamento</th>
                     <th className="p-3 text-right">Custo Rateado</th>
+                    <th className="p-3 text-right text-emerald-400">Lucro Bruto (R$)</th>
                     <th className="p-3 text-right bg-emerald-900/20 text-emerald-400">Custo Unitário Final (CMC)</th>
                   </tr>
                 </thead>
@@ -916,6 +925,7 @@ function OperationTab({ token }) {
                       <td className="p-3 text-right font-mono text-indigo-300 font-medium">R$ {formatMoney(i.vpl)}</td>
                       <td className="p-3 text-right font-mono text-amber-300 font-medium">{formatPerc(i.participation_percentage)}%</td>
                       <td className="p-3 text-right font-mono text-red-300">R$ {formatMoney(i.allocated_cost)}</td>
+                      <td className="p-3 text-right font-mono text-emerald-400 font-medium">R$ {formatMoney(i.vpl - i.allocated_cost)}</td>
                       <td className="p-3 text-right font-mono text-emerald-400 bg-emerald-900/10 font-bold text-base">R$ {formatMoney(i.unit_cost)} / Kg</td>
                     </tr>
                   ))}
