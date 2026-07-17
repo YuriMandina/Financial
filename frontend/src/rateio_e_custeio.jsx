@@ -619,6 +619,7 @@ function OperationTab({ token }) {
 
   const [calculationResult, setCalculationResult] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [exportDate, setExportDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => { loadData(); }, []);
 
@@ -705,7 +706,7 @@ function OperationTab({ token }) {
     if (!calculationResult) return;
     setExporting(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/boning/process/${calculationResult.process_id}/export-cmc`, {
+      const res = await fetch(`http://localhost:8000/api/boning/process/${calculationResult.process_id}/export-cmc?date=${exportDate}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -933,13 +934,22 @@ function OperationTab({ token }) {
               </table>
             </div>
             
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex justify-end items-center gap-4">
+              <div className="flex flex-col">
+                <label className="text-xs text-slate-400 font-medium mb-1">Data da Produção (ERP)</label>
+                <input 
+                  type="date" 
+                  value={exportDate} 
+                  onChange={e => setExportDate(e.target.value)} 
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-3 text-white focus:border-emerald-500 outline-none"
+                />
+              </div>
               <button 
                 onClick={handleExport}
                 disabled={exporting}
-                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-all"
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-all self-end"
               >
-                {exporting ? 'Comunicando Omie...' : 'Atualizar Custo (CMC) no ERP Omie'}
+                {exporting ? 'Comunicando Omie...' : 'Lançar Rateio e Custeio'}
               </button>
             </div>
           </div>

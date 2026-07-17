@@ -279,6 +279,7 @@ async def calculate_apportionment(
 @router.post("/process/{process_id}/export-cmc")
 async def export_cmc(
     process_id: int,
+    date: str = None,
     user: models.User = Depends(get_current_user_and_set_org),
     db: Session = Depends(get_db)
 ):
@@ -286,13 +287,24 @@ async def export_cmc(
     if not process:
         raise HTTPException(status_code=404, detail="Processo não encontrado")
     
+    import time
     erros = []
     for item in process.items:
         omie_prod_id = item.product.omie_id
         novo_cmc = item.unit_cost
-        sucesso, msg = omie_products.atualizar_custo_produto(omie_prod_id, novo_cmc)
+        peso_gerado = item.actual_weight
+        data_processo = date if date else process.created_at
+        
+        sucesso, msg = omie_products.lancar_entrada_estoque_omie(
+            produto_id=omie_prod_id, 
+            quantidade=peso_gerado, 
+            custo_unitario=novo_cmc, 
+            data_processo=data_processo
+        )
         if not sucesso:
             erros.append(f"Produto {item.product.name}: {msg}")
+            
+        time.sleep(1.0) # Proteção contra rate limit (4 req/segundo) do Omie
             
     if erros:
         raise HTTPException(status_code=500, detail={"erros": erros})
