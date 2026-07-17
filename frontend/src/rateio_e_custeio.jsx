@@ -3,7 +3,7 @@ const formatWeight = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDi
 const formatPerc = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(val) || 0);
 const formatMoney = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(val) || 0);
 
-import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2, CalendarDays } from 'lucide-react';
+import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2, CalendarDays, Database, AlertTriangle } from 'lucide-react';
 import DatePicker from './DatePicker';
 
 export default function RateioECusteio({ token }) {
@@ -622,6 +622,18 @@ function OperationTab({ token }) {
   const [exporting, setExporting] = useState(false);
   const [exportDate, setExportDate] = useState(new Date().toISOString().split('T')[0]);
 
+  const [checkingStocks, setCheckingStocks] = useState(false);
+  const [fixingStocks, setFixingStocks] = useState(false);
+  const [stocksData, setStocksData] = useState(null); 
+  const [stocksVerified, setStocksVerified] = useState(false);
+  const [hasNegativeStocks, setHasNegativeStocks] = useState(false);
+
+  useEffect(() => {
+    setStocksData(null);
+    setStocksVerified(false);
+    setHasNegativeStocks(false);
+  }, [exportDate, calculationResult]);
+
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
@@ -703,13 +715,76 @@ function OperationTab({ token }) {
     } catch (e) { console.error(e); }
   };
 
+  const handleCheckStocks = async () => {
+    if (!exportDate || !calculationResult) return;
+    setCheckingStocks(true);
+    try {
+      const productIds = calculationResult.items.map(i => i.product_id);
+      const res = await fetch('http://localhost:8000/api/boning/check-stocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ date: exportDate, product_ids: productIds })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStocksData(data.stocks);
+        const hasNeg = Object.values(data.stocks).some(s => s.saldo < 0);
+        setHasNegativeStocks(hasNeg);
+        setStocksVerified(true);
+      } else {
+        alert("Erro ao checar estoques no Omie.");
+      }
+    } catch (e) {
+      alert("Erro de rede ao verificar estoques.");
+    } finally {
+      setCheckingStocks(false);
+    }
+  };
+
+  const handleFixStocks = async () => {
+    if (!exportDate || !stocksData) return;
+    setFixingStocks(true);
+    try {
+      const itemsToFix = Object.entries(stocksData)
+        .filter(([_, data]) => data.saldo < 0)
+        .map(([pid, data]) => ({
+           product_id: parseInt(pid),
+           local_id: data.local_id,
+           saldo_negativo: data.saldo
+        }));
+      
+      const res = await fetch('http://localhost:8000/api/boning/fix-negative-stocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ date: exportDate, items: itemsToFix })
+      });
+      
+      if (res.ok) {
+        await handleCheckStocks();
+        alert("Estoques negativos ajustados para 0,00 com sucesso!");
+      } else {
+        alert("Erro ao corrigir estoques no Omie.");
+      }
+    } catch (e) {
+      alert("Erro de rede ao corrigir estoques.");
+    } finally {
+      setFixingStocks(false);
+    }
+  };
+
   const handleExport = async () => {
-    if (!calculationResult) return;
+    if (!calculationResult || !stocksVerified || hasNegativeStocks) return;
     setExporting(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/boning/process/${calculationResult.process_id}/export-cmc?date=${exportDate}`, {
+      const exportItems = calculationResult.items.map(i => ({
+        product_id: i.product_id,
+        local_id: stocksData[i.product_id]?.local_id || 0
+      }));
+
+      const res = await fetch(`http://localhost:8000/api/boning/process/${calculationResult.process_id}/export-cmc`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ date: exportDate, items: exportItems })
       });
       if (res.ok) {
         alert('Custo Médio (CMC) atualizado com sucesso no cadastro dos produtos no Omie!');
@@ -935,18 +1010,92 @@ function OperationTab({ token }) {
               </table>
             </div>
             
-            <div className="mt-6 flex justify-end items-center gap-4">
-              <div className="flex flex-col w-[258px]">
-                <label className="text-xs text-slate-400 font-medium mb-1">Data da Produção (ERP)</label>
-                <DatePicker 
-                  value={exportDate} 
-                  onChange={setExportDate}
-                />
+            {/* --- VALIDAÇÃO DE ESTOQUE --- */}
+            <div className="mt-8 bg-slate-900 border border-slate-700/50 rounded-xl p-6 shadow-lg relative z-20">
+              <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 blur-3xl rounded-full"></div>
               </div>
+              
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-2 relative z-10">
+                <div>
+                  <h4 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                    <Database size={20} className="text-indigo-400" />
+                    Validação de Estoque (Omie)
+                  </h4>
+                  <p className="text-sm text-slate-400">Verifique se há estoques negativos na data da desossa antes de lançar a entrada para proteger a margem do CMC.</p>
+                </div>
+                
+                <div className="flex items-end gap-4 shrink-0">
+                  <div className="flex flex-col w-[258px]">
+                    <label className="text-xs text-slate-400 font-medium mb-1">Data da Produção (ERP)</label>
+                    <DatePicker 
+                      value={exportDate} 
+                      onChange={setExportDate}
+                    />
+                  </div>
+                  <button 
+                    onClick={handleCheckStocks}
+                    disabled={checkingStocks || fixingStocks}
+                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-5 py-[11px] rounded-xl font-bold transition-all whitespace-nowrap shadow-md"
+                  >
+                    {checkingStocks ? 'Consultando Omie...' : 'Verificar Estoques'}
+                  </button>
+                </div>
+              </div>
+
+              {stocksVerified && (
+                <div className={`p-5 rounded-xl border ${hasNegativeStocks ? 'bg-red-500/10 border-red-500/30' : 'bg-emerald-500/10 border-emerald-500/30'} mt-6 relative z-10 transition-all`}>
+                  {hasNegativeStocks ? (
+                    <div>
+                      <div className="flex items-start gap-4 mb-4">
+                        <AlertTriangle size={24} className="text-red-400 shrink-0 mt-0.5" />
+                        <div>
+                          <h5 className="font-bold text-red-400 text-base">Estoques Negativos Encontrados!</h5>
+                          <p className="text-sm text-red-300/80 mt-1">Você precisa ajustar (zerar) os estoques negativos no Omie antes de registrar a entrada, senão o custo médio (CMC) será completamente distorcido.</p>
+                        </div>
+                        <button 
+                          onClick={handleFixStocks}
+                          disabled={fixingStocks}
+                          className="ml-auto bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-bold shadow-lg shadow-red-500/20 flex items-center gap-2 shrink-0 transition-colors"
+                        >
+                          <CheckCircle2 size={18} />
+                          {fixingStocks ? 'Ajustando no Omie...' : 'Zerar Estoques Negativos'}
+                        </button>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-4 pt-4 border-t border-red-500/20">
+                        {calculationResult.items.map(i => {
+                          const stock = stocksData[i.product_id]?.saldo || 0;
+                          if (stock >= 0) return null;
+                          return (
+                            <div key={i.product_id} className="bg-slate-900/80 border border-red-500/30 p-3 rounded-lg text-sm flex flex-col gap-1 shadow-sm">
+                              <span className="truncate text-slate-300 font-medium" title={i.product_name}>{i.product_name}</span>
+                              <span className="font-mono text-red-400 font-bold text-lg">{stock} Kg</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-emerald-500/20 rounded-full">
+                        <CheckCircle2 size={24} className="text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-emerald-400 text-base">Saldos Validados com Sucesso!</p>
+                        <p className="text-sm text-emerald-400/80">Nenhum estoque negativo encontrado. O lançamento de rateio está liberado.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-8 flex justify-end">
               <button 
                 onClick={handleExport}
-                disabled={exporting}
-                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-all self-end"
+                disabled={exporting || !stocksVerified || hasNegativeStocks}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-10 py-4 rounded-xl font-bold flex items-center gap-3 shadow-xl shadow-emerald-600/20 transition-all text-lg"
               >
                 {exporting ? 'Comunicando Omie...' : 'Lançar Rateio e Custeio'}
               </button>

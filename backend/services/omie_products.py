@@ -171,7 +171,7 @@ def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo)
             "data": data_formatada,
             "quan": abs(saldo_negativo),
             "valor": 0, 
-            "motivo": "Ajuste para zerar estoque negativo pre-desossa",
+            "motivo": "AJU",
             "codigo_local_estoque": local_id
         }]
     }
@@ -180,7 +180,7 @@ def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo)
     except:
         pass
 
-def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_processo):
+def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_processo, local_id=0):
     url = "https://app.omie.com.br/api/v1/estoque/ajuste/"
     
     if isinstance(data_processo, str):
@@ -194,14 +194,9 @@ def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_pro
         
     org = current_org.get()
     
-    saldo_atual, local_id_consulta = consultar_posicao_estoque(produto_id, data_formatada)
-    local_id = obter_local_estoque_padrao(org.id)
-    
-    if local_id == 0 and local_id_consulta != 0:
-        local_id = local_id_consulta
-    
-    if saldo_atual < 0:
-        zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_atual)
+    # Fallback to local_id_padrao if local_id is 0
+    if local_id == 0:
+        local_id = obter_local_estoque_padrao(org.id)
         
     valor_total = quantidade * custo_unitario
         
@@ -214,7 +209,7 @@ def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_pro
             "data": data_formatada,
             "quan": quantidade,
             "valor": valor_total,
-            "motivo": "Entrada de Producao - Desossa",
+            "motivo": "PRO",
             "codigo_local_estoque": local_id
         }]
     }

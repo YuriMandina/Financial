@@ -25,6 +25,27 @@ class BoningRequest(BaseModel):
     carcass: CarcassInput
     cuts: Optional[List[CutInput]] = None
 
+class CheckStocksRequest(BaseModel):
+    date: str
+    product_ids: List[int]
+
+class FixStockItem(BaseModel):
+    product_id: int
+    local_id: int
+    saldo_negativo: float
+
+class FixStocksRequest(BaseModel):
+    date: str
+    items: List[FixStockItem]
+
+class ExportItemConfig(BaseModel):
+    product_id: int
+    local_id: int
+
+class ExportCmcRequest(BaseModel):
+    date: str
+    items: List[ExportItemConfig]
+
 class TemplateItemSchema(BaseModel):
     product_id: int
     expected_yield_percentage: float
@@ -279,7 +300,7 @@ async def calculate_apportionment(
 @router.post("/process/{process_id}/export-cmc")
 async def export_cmc(
     process_id: int,
-    date: str = None,
+    req: ExportCmcRequest,
     user: models.User = Depends(get_current_user_and_set_org),
     db: Session = Depends(get_db)
 ):
@@ -289,24 +310,54 @@ async def export_cmc(
     
     import time
     erros = []
+    
+    local_id_map = {item.product_id: item.local_id for item in req.items}
+    
     for item in process.items:
         omie_prod_id = item.product.omie_id
         novo_cmc = item.unit_cost
         peso_gerado = item.actual_weight
-        data_processo = date if date else process.created_at
+        data_processo = req.date if req.date else process.created_at
+        
+        local_id = local_id_map.get(omie_prod_id, 0)
         
         sucesso, msg = omie_products.lancar_entrada_estoque_omie(
             produto_id=omie_prod_id, 
             quantidade=peso_gerado, 
             custo_unitario=novo_cmc, 
-            data_processo=data_processo
+            data_processo=data_processo,
+            local_id=local_id
         )
         if not sucesso:
             erros.append(f"Produto {item.product.name}: {msg}")
             
-        time.sleep(3.0) # Proteção rigorosa contra rate limit do Omie (máx 4 req/segundo por IP/AppKey)
+        time.sleep(3.0) # Proteção rigorosa contra rate limit do Omie
             
     if erros:
         raise HTTPException(status_code=500, detail={"erros": erros})
         
     return {"message": "Exportado com sucesso para a Omie"}
+
+@router.post("/check-stocks")
+async def check_stocks(
+    req: CheckStocksRequest,
+    user: models.User = Depends(get_current_user_and_set_org)
+):
+    import time
+    results = {}
+    for pid in req.product_ids:
+        saldo, local_id = omie_products.consultar_posicao_estoque(pid, req.date)
+        results[pid] = {"saldo": saldo, "local_id": local_id}
+        time.sleep(1.0)
+    return {"stocks": results}
+
+@router.post("/fix-negative-stocks")
+async def fix_negative_stocks(
+    req: FixStocksRequest,
+    user: models.User = Depends(get_current_user_and_set_org)
+):
+    import time
+    for item in req.items:
+        omie_products.zerar_estoque_negativo(item.product_id, item.local_id, req.date, item.saldo_negativo)
+        time.sleep(1.0)
+    return {"message": "Estoques corrigidos"}
