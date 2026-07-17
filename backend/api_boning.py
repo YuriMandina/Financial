@@ -304,7 +304,7 @@ async def export_cmc(
         if not sucesso:
             erros.append(f"Produto {item.product.name}: {msg}")
             
-        time.sleep(1.0) # Proteção contra rate limit (4 req/segundo) do Omie
+        time.sleep(3.0) # Proteção rigorosa contra rate limit do Omie (máx 4 req/segundo por IP/AppKey)
             
     if erros:
         raise HTTPException(status_code=500, detail={"erros": erros})

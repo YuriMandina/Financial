@@ -169,7 +169,7 @@ def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo)
         "param": [{
             "id_prod": produto_id,
             "data": data_formatada,
-            "qtde": abs(saldo_negativo),
+            "quan": abs(saldo_negativo),
             "valor": 0, 
             "motivo": "Ajuste para zerar estoque negativo pre-desossa",
             "codigo_local_estoque": local_id
@@ -212,7 +212,7 @@ def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_pro
         "param": [{
             "id_prod": produto_id,
             "data": data_formatada,
-            "qtde": quantidade,
+            "quan": quantidade,
             "valor": valor_total,
             "motivo": "Entrada de Producao - Desossa",
             "codigo_local_estoque": local_id
