@@ -91,11 +91,14 @@ export default function DatePicker({ value, onChange, disabled }) {
   const wrapperRef = useRef(null);
 
   useEffect(() => {
-    if (open && selectedDate) {
-      setCurrentYear(selectedDate.getFullYear());
-      setCurrentMonth(selectedDate.getMonth());
+    if (open && value) {
+      const d = fromISO(value);
+      if (d) {
+        setCurrentYear(d.getFullYear());
+        setCurrentMonth(d.getMonth());
+      }
     }
-  }, [open, selectedDate]);
+  }, [open, value]);
 
   useEffect(() => {
     const handler = (e) => {
