@@ -3,7 +3,8 @@ const formatWeight = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDi
 const formatPerc = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(val) || 0);
 const formatMoney = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(val) || 0);
 
-import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2 } from 'lucide-react';
+import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2, CalendarDays } from 'lucide-react';
+import DatePicker from './DatePicker';
 
 export default function RateioECusteio({ token }) {
   const [activeTab, setActiveTab] = useState('sync');
@@ -935,13 +936,11 @@ function OperationTab({ token }) {
             </div>
             
             <div className="mt-6 flex justify-end items-center gap-4">
-              <div className="flex flex-col">
+              <div className="flex flex-col w-[258px]">
                 <label className="text-xs text-slate-400 font-medium mb-1">Data da Produção (ERP)</label>
-                <input 
-                  type="date" 
+                <DatePicker 
                   value={exportDate} 
-                  onChange={e => setExportDate(e.target.value)} 
-                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-3 text-white focus:border-emerald-500 outline-none"
+                  onChange={setExportDate}
                 />
               </div>
               <button 
