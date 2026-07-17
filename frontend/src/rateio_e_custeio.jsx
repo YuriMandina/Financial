@@ -4,6 +4,7 @@ const formatPerc = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigi
 const formatMoney = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(val) || 0);
 
 import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2, CalendarDays, Database, AlertTriangle } from 'lucide-react';
+import { NumericFormat } from 'react-number-format';
 import DatePicker from './DatePicker';
 
 export default function RateioECusteio({ token }) {
@@ -473,7 +474,14 @@ function TemplatesTab({ token }) {
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-slate-400 mb-1 block">Peso Total (Kg)</label>
-                        <input type="number" step="0.001" value={s.carcass_weight} onChange={e => updateSampleField(idx, 'carcass_weight', e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white focus:border-indigo-500 outline-none font-mono" />
+                        <NumericFormat
+                          thousandSeparator="."
+                          decimalSeparator=","
+                          decimalScale={3}
+                          value={s.carcass_weight}
+                          onValueChange={(values) => updateSampleField(idx, 'carcass_weight', values.floatValue)}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white focus:border-indigo-500 outline-none font-mono"
+                        />
                       </div>
                     </div>
                     
@@ -498,11 +506,27 @@ function TemplatesTab({ token }) {
                           )}
                           <div className="grid grid-cols-2 gap-3">
                             <div className="relative">
-                               <input type="number" step="0.001" placeholder="Kg" value={it.weight} onChange={e => updateCutValue(idx, itemIdx, 'weight', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-7" />
+                               <NumericFormat
+                                 thousandSeparator="."
+                                 decimalSeparator=","
+                                 decimalScale={3}
+                                 placeholder="Kg"
+                                 value={it.weight}
+                                 onValueChange={(values) => updateCutValue(idx, itemIdx, 'weight', values.floatValue)}
+                                 className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-7"
+                               />
                                <span className="absolute left-2 top-1.5 text-xs text-slate-500 font-mono">KG</span>
                             </div>
                             <div className="relative">
-                               <input type="number" step="0.001" placeholder="%" value={it.percentage} onChange={e => updateCutValue(idx, itemIdx, 'percentage', e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-6" />
+                               <NumericFormat
+                                 thousandSeparator="."
+                                 decimalSeparator=","
+                                 decimalScale={3}
+                                 placeholder="%"
+                                 value={it.percentage}
+                                 onValueChange={(values) => updateCutValue(idx, itemIdx, 'percentage', values.floatValue)}
+                                 className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white focus:border-indigo-500 outline-none font-mono pl-6"
+                               />
                                <span className="absolute left-2 top-1.5 text-xs text-slate-500 font-mono">%</span>
                             </div>
                           </div>
@@ -844,13 +868,29 @@ function OperationTab({ token }) {
             <div className="bg-slate-900/80 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden focus-within:border-indigo-500/60 transition-colors">
               <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
               <label className="text-xs text-slate-400 font-medium z-10 mb-1">Peso Total (Kg)</label>
-              <input type="number" step="0.001" value={carcassWeight} onChange={e => setCarcassWeight(e.target.value)} className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600" placeholder="Ex: 300.00" />
+              <NumericFormat
+                thousandSeparator="."
+                decimalSeparator=","
+                decimalScale={3}
+                value={carcassWeight}
+                onValueChange={(values) => setCarcassWeight(values.floatValue)}
+                className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600"
+                placeholder="Ex: 300,00"
+              />
             </div>
             
             <div className="bg-slate-900/80 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden focus-within:border-indigo-500/60 transition-colors">
               <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
               <label className="text-xs text-slate-400 font-medium z-10 mb-1">Preço / Kg (R$)</label>
-              <input type="number" step="0.001" value={carcassCost} onChange={e => setCarcassCost(e.target.value)} className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600" placeholder="Ex: 10.00" />
+              <NumericFormat
+                thousandSeparator="."
+                decimalSeparator=","
+                decimalScale={2}
+                value={carcassCost}
+                onValueChange={(values) => setCarcassCost(values.floatValue)}
+                className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600"
+                placeholder="Ex: 10,00"
+              />
             </div>
 
             <div className="bg-slate-900/80 border border-emerald-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden">
@@ -913,7 +953,15 @@ function OperationTab({ token }) {
                         <option value="">Selecione o Corte...</option>
                         {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
-                      <input type="number" step="0.001" placeholder="Peso (Kg)" value={mc.actual_weight} onChange={e => updateManualCut(idx, 'actual_weight', e.target.value)} className="w-24 bg-slate-900 border border-slate-700 rounded-md px-2 py-2 text-sm font-mono text-white focus:border-indigo-500" />
+                      <NumericFormat
+                        thousandSeparator="."
+                        decimalSeparator=","
+                        decimalScale={3}
+                        placeholder="Peso (Kg)"
+                        value={mc.actual_weight}
+                        onValueChange={(values) => updateManualCut(idx, 'actual_weight', values.floatValue)}
+                        className="w-24 bg-slate-900 border border-slate-700 rounded-md px-2 py-2 text-sm font-mono text-white focus:border-indigo-500"
+                      />
                       <button onClick={() => removeManualCut(idx)} className="text-red-400 hover:text-red-300 p-1"><Trash2 size={16}/></button>
                     </div>
                   ))}
@@ -1071,7 +1119,7 @@ function OperationTab({ token }) {
                           return (
                             <div key={i.product_id} className="bg-slate-900/80 border border-red-500/30 p-3 rounded-lg text-sm flex flex-col gap-1 shadow-sm">
                               <span className="truncate text-slate-300 font-medium" title={i.product_name}>{i.product_name}</span>
-                              <span className="font-mono text-red-400 font-bold text-lg">{stock} Kg</span>
+                              <span className="font-mono text-red-400 font-bold text-lg">{formatWeight(stock)} Kg</span>
                             </div>
                           );
                         })}
