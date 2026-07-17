@@ -129,6 +129,7 @@ export default function DatePicker({ value, onChange, disabled }) {
   return (
     <div ref={wrapperRef} className="relative w-full">
       <button
+        type="button"
         onClick={() => { if (!disabled) setOpen(o => !o); }}
         disabled={disabled}
         className={`
@@ -162,13 +163,13 @@ export default function DatePicker({ value, onChange, disabled }) {
         >
           <div className="p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between mb-2">
-              <button onClick={prevMonth} className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-200">
+              <button type="button" onClick={prevMonth} className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-200">
                 <ChevronLeft size={16} />
               </button>
               <span className="text-sm font-bold text-slate-200 px-2 capitalize">
                 {MESES[currentMonth]} {currentYear}
               </span>
-              <button onClick={nextMonth} className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-200">
+              <button type="button" onClick={nextMonth} className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-200">
                 <ChevronRight size={16} />
               </button>
             </div>
@@ -181,12 +182,14 @@ export default function DatePicker({ value, onChange, disabled }) {
 
             <div className="flex items-center justify-between pt-3 mt-2 border-t border-slate-800">
               <button
+                type="button"
                 onClick={() => { onChange(''); setOpen(false); }}
                 className="text-xs text-slate-500 hover:text-slate-300 transition-colors font-semibold"
               >
                 Limpar
               </button>
               <button
+                type="button"
                 onClick={setHoje}
                 className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-bold"
               >

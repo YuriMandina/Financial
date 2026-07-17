@@ -142,6 +142,14 @@ def obter_local_estoque_padrao(org_id):
     return 0
 
 def consultar_posicao_estoque(produto_id, data_formatada):
+    if isinstance(data_formatada, str) and "-" in data_formatada:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(data_formatada.replace("Z", "+00:00"))
+            data_formatada = dt.strftime("%d/%m/%Y")
+        except:
+            pass
+
     url = "https://app.omie.com.br/api/v1/estoque/consulta/"
     payload = {
         "call": "PosicaoEstoque",
@@ -154,13 +162,36 @@ def consultar_posicao_estoque(produto_id, data_formatada):
     }
     try:
         res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
+        if "faultstring" in res:
+            raise Exception(res["faultstring"])
+            
+        if "produtos" in res and res["produtos"]:
+            prod = res["produtos"][0]
+            if "saldo" in prod:
+                return float(prod["saldo"]), prod.get("codigo_local_estoque", 0)
+            if "locais" in prod and prod["locais"]:
+                local = prod["locais"][0]
+                if "saldo" in local:
+                    return float(local["saldo"]), local.get("codigo_local_estoque", 0)
+        
         if "saldo" in res:
-            return res["saldo"], res.get("codigo_local_estoque", 0)
+            return float(res["saldo"]), res.get("codigo_local_estoque", 0)
+            
+        print(f"Aviso: formato desconhecido na resposta: {res}")
     except Exception as e:
         print(f"Erro ao consultar estoque: {e}")
+        raise e
     return 0.0, 0
 
 def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo):
+    if isinstance(data_formatada, str) and "-" in data_formatada:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(data_formatada.replace("Z", "+00:00"))
+            data_formatada = dt.strftime("%d/%m/%Y")
+        except:
+            pass
+
     url = "https://app.omie.com.br/api/v1/estoque/ajuste/"
     payload = {
         "call": "IncluirAjusteEstoque",

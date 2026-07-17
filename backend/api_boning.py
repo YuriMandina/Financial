@@ -341,23 +341,34 @@ async def export_cmc(
 @router.post("/check-stocks")
 async def check_stocks(
     req: CheckStocksRequest,
-    user: models.User = Depends(get_current_user_and_set_org)
+    user: models.User = Depends(get_current_user_and_set_org),
+    db: Session = Depends(get_db)
 ):
     import time
     results = {}
-    for pid in req.product_ids:
-        saldo, local_id = omie_products.consultar_posicao_estoque(pid, req.date)
-        results[pid] = {"saldo": saldo, "local_id": local_id}
-        time.sleep(1.0)
+    try:
+        for pid in req.product_ids:
+            product = db.query(models.BoningProduct).filter_by(id=pid, organization_id=current_org.get().id).first()
+            if product and product.omie_id:
+                saldo, local_id = omie_products.consultar_posicao_estoque(product.omie_id, req.date)
+                results[pid] = {"saldo": saldo, "local_id": local_id}
+            else:
+                results[pid] = {"saldo": 0, "local_id": 0}
+            time.sleep(1.0)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return {"stocks": results}
 
 @router.post("/fix-negative-stocks")
 async def fix_negative_stocks(
     req: FixStocksRequest,
-    user: models.User = Depends(get_current_user_and_set_org)
+    user: models.User = Depends(get_current_user_and_set_org),
+    db: Session = Depends(get_db)
 ):
     import time
     for item in req.items:
-        omie_products.zerar_estoque_negativo(item.product_id, item.local_id, req.date, item.saldo_negativo)
-        time.sleep(1.0)
+        product = db.query(models.BoningProduct).filter_by(id=item.product_id, organization_id=current_org.get().id).first()
+        if product and product.omie_id:
+            omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req.date, item.saldo_negativo)
+            time.sleep(1.0)
     return {"message": "Estoques corrigidos"}

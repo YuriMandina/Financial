@@ -732,7 +732,8 @@ function OperationTab({ token }) {
         setHasNegativeStocks(hasNeg);
         setStocksVerified(true);
       } else {
-        alert("Erro ao checar estoques no Omie.");
+        const err = await res.json();
+        alert(`Erro ao checar estoques no Omie: ${err.detail || 'Desconhecido'}`);
       }
     } catch (e) {
       alert("Erro de rede ao verificar estoques.");
