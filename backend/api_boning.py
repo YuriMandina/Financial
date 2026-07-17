@@ -33,6 +33,7 @@ class FixStockItem(BaseModel):
     product_id: int
     local_id: int
     saldo_negativo: float
+    unit_cost: float = 0.0
 
 class FixStocksRequest(BaseModel):
     date: str
@@ -321,6 +322,8 @@ async def export_cmc(
         
         local_id = local_id_map.get(omie_prod_id, 0)
         
+        print(f"[EXPORT-CMC] Produto {item.product.name} (ID: {omie_prod_id}) - Qtd: {peso_gerado}, CMC_Lido_DB: {novo_cmc}, Local: {local_id}")
+        
         sucesso, msg = omie_products.lancar_entrada_estoque_omie(
             produto_id=omie_prod_id, 
             quantidade=peso_gerado, 
@@ -370,7 +373,7 @@ async def fix_negative_stocks(
         for item in req.items:
             product = db.query(models.BoningProduct).filter_by(id=item.product_id, organization_id=current_org.get().id).first()
             if product and product.omie_id:
-                omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req.date, item.saldo_negativo)
+                omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req.date, item.saldo_negativo, item.unit_cost)
                 time.sleep(1.0)
         return {"message": "Estoques corrigidos"}
     except Exception as e:

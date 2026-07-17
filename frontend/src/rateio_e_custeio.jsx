@@ -772,11 +772,15 @@ function OperationTab({ token }) {
     try {
       const itemsToFix = Object.entries(stocksData)
         .filter(([_, data]) => data.saldo < 0)
-        .map(([pid, data]) => ({
-           product_id: parseInt(pid),
-           local_id: data.local_id,
-           saldo_negativo: data.saldo
-        }));
+        .map(([pid, data]) => {
+           const calcItem = calculationResult.items.find(i => i.product_id === parseInt(pid));
+           return {
+             product_id: parseInt(pid),
+             local_id: data.local_id,
+             saldo_negativo: data.saldo,
+             unit_cost: calcItem ? calcItem.unit_cost : 0.01
+           };
+        });
       
       const res = await fetch('http://localhost:8000/api/boning/fix-negative-stocks', {
         method: 'POST',
@@ -788,10 +792,11 @@ function OperationTab({ token }) {
         await handleCheckStocks();
         alert("Estoques negativos ajustados para 0,00 com sucesso!");
       } else {
-        alert("Erro ao corrigir estoques no Omie.");
+        const err = await res.json();
+        alert(`Erro ao ajustar estoques: ${err.detail || 'Desconhecido'}`);
       }
     } catch (e) {
-      alert("Erro de rede ao corrigir estoques.");
+        alert("Erro de rede ao corrigir estoques.");
     } finally {
       setFixingStocks(false);
     }

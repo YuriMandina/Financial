@@ -183,7 +183,7 @@ def consultar_posicao_estoque(produto_id, data_formatada):
         raise e
     return 0.0, 0
 
-def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo):
+def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo, unit_cost=0.0):
     if isinstance(data_formatada, str) and "-" in data_formatada:
         try:
             from datetime import datetime
@@ -201,9 +201,10 @@ def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo)
             "id_prod": produto_id,
             "data": data_formatada,
             "quan": abs(saldo_negativo),
-            "valor": 0, 
-            "motivo": "AJU",
-            "codigo_local_estoque": local_id
+            "valor": abs(saldo_negativo) * unit_cost, 
+            "motivo": "INV",
+            "codigo_local_estoque": local_id,
+            "tipo": "ENT"
         }]
     }
     try:
@@ -249,15 +250,21 @@ def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_pro
             "data": data_formatada,
             "quan": quantidade,
             "valor": valor_total,
-            "motivo": "PRO",
-            "codigo_local_estoque": local_id
+            "motivo": "INV",
+            "codigo_local_estoque": local_id,
+            "tipo": "ENT"
         }]
     }
     
     try:
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
-        if "faultstring" in res:
-            return False, res["faultstring"]
-        return True, "Entrada registrada com sucesso"
+        print(f"[OMIE_ENTRADA] Produto: {produto_id}, Qtd: {quantidade}, Custo_Unit: {custo_unitario}, Valor_Total: {valor_total}")
+        print(f"[OMIE_ENTRADA] Payload: {payload}")
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        res_data = res.json()
+        print(f"[OMIE_ENTRADA] Resposta: {res_data}")
+        if "faultstring" in res_data:
+            return False, res_data["faultstring"]
+        return True, "Entrada lançada com sucesso"
     except Exception as e:
+        print(f"[OMIE_ENTRADA] Erro: {str(e)}")
         return False, str(e)
