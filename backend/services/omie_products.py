@@ -207,9 +207,18 @@ def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo)
         }]
     }
     try:
-        requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-    except:
-        pass
+        print(f"[OMIE] Zerando estoque do produto {produto_id}. Payload: {payload}")
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        res_data = res.json()
+        print(f"[OMIE] Resposta zerar estoque: {res_data}")
+        
+        if "faultstring" in res_data:
+            raise Exception(f"Omie recusou ajuste: {res_data['faultstring']}")
+            
+        return res_data
+    except Exception as e:
+        print(f"[OMIE] Erro ao zerar estoque do produto {produto_id}: {str(e)}")
+        raise e
 
 def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_processo, local_id=0):
     url = "https://app.omie.com.br/api/v1/estoque/ajuste/"

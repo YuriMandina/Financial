@@ -366,9 +366,12 @@ async def fix_negative_stocks(
     db: Session = Depends(get_db)
 ):
     import time
-    for item in req.items:
-        product = db.query(models.BoningProduct).filter_by(id=item.product_id, organization_id=current_org.get().id).first()
-        if product and product.omie_id:
-            omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req.date, item.saldo_negativo)
-            time.sleep(1.0)
-    return {"message": "Estoques corrigidos"}
+    try:
+        for item in req.items:
+            product = db.query(models.BoningProduct).filter_by(id=item.product_id, organization_id=current_org.get().id).first()
+            if product and product.omie_id:
+                omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req.date, item.saldo_negativo)
+                time.sleep(1.0)
+        return {"message": "Estoques corrigidos"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
