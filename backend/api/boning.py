@@ -338,6 +338,9 @@ async def export_cmc(
             if msg_or_id:
                 sucessos_ids.append(msg_or_id)
             
+            # Forçar a atualização do CMC no cadastro do produto Omie
+            omie_products.atualizar_custo_produto(omie_prod_id, novo_cmc)
+            
         time.sleep(3.0) # Proteção rigorosa contra rate limit do Omie
             
     if erros:

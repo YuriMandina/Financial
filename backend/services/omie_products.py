@@ -201,8 +201,9 @@ def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo,
             "id_prod": produto_id,
             "data": data_formatada,
             "quan": abs(saldo_negativo),
-            "valor": abs(saldo_negativo) * unit_cost, 
-            "motivo": "INV",
+            "valor": unit_cost, 
+            "motivo": "OPE",
+            "origem": "AJU",
             "codigo_local_estoque": local_id,
             "tipo": "ENT"
         }]
@@ -249,8 +250,9 @@ def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_pro
             "id_prod": produto_id,
             "data": data_formatada,
             "quan": quantidade,
-            "valor": valor_total,
-            "motivo": "INV",
+            "valor": custo_unitario,
+            "motivo": "OPE",
+            "origem": "AJU",
             "codigo_local_estoque": local_id,
             "tipo": "ENT"
         }]
