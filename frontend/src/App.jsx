@@ -18,6 +18,12 @@ import ContasView from './views/Contas/ContasView';
 import CurvaABCView from './views/CurvaABC/CurvaABCView';
 import DashboardView from './views/Dashboard/DashboardView';
 import CartaoCliente from './components/common/CartaoCliente';
+import Sidebar from './components/layout/Sidebar';
+import Topbar from './components/layout/Topbar';
+import ModalRecebimento from './components/modals/ModalRecebimento';
+import ModalHistoricoRecibos from './components/modals/ModalHistoricoRecibos';
+import ModalSnapshots from './components/modals/ModalSnapshots';
+
 
 
 // --- COMPONENTE PRINCIPAL ---
@@ -126,8 +132,6 @@ function App() {
       handleBuscarDados(false);
     }
   }, [menuAtivo]);
-
-  const [dropClienteAberto, setDropClienteAberto] = useState(false);
 
   const carregarSnapshots = async () => {
     try {
@@ -941,15 +945,7 @@ function App() {
             : menuAtivo === 'desossa' ? 'Rateio e Custeio'
             : 'Previsão de Pagamentos';
 
-  const SidebarItem = ({ id, icone: Icon, texto }) => (
-    <button onClick={() => { setMenuAtivo(id); setContasBrutas([]); setSelecionados([]); setClienteFiltro(''); setContaFiltro('TODAS'); setPaginaAtual(1); }}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 print:hidden ${menuAtivo === id ? 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-400 border border-indigo-500/30 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
-        }`}>
-      <Icon size={20} className={menuAtivo === id ? 'text-indigo-400' : ''} />
-      <span className="font-medium text-left text-sm">{texto}</span>
-    </button>
-  );
-
+  
   // Roteamento manual básico
   const path = window.location.pathname;
 
@@ -963,26 +959,7 @@ function App() {
         <div className="flex h-screen bg-slate-950 font-sans overflow-hidden print:!block print:bg-white print:text-slate-900 print:!h-auto print:!overflow-visible">
 
       {/* SIDEBAR */}
-      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20 print:hidden">
-        <div className="h-20 shrink-0 flex items-center px-6 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <TrendingUp size={18} className="text-white" />
-            </div>
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">Financial</h1>
-          </div>
-        </div>
-        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-          <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Relatórios</p>
-          <SidebarItem id="dashboard" icone={LayoutDashboard} texto="Visão Geral" />
-          <SidebarItem id="contas-pagar" icone={FileText} texto="Contas a Pagar (Previsão)" />
-          <SidebarItem id="contas-pagas" icone={Database} texto="Contas Pagas (Realizado)" />
-          <SidebarItem id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênio)" />
-          <SidebarItem id="curva-abc" icone={TrendingUp} texto="Curva ABC e Lucratividade" />
-          <SidebarItem id="dre-gerencial" icone={Target} texto="DRE Gerencial" />
-          <SidebarItem id="desossa" icone={PieChart} texto="Rateio e Custeio" />
-        </nav>
-      </aside>
+      <Sidebar menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} />
 
       {/* ÁREA PRINCIPAL */}
       <main className={`flex-1 flex flex-col relative overflow-y-auto overflow-x-hidden print:!block print:!h-auto print:!overflow-visible ${reciboGerado || reciboCobranca ? 'print:hidden' : ''}`}>
@@ -990,30 +967,7 @@ function App() {
         <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden"></div>
         <div className="absolute bottom-[-10%] right-[-5%] w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden"></div>
 
-        <header className="h-20 shrink-0 bg-slate-900/95 border-b border-slate-800 flex items-center justify-end px-8 z-50 sticky top-0 print:hidden">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setMenuAtivo('configuracoes')}
-              className={`p-2 rounded-xl transition-all ${menuAtivo === 'configuracoes' ? 'bg-indigo-600/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
-              title="Configurações"
-            >
-              <SettingsIcon size={20} />
-            </button>
-            <button
-              onClick={handleLogout}
-              className="p-2 rounded-xl text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
-              title="Sair da Conta"
-            >
-              <LogOut size={20} />
-            </button>
-            <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-xl border border-slate-800 shadow-inner">
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30">
-                <Users size={16} className="text-indigo-400" />
-              </div>
-              <p className="text-sm font-medium text-slate-200 hidden md:block">{userName || 'Carregando...'}</p>
-            </div>
-          </div>
-        </header>
+        <Topbar menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} userName={userName} handleLogout={handleLogout} handleAbrirSnapshots={handleAbrirSnapshots} />
 
         
         {menuAtivo === 'configuracoes' ? (
@@ -1103,160 +1057,10 @@ function App() {
           {/* ================================================================ */}
           <ContasView menuAtivo={menuAtivo} carregandoTela={carregandoTela} contasBrutas={contasBrutas} totalGeral={totalGeral} clienteFiltro={clienteFiltro} setClienteFiltro={setClienteFiltro} contaFiltro={contaFiltro} setContaFiltro={setContaFiltro} listaBancos={listaBancos} isolarABC={isolarABC} paginaAtual={paginaAtual} setPaginaAtual={setPaginaAtual} totalItems={totalItems} indiceInicio={indiceInicio} indiceFim={indiceFim} registrosPorPagina={registrosPorPagina} setRegistrosPorPagina={setRegistrosPorPagina} contasFiltradas={contasFiltradas} gruposRecebimentos={gruposRecebimentos} selecionados={selecionados} toggleSelecao={toggleSelecao} toggleTodosCliente={toggleTodosCliente} abrirModalLote={abrirModalLote} gerarCobrancaLote={gerarCobrancaLote} formatarDataComDia={formatarDataComDia} converterDataBrParaDate={converterDataBrParaDate} setModalBaixa={setModalBaixa} handleCarregarHistoricoRecibos={handleCarregarHistoricoRecibos} setModalHistoricoRecibosAberto={setModalHistoricoRecibosAberto} contasCorrentesDisponiveis={contasCorrentesDisponiveis} handleImprimir={handleImprimir} dadosAgrupados={dadosAgrupados} metricsVencimento={metricsVencimento} resumoCategorias={resumoCategorias} totalPaginas={totalPaginas} />
         </div>
-
-        {/* MODAL 1: INFORMADOR DE PAGAMENTO */}
-        {modalBaixa.aberto && (
-          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center print:hidden p-4">
-            <div className="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-5xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
-              <h3 className="text-2xl font-bold text-white mb-1">Confirmação de Recebimento</h3>
-              <p className="text-slate-400 mb-6">Ajuste os valores pagos para o cliente <span className="text-indigo-400 font-bold">{modalBaixa.cliente}</span></p>
-
-              {(() => {
-                const { totalOriginal, totalPago } = calcularTotaisModal();
-                return (
-                  <>
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                        <p className="text-sm text-slate-400 font-medium">Qtd. Notas Selecionadas</p>
-                        <p className="text-xl font-bold text-white">{modalBaixa.contas.length} nota(s)</p>
-                      </div>
-                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 flex justify-between items-center">
-                        <div>
-                          <p className="text-sm text-slate-400 font-medium">Subtotal Original</p>
-                          <p className="text-xl font-bold text-slate-300">R$ {totalOriginal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-800/80 p-5 rounded-xl border border-slate-600 mb-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Zap size={18} className="text-amber-400" />
-                        <h4 className="text-white font-bold text-sm uppercase tracking-wider">Automação de Rateio (Cascata / FIFO)</h4>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                        <div className="col-span-1">
-                          <label className="block text-xs font-medium text-slate-400 mb-1">Desc. Taxa Cartão</label>
-                          <div className="flex bg-slate-900 border border-slate-600 rounded-lg overflow-hidden focus-within:border-indigo-500">
-                            <select value={descGlobalTipo} onChange={e => setDescGlobalTipo(e.target.value)} className="bg-slate-700 text-white px-2 py-2 text-sm focus:outline-none border-none">
-                              <option value="VALOR">R$</option>
-                              <option value="PERCENTUAL">%</option>
-                            </select>
-                            <input type="number" min="0" placeholder="Ex: 1.99" value={descGlobalValor} onChange={e => setDescGlobalValor(e.target.value)} className="w-full bg-transparent px-2 py-2 text-white outline-none text-sm" />
-                          </div>
-                        </div>
-                        <div className="col-span-1">
-                          <label className="block text-xs font-medium text-slate-400 mb-1">Juros / Multa</label>
-                          <div className="flex bg-slate-900 border border-slate-600 rounded-lg overflow-hidden focus-within:border-indigo-500">
-                            <select value={jurosGlobalTipo} onChange={e => setJurosGlobalTipo(e.target.value)} className="bg-slate-700 text-white px-2 py-2 text-sm focus:outline-none border-none">
-                              <option value="VALOR">R$</option>
-                              <option value="PERCENTUAL">%</option>
-                            </select>
-                            <input type="number" min="0" placeholder="Ex: 5.00" value={jurosGlobalValor} onChange={e => setJurosGlobalValor(e.target.value)} className="w-full bg-transparent px-2 py-2 text-white outline-none text-sm" />
-                          </div>
-                        </div>
-                        <div className="col-span-1">
-                          <label className="block text-xs font-medium text-emerald-400 mb-1">Valor Físico Recebido (R$)</label>
-                          <div className="flex bg-slate-900 border border-emerald-500/50 rounded-lg overflow-hidden focus-within:border-emerald-500">
-                            <span className="bg-emerald-900/30 text-emerald-400 px-3 py-2 text-sm font-bold">R$</span>
-                            <input type="number" min="0" placeholder="Ex: 500.00" value={valorTotalRecebido} onChange={e => setValorTotalRecebido(e.target.value)} className="w-full bg-transparent px-2 py-2 text-emerald-400 font-bold outline-none text-sm placeholder-emerald-800" />
-                          </div>
-                        </div>
-                        <div className="col-span-1">
-                          <button onClick={aplicarRateioGlobal} className="w-full bg-slate-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold transition-colors border border-slate-600 hover:border-indigo-500 h-[38px] text-sm flex justify-center items-center gap-2">
-                            <ArrowDownToLine size={16} /> Distribuir
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mb-6 overflow-x-auto rounded-xl border border-slate-700">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
-                            <th className="py-3 px-4 w-28">Vencimento</th>
-                            <th className="py-3 px-4">Nota / Parcela</th>
-                            <th className="py-3 px-4 text-right">Saldo Devedor</th>
-                            <th className="py-3 px-4 text-right w-28">Desc (R$)</th>
-                            <th className="py-3 px-4 text-right w-28">Juros (R$)</th>
-                            <th className="py-3 px-4 text-right w-32">A Pagar (R$)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="text-sm">
-                          {[...modalBaixa.contas].sort((a, b) => converterDataBrParaDate(a.data_previsao_br) - converterDataBrParaDate(b.data_previsao_br)).map(conta => {
-                            const det = detalhesPagamento[conta.codigo_lancamento] || { valor: '', desconto: '', juros: '' };
-                            const isZerada = det.valor === 0 || det.valor === '';
-
-                            return (
-                              <tr key={conta.codigo_lancamento} className={`border-b border-slate-700/50 hover:bg-slate-800/30 transition-colors ${isZerada ? 'opacity-50' : ''}`}>
-                                <td className="py-2 px-4 text-indigo-300 font-mono text-xs">{formatarDataComDia(conta.data_previsao_br)}</td>
-                                <td className="py-2 px-4 text-slate-300">{conta.numero_documento_fiscal} - {conta.numero_parcela}</td>
-                                <td className="py-2 px-4 text-right text-slate-400">R$ {conta.saldo_devedor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                                <td className="py-2 px-4 text-right">
-                                  <input
-                                    type="number"
-                                    min="0" step="0.01"
-                                    value={det.desconto}
-                                    onChange={(e) => handleAlterarDetalhe(conta.codigo_lancamento, 'desconto', e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-right outline-none focus:border-indigo-500"
-                                  />
-                                </td>
-                                <td className="py-2 px-4 text-right">
-                                  <input
-                                    type="number"
-                                    min="0" step="0.01"
-                                    value={det.juros}
-                                    onChange={(e) => handleAlterarDetalhe(conta.codigo_lancamento, 'juros', e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-right outline-none focus:border-indigo-500"
-                                  />
-                                </td>
-                                <td className="py-2 px-4 text-right">
-                                  <input
-                                    type="number"
-                                    min="0" step="0.01"
-                                    value={det.valor}
-                                    onChange={(e) => handleAlterarDetalhe(conta.codigo_lancamento, 'valor', e.target.value)}
-                                    className={`w-full border rounded px-2 py-1 font-bold text-right outline-none ${isZerada ? 'bg-slate-900 border-slate-700 text-slate-500' : 'bg-indigo-900/50 border-indigo-500/50 text-emerald-400 focus:border-emerald-500'}`}
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div className="bg-indigo-900/30 p-4 rounded-xl border border-indigo-500/30 mb-6 flex justify-between items-center">
-                      <p className="text-indigo-200 font-medium">Total do Recebimento</p>
-                      <p className="text-3xl font-black text-emerald-400">R$ {totalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-6 mb-8">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">Conta de Destino</label>
-                        <select value={contaDestino} onChange={e => setContaDestino(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm">
-                          <option value="">Selecione...</option>
-                          {listaBancos.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">Data</label>
-                        <input type="date" max={getHojeBR()} value={dataPagamento} onChange={e => setDataPagamento(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm [color-scheme:dark]" />
-                      </div>
-                    </div>
-                  </>
-                )
-              })()}
-
-              <div className="flex gap-4">
-                <button onClick={() => setModalBaixa({ aberto: false, cliente: '', contas: [] })} className="flex-1 px-4 py-3 rounded-lg font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition">Cancelar</button>
-                <button onClick={handleEfetuarBaixaLote} disabled={processandoBaixa || !contaDestino || !dataPagamento} className="flex-1 px-4 py-3 rounded-lg font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition disabled:opacity-50 flex justify-center items-center gap-2">
-                  {processandoBaixa ? <><Loader2 size={18} className="animate-spin" /> Processando...</> : 'Confirmar Recebimento'}
-                </button>
-              </div>
-            </div>
-          </div>
+          </>
         )}
 
+        <ModalRecebimento modalBaixa={modalBaixa} setModalBaixa={setModalBaixa} calcularTotaisModal={calcularTotaisModal} descGlobalTipo={descGlobalTipo} setDescGlobalTipo={setDescGlobalTipo} descGlobalValor={descGlobalValor} setDescGlobalValor={setDescGlobalValor} jurosGlobalTipo={jurosGlobalTipo} setJurosGlobalTipo={setJurosGlobalTipo} jurosGlobalValor={jurosGlobalValor} setJurosGlobalValor={setJurosGlobalValor} valorTotalRecebido={valorTotalRecebido} setValorTotalRecebido={setValorTotalRecebido} aplicarRateioGlobal={aplicarRateioGlobal} detalhesPagamento={detalhesPagamento} handleAlterarDetalhe={handleAlterarDetalhe} contaDestino={contaDestino} setContaDestino={setContaDestino} listaBancos={listaBancos} dataPagamento={dataPagamento} setDataPagamento={setDataPagamento} processandoBaixa={processandoBaixa} handleEfetuarBaixaLote={handleEfetuarBaixaLote} />
         {/* MODAL 2: RECIBO DE PAGAMENTO (TELA DE SUCESSO) */}
         {reciboGerado && (
           <div className="fixed inset-0 z-[100] bg-slate-900/90 flex items-center justify-center p-4 print:p-0 print:bg-white print:block overflow-y-auto">
@@ -1436,198 +1240,9 @@ function App() {
             </div>
           </div>
         )}
-        {/* MODAL HISTORICO DE RECIBOS */}
-        {modalHistoricoRecibosAberto && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-              <div className="p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:justify-between sm:items-center bg-slate-900 gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">Histórico de Recibos</h2>
-                  <p className="text-sm text-slate-400 font-medium">Consulte, imprima ou desfaça recebimentos anteriores</p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex bg-slate-800/50 border border-white/[0.05] rounded-xl p-1 shadow-sm gap-2">
-                    <input 
-                      type="text" 
-                      placeholder="Cliente..." 
-                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none w-32 md:w-48"
-                      value={filtroHistoricoCliente}
-                      onChange={(e) => setFiltroHistoricoCliente(e.target.value)}
-                    />
-                    <input 
-                      type="date" 
-                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none [color-scheme:dark]"
-                      value={filtroHistoricoData}
-                      onChange={(e) => setFiltroHistoricoData(e.target.value)}
-                    />
-                  </div>
-                  <button onClick={() => setModalHistoricoRecibosAberto(false)} className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400">
-                    <X size={24} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-6 overflow-y-auto bg-slate-950 flex-1">
-                <div className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-800/50 border-b border-slate-800">
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">ID</th>
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Cliente</th>
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Data Pgto</th>
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Valor Total</th>
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {carregandoHistorico ? (
-                        <tr><td colSpan="5" className="text-center py-8 text-slate-400"><Loader2 className="animate-spin mx-auto" /></td></tr>
-                      ) : (
-                        historicoRecibos.filter(r => {
-                          const matchCli = r.cliente.toLowerCase().includes(filtroHistoricoCliente.toLowerCase());
-                          const dataFiltroBr = filtroHistoricoData ? filtroHistoricoData.split('-').reverse().join('/') : '';
-                          const matchData = dataFiltroBr ? r.data_pagamento === dataFiltroBr : true;
-                          return matchCli && matchData;
-                        }).map(rec => (
-                          <tr key={rec.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                            <td className="px-4 py-3 text-sm text-slate-400 font-medium">#{rec.id}</td>
-                            <td className="px-4 py-3 text-sm text-slate-300 font-bold">{rec.cliente}</td>
-                            <td className="px-4 py-3 text-sm text-slate-400">{rec.data_pagamento}</td>
-                            <td className="px-4 py-3 text-sm text-emerald-400 font-bold">R$ {rec.totalPago.toLocaleString('pt-BR', {minimumFractionDigits:2})}</td>
-                            <td className="px-4 py-3 text-sm text-right flex justify-end gap-2">
-                              <button onClick={() => handleDesfazerBaixa(rec)} className="bg-red-500/10 text-red-400 hover:bg-red-500/20 px-3 py-1.5 rounded font-bold text-xs transition-colors flex items-center gap-1">
-                                <RotateCcw size={14} /> Desfazer
-                              </button>
-                              <button onClick={() => { setReciboGerado(rec); setModalHistoricoRecibosAberto(false); }} className="bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 px-3 py-1.5 rounded font-bold text-xs transition-colors flex items-center gap-1">
-                                <Printer size={14} /> Abrir Recibo
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                      {!carregandoHistorico && historicoRecibos.length === 0 && (
-                        <tr>
-                          <td colSpan="5" className="px-4 py-8 text-center text-slate-400 font-medium">Nenhum recibo salvo.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL SNAPSHOTS */}
-        {modalSnapshotsAberto && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-              <div className="p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:justify-between sm:items-center bg-slate-900 gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">Base de Dados Sincronizada</h2>
-                  <p className="text-sm text-slate-400 font-medium">Gerencie o histórico de dados já importados por dia</p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="bg-slate-800/50 border border-white/[0.05] rounded-xl p-1 shadow-sm">
-                    <DateRangePicker
-                      startValue={modalDataInicial}
-                      endValue={modalDataFinal}
-                      onStartChange={(val) => { setModalDataInicial(val); setPaginaSnapshots(1); }}
-                      onEndChange={(val) => { setModalDataFinal(val); setPaginaSnapshots(1); }}
-                    />
-                  </div>
-                  <button onClick={() => setModalSnapshotsAberto(false)} className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400">
-                    <X size={24} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-6 overflow-y-auto bg-slate-950 flex-1">
-                <div className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-800/50 border-b border-slate-800">
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">ID</th>
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Relatório</th>
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Data Ref.</th>
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase">Sincronizado Em</th>
-                        <th className="px-4 py-3 text-xs font-bold text-slate-400 uppercase text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {snapshotsPaginados.map(snap => (
-                        <tr key={snap.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                          <td className="px-4 py-3 text-sm text-slate-400 font-medium">{snap.id}</td>
-                          <td className="px-4 py-3 text-sm text-slate-300 font-bold">{snap.tipo_relatorio}</td>
-                          <td className="px-4 py-3 text-sm text-indigo-400 font-bold">{snap.data_referencia}</td>
-                          <td className="px-4 py-3 text-sm text-slate-500">{snap.created_at}</td>
-                          <td className="px-4 py-3 text-sm text-right flex justify-end gap-2">
-                            <button onClick={() => handleDeletarSnapshot(snap.id)} className="bg-red-500/10 text-red-400 hover:bg-red-500/20 px-3 py-1.5 rounded font-bold text-xs transition-colors">Excluir</button>
-                            <button onClick={() => handleResincronizarSnapshot(snap)} className="bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 px-3 py-1.5 rounded font-bold text-xs transition-colors flex items-center gap-1">
-                              <RotateCcw size={14} /> Resincronizar
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {snapshotsPaginados.length === 0 && (
-                        <tr>
-                          <td colSpan="5" className="px-4 py-8 text-center text-slate-400 font-medium">Nenhum dado sincronizado encontrado para este relatório.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {snapshotsFiltrados.length > 0 && (
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 bg-slate-900 p-4 rounded-xl shadow-lg border border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-slate-400">Mostrar</span>
-                      <select 
-                        className="border border-slate-700 rounded p-1 text-sm text-slate-300 bg-slate-800 outline-none"
-                        value={registrosPorPaginaSnapshots}
-                        onChange={(e) => {
-                          setRegistrosPorPaginaSnapshots(Number(e.target.value));
-                          setPaginaSnapshots(1);
-                        }}
-                      >
-                        <option value={10}>10</option>
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                      </select>
-                      <span className="text-sm text-slate-400">por página</span>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm font-medium text-slate-400">
-                        Página {paginaSnapshots} de {totalPaginasSnapshots}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setPaginaSnapshots(p => Math.max(1, p - 1))}
-                          disabled={paginaSnapshots === 1}
-                          className="p-1.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <ChevronLeft size={16} />
-                        </button>
-                        <button
-                          onClick={() => setPaginaSnapshots(p => Math.min(totalPaginasSnapshots, p + 1))}
-                          disabled={paginaSnapshots === totalPaginasSnapshots}
-                          className="p-1.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <ChevronRight size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-        </>
-        )}
-      </main>
+        <ModalHistoricoRecibos modalHistoricoRecibosAberto={modalHistoricoRecibosAberto} setModalHistoricoRecibosAberto={setModalHistoricoRecibosAberto} historicoRecibos={historicoRecibos} filtroHistoricoCliente={filtroHistoricoCliente} setFiltroHistoricoCliente={setFiltroHistoricoCliente} filtroHistoricoData={filtroHistoricoData} setFiltroHistoricoData={setFiltroHistoricoData} carregandoHistorico={carregandoHistorico} handleDesfazerBaixa={handleDesfazerBaixa} setReciboGerado={setReciboGerado} />
+        <ModalSnapshots modalSnapshotsAberto={modalSnapshotsAberto} setModalSnapshotsAberto={setModalSnapshotsAberto} paginaSnapshots={paginaSnapshots} setPaginaSnapshots={setPaginaSnapshots} registrosPorPaginaSnapshots={registrosPorPaginaSnapshots} setRegistrosPorPaginaSnapshots={setRegistrosPorPaginaSnapshots} modalDataInicial={modalDataInicial} setModalDataInicial={setModalDataInicial} modalDataFinal={modalDataFinal} setModalDataFinal={setModalDataFinal} handleDeletarSnapshot={handleDeletarSnapshot} handleResincronizarSnapshot={handleResincronizarSnapshot} snapshotsPaginados={snapshotsPaginados} totalPaginasSnapshots={totalPaginasSnapshots} totalSnapshots={totalSnapshots} />
+        </main>
     </div>
       )}
     </>
