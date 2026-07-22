@@ -5,7 +5,7 @@ const formatMoney = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDig
 
 import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2, CalendarDays, Database, AlertTriangle } from 'lucide-react';
 import { NumericFormat } from 'react-number-format';
-import DatePicker from './DatePicker';
+import DatePicker from '../../components/common/DatePicker';
 
 export default function RateioECusteio({ token }) {
   const [activeTab, setActiveTab] = useState('sync');

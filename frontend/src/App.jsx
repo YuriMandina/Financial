@@ -6,12 +6,12 @@ import {
   CheckSquare, Square, Calculator, Zap, ArrowDownToLine, ChevronLeft, ChevronRight,
   Receipt, Copy, RotateCcw, X, Target, LogOut, History, PieChart
 } from 'lucide-react';
-import RateioECusteio from './rateio_e_custeio';
-import DateRangePicker from './DateRangePicker';
-import { AuthScreen } from './Auth';
-import { VerifyEmail } from './VerifyEmail';
-import { Settings } from './Settings';
-import { DreGerencial } from './DreGerencial';
+import RateioECusteio from './views/RateioCusteio/RateioCusteioView';
+import DateRangePicker from './components/common/DateRangePicker';
+import { AuthScreen } from './views/Auth/Auth';
+import { VerifyEmail } from './views/Auth/VerifyEmail';
+import { Settings } from './views/Settings/Settings';
+import { DreGerencial } from './views/DreGerencial/DreGerencialView';
 import { converterDataBrParaDate, formatarDataComDia } from './utils/formatters';
 
 import ContasView from './views/Contas/ContasView';
@@ -1097,6 +1097,7 @@ function App() {
           {/* TELA: DASHBOARD (VISÃO GERAL)                                    */}
           {/* ================================================================ */}
           {menuAtivo === 'dashboard' && <DashboardView carregandoTela={carregandoTela} dashboardData={dashboardData} />}
+          <CurvaABCView resumoCurvaAbc={resumoCurvaAbc} dataInicial={dataInicial} dataFinal={dataFinal} isolarABC={isolarABC} setIsolarABC={setIsolarABC} familiasList={familiasList} familiasFiltro={familiasFiltro} setFamiliasFiltro={setFamiliasFiltro} classeAbcFiltro={classeAbcFiltro} setClasseAbcFiltro={setClasseAbcFiltro} dropFamiliaAberto={dropFamiliaAberto} setDropFamiliaAberto={setDropFamiliaAberto} dropClasseAberto={dropClasseAberto} setDropClasseAberto={setDropClasseAberto} menuAtivo={menuAtivo} carregandoTela={carregandoTela} curvaAbcProcessada={curvaAbcProcessada} contasBrutas={contasBrutas} clienteFiltro={clienteFiltro} setClienteFiltro={setClienteFiltro} setPaginaAtual={setPaginaAtual} setRegistrosPorPagina={setRegistrosPorPagina} />
           {/* ================================================================ */}
           {/* TELAS GENÉRICAS (contas-pagar, contas-pagas, recebimentos…)      */}
           {/* ================================================================ */}

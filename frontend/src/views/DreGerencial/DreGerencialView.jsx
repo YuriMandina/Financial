@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, DollarSign, ArrowUpCircle, ArrowDownCircle, Target } from 'lucide-react';
-import DateRangePicker from './DateRangePicker';
+import DateRangePicker from '../../components/common/DateRangePicker';
 
 export const DreGerencial = ({ token }) => {
   const [loading, setLoading] = useState(false);

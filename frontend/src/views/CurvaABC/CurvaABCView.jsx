@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { TrendingUp, Search, Download, Calculator, X, ChevronDown, CheckSquare, Square } from 'lucide-react';
+import { TrendingUp, Search, Download, Calculator, X, ChevronDown, CheckSquare, Square, Filter, Printer } from 'lucide-react';
 
 export default function CurvaABCView({ resumoCurvaAbc, dataInicial, dataFinal, isolarABC, setIsolarABC, familiasList, familiasFiltro, setFamiliasFiltro, classeAbcFiltro, setClasseAbcFiltro, dropFamiliaAberto, setDropFamiliaAberto, dropClasseAberto, setDropClasseAberto, menuAtivo, carregandoTela, curvaAbcProcessada, contasBrutas, clienteFiltro, setClienteFiltro, setPaginaAtual, setRegistrosPorPagina }) {
   const fmtQ = (v) => v?.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0,00';
