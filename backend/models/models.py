@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueCons
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
-from database import Base
+from core.database import Base
 
 class Organization(Base):
     __tablename__ = "organizations"

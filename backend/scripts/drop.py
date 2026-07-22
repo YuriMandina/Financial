@@ -1,7 +1,7 @@
 import sys
 sys.path.append('.')
-from database import engine
-from models import Base
+from core.database import engine
+from models.models import Base
 from sqlalchemy import text
 
 with engine.connect() as conn:

@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import Session
-import models
+import models.models as models
 from fastapi import HTTPException
 
 class ProcessItemResult(BaseModel):

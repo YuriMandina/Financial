@@ -4,8 +4,10 @@ from pydantic import BaseModel
 import jwt
 from datetime import timedelta
 from typing import Optional
-import models, auth, mailer
-from database import get_db
+import models.models as models
+from core import auth
+from services import mailer
+from core.database import get_db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

@@ -1,4 +1,4 @@
-from deps import current_org, get_current_user_and_set_org
+from core.deps import current_org, get_current_user_and_set_org
 import os
 import time  # Para controlar o rate limit
 import requests
@@ -8,11 +8,11 @@ from datetime import datetime, timedelta  # Para controlar o tempo do cache
 from dotenv import load_dotenv
 import contextvars
 from fastapi import Depends, HTTPException
-import auth
-from api_auth import router as auth_router
-from api_invites import router as invites_router
-from api_settings import router as settings_router
-import models
+from core import auth
+from api.auth import router as auth_router
+from api.invites import router as invites_router
+from api.settings import router as settings_router
+import models.models as models
 import concurrent.futures
 
 from fastapi import FastAPI
@@ -33,16 +33,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from database import SessionLocal
-from models import SyncSnapshot
+from core.database import SessionLocal
+from models.models import SyncSnapshot
 
 app.include_router(auth_router)
 app.include_router(invites_router)
 app.include_router(settings_router)
-from api_products import router as products_router
+from api.products import router as products_router
 app.include_router(products_router)
 
-from api_boning import router as boning_router
+from api.boning import router as boning_router
 app.include_router(boning_router)
 
 

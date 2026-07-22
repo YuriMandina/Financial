@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy.orm import Session
-import models
-from database import get_db
-from deps import get_current_user_and_set_org, current_org
+import models.models as models
+from core.database import get_db
+from core.deps import get_current_user_and_set_org, current_org
 from services import omie_products
 from services.boning_engine import calculate_boning_process
 

@@ -4,10 +4,10 @@ import os
 # Adiciona o diretório atual ao path para podermos importar os módulos do backend
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from database import SessionLocal
-from models import Organization, BoningProduct
+from core.database import SessionLocal
+from models.models import Organization, BoningProduct
 import services.omie_products as omie_products
-from deps import current_org
+from core.deps import current_org
 
 def run_tests():
     db = SessionLocal()

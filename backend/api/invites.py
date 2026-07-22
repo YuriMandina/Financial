@@ -2,8 +2,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-import models, auth, mailer
-from database import get_db
+import models.models as models
+from core import auth
+from services import mailer
+from core.database import get_db
 
 router = APIRouter(prefix="/api/invites", tags=["invites"])
 

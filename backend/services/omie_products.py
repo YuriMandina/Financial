@@ -1,5 +1,5 @@
 import requests
-from deps import current_org
+from core.deps import current_org
 
 def sincronizar_produtos_e_familias(db, org_id):
     import models

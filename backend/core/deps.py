@@ -1,7 +1,7 @@
 import contextvars
 from fastapi import Depends, HTTPException
-import auth
-import models
+from core import auth
+import models.models as models
 
 current_org = contextvars.ContextVar("current_org")
 

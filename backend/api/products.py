@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
-from database import get_db
-import models
-from deps import get_current_user_and_set_org, current_org
+from core.database import get_db
+import models.models as models
+from core.deps import get_current_user_and_set_org, current_org
 from services import omie_products
 from pydantic import BaseModel
 
