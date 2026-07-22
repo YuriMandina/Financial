@@ -1,6 +1,6 @@
 import React from 'react';
-import { X, Database, CalendarDays, Trash2, RefreshCw } from 'lucide-react';
-
+import { X, Database, CalendarDays, Trash2, RefreshCw, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
+import DateRangePicker from '../common/DateRangePicker';
 
 export default function ModalSnapshots({ modalSnapshotsAberto, setModalSnapshotsAberto, paginaSnapshots, setPaginaSnapshots, registrosPorPaginaSnapshots, setRegistrosPorPaginaSnapshots, modalDataInicial, setModalDataInicial, modalDataFinal, setModalDataFinal, handleDeletarSnapshot, handleResincronizarSnapshot, snapshotsPaginados, totalPaginasSnapshots, totalSnapshots }) {
   return (
