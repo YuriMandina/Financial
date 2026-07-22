@@ -311,6 +311,7 @@ async def export_cmc(
     
     import time
     erros = []
+    sucessos_ids = []
     
     local_id_map = {item.product_id: item.local_id for item in req.items}
     
@@ -324,7 +325,7 @@ async def export_cmc(
         
         print(f"[EXPORT-CMC] Produto {item.product.name} (ID: {omie_prod_id}) - Qtd: {peso_gerado}, CMC_Lido_DB: {novo_cmc}, Local: {local_id}")
         
-        sucesso, msg = omie_products.lancar_entrada_estoque_omie(
+        sucesso, msg_or_id = omie_products.lancar_entrada_estoque_omie(
             produto_id=omie_prod_id, 
             quantidade=peso_gerado, 
             custo_unitario=novo_cmc, 
@@ -332,12 +333,27 @@ async def export_cmc(
             local_id=local_id
         )
         if not sucesso:
-            erros.append(f"Produto {item.product.name}: {msg}")
+            erros.append(f"Produto {item.product.name}: {msg_or_id}")
+        else:
+            if msg_or_id:
+                sucessos_ids.append(msg_or_id)
             
         time.sleep(3.0) # Proteção rigorosa contra rate limit do Omie
             
     if erros:
         raise HTTPException(status_code=500, detail={"erros": erros})
+        
+    if sucessos_ids:
+        from datetime import datetime
+        snap = models.SyncSnapshot(
+            cache_key=f"RATEIO_CUSTEIO_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            tipo_relatorio="RATEIO_CUSTEIO",
+            data_referencia=req.date if req.date else datetime.now().strftime("%Y-%m-%d"),
+            dados={"ajustes_ids": sucessos_ids},
+            organization_id=current_org.get().id
+        )
+        db.add(snap)
+        db.commit()
         
     return {"message": "Exportado com sucesso para a Omie"}
 
@@ -369,12 +385,73 @@ async def fix_negative_stocks(
     db: Session = Depends(get_db)
 ):
     import time
+    from datetime import datetime
     try:
+        sucessos_ids = []
         for item in req.items:
             product = db.query(models.BoningProduct).filter_by(id=item.product_id, organization_id=current_org.get().id).first()
             if product and product.omie_id:
-                omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req.date, item.saldo_negativo, item.unit_cost)
+                res = omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req.date, item.saldo_negativo, item.unit_cost)
+                if isinstance(res, dict) and "id_ajuste" in res:
+                    sucessos_ids.append(res["id_ajuste"])
                 time.sleep(1.0)
+                
+        if sucessos_ids:
+            snap = models.SyncSnapshot(
+                cache_key=f"ESTOQUES_NEGATIVOS_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                tipo_relatorio="ESTOQUES_NEGATIVOS",
+                data_referencia=req.date,
+                dados={"ajustes_ids": sucessos_ids},
+                organization_id=current_org.get().id
+            )
+            db.add(snap)
+            db.commit()
+            
         return {"message": "Estoques corrigidos"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/snapshots/historico")
+async def get_historico_snapshots(
+    user: models.User = Depends(get_current_user_and_set_org),
+    db: Session = Depends(get_db)
+):
+    snaps = db.query(models.SyncSnapshot).filter(
+        models.SyncSnapshot.organization_id == current_org.get().id,
+        models.SyncSnapshot.tipo_relatorio.in_(["RATEIO_CUSTEIO", "ESTOQUES_NEGATIVOS"])
+    ).order_by(models.SyncSnapshot.created_at.desc()).all()
+    
+    return [{
+        "id": s.id,
+        "tipo": "Lançamento de Rateio" if s.tipo_relatorio == "RATEIO_CUSTEIO" else "Correção de Estoque Negativo",
+        "data_referencia": s.data_referencia,
+        "created_at": s.created_at.strftime("%d/%m/%Y %H:%M:%S"),
+        "quantidade_lancamentos": len(s.dados.get("ajustes_ids", []))
+    } for s in snaps]
+
+@router.delete("/revert-snapshot/{snapshot_id}")
+async def revert_snapshot(
+    snapshot_id: int,
+    user: models.User = Depends(get_current_user_and_set_org),
+    db: Session = Depends(get_db)
+):
+    import time
+    snap = db.query(models.SyncSnapshot).filter_by(id=snapshot_id, organization_id=current_org.get().id).first()
+    if not snap:
+        raise HTTPException(404, "Snapshot não encontrado")
+        
+    ajustes_ids = snap.dados.get("ajustes_ids", [])
+    erros = []
+    
+    for aid in ajustes_ids:
+        sucesso, msg = omie_products.excluir_ajuste_estoque(aid)
+        if not sucesso:
+            erros.append(f"Ajuste {aid}: {msg}")
+        time.sleep(1.0)
+        
+    if erros:
+        raise HTTPException(400, f"Falha ao reverter alguns lançamentos. Motivo retornado pela Omie: {' | '.join(erros)}")
+        
+    db.delete(snap)
+    db.commit()
+    return {"message": "Reversão concluída com sucesso"}

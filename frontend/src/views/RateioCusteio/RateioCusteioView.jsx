@@ -31,11 +31,18 @@ export default function RateioECusteio({ token }) {
         >
           <Calculator size={18} /> Novo Rateio
         </button>
+        <button 
+          onClick={() => setActiveTab('historico')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg transition-all ${activeTab === 'historico' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+        >
+          <Database size={18} /> Histórico e Reversão
+        </button>
       </div>
 
       {activeTab === 'sync' && <SyncTab token={token} />}
       {activeTab === 'templates' && <TemplatesTab token={token} />}
       {activeTab === 'operacao' && <OperationTab token={token} />}
+      {activeTab === 'historico' && <HistoryTab token={token} />}
     </div>
   );
 }
@@ -1156,6 +1163,101 @@ function OperationTab({ token }) {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// --- [BLOCO: ABA 4 - Histórico e Reversão] ---
+function HistoryTab({ token }) {
+  const [snapshots, setSnapshots] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [reverting, setReverting] = useState(false);
+
+  const loadHistorico = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('http://localhost:8000/api/boning/snapshots/historico', { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      setSnapshots(data || []);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadHistorico(); }, []);
+
+  const handleRevert = async (snap) => {
+    if (!window.confirm(`Tem certeza que deseja reverter e EXCLUIR TODOS OS LANÇAMENTOS da Omie vinculados ao snapshot ID ${snap.id}?`)) return;
+    setReverting(true);
+    try {
+      const res = await fetch(`http://localhost:8000/api/boning/revert-snapshot/${snap.id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Erro ao reverter');
+      }
+      alert('Reversão concluída com sucesso!');
+      await loadHistorico();
+    } catch (e) {
+      console.error(e);
+      alert('Falha ao reverter:\n\n' + e.message);
+    }
+    setReverting(false);
+  };
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h3 className="text-xl font-bold">Histórico de Rateio e Correções</h3>
+          <p className="text-sm text-slate-400">Reverta lançamentos importados indevidamente para a Omie.</p>
+        </div>
+        <button onClick={loadHistorico} disabled={loading} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg font-medium">
+          {loading ? 'Atualizando...' : 'Atualizar Histórico'}
+        </button>
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+        <table className="w-full text-left">
+          <thead className="bg-slate-800 text-slate-400 text-sm">
+            <tr>
+              <th className="px-6 py-4 font-semibold">ID</th>
+              <th className="px-6 py-4 font-semibold">Operação</th>
+              <th className="px-6 py-4 font-semibold">Data Referência</th>
+              <th className="px-6 py-4 font-semibold text-center">Nº Lançamentos</th>
+              <th className="px-6 py-4 font-semibold text-right">Gerado Em</th>
+              <th className="px-6 py-4 font-semibold text-right">Ação</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {snapshots.map(s => (
+              <tr key={s.id} className="hover:bg-slate-800/50 transition-colors text-sm">
+                <td className="px-6 py-4 text-slate-300 font-bold">#{s.id}</td>
+                <td className="px-6 py-4 font-bold text-indigo-400">{s.tipo}</td>
+                <td className="px-6 py-4 text-slate-300">{s.data_referencia}</td>
+                <td className="px-6 py-4 text-center text-slate-300">
+                  <span className="bg-slate-800 px-2 py-1 rounded text-xs font-bold">{s.quantidade_lancamentos} regs</span>
+                </td>
+                <td className="px-6 py-4 text-slate-500 text-right">{s.created_at}</td>
+                <td className="px-6 py-4 text-right">
+                  <button 
+                    onClick={() => handleRevert(s)}
+                    disabled={reverting}
+                    className="bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded font-bold text-xs transition-colors disabled:opacity-50"
+                  >
+                    Reverter Lançamentos
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {snapshots.length === 0 && (
+              <tr>
+                <td colSpan="6" className="px-6 py-10 text-center text-slate-500 font-medium">Nenhum histórico encontrado para este módulo.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

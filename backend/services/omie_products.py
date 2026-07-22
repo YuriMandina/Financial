@@ -264,7 +264,29 @@ def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_pro
         print(f"[OMIE_ENTRADA] Resposta: {res_data}")
         if "faultstring" in res_data:
             return False, res_data["faultstring"]
-        return True, "Entrada lançada com sucesso"
+        return True, res_data.get("id_ajuste", 0)
     except Exception as e:
         print(f"[OMIE_ENTRADA] Erro: {str(e)}")
+        return False, str(e)
+
+def excluir_ajuste_estoque(id_ajuste):
+    url = "https://app.omie.com.br/api/v1/estoque/ajuste/"
+    payload = {
+        "call": "ExcluirAjusteEstoque",
+        "app_key": current_org.get().omie_app_key,
+        "app_secret": current_org.get().omie_app_secret,
+        "param": [{
+            "id_ajuste": id_ajuste
+        }]
+    }
+    try:
+        print(f"[OMIE_EXCLUSAO] Excluindo ajuste ID: {id_ajuste}")
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        res_data = res.json()
+        print(f"[OMIE_EXCLUSAO] Resposta: {res_data}")
+        if "faultstring" in res_data:
+            return False, res_data["faultstring"]
+        return True, "Ajuste excluído com sucesso"
+    except Exception as e:
+        print(f"[OMIE_EXCLUSAO] Erro: {str(e)}")
         return False, str(e)
