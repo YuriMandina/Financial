@@ -55,7 +55,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess 
   if (minimized) {
     return (
       <div 
-        className="fixed bottom-6 right-6 z-[100] bg-white rounded-2xl shadow-2xl p-4 flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform border border-slate-100" 
+        className="bg-white rounded-2xl shadow-2xl p-4 flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform border border-slate-100" 
         onClick={() => setMinimized(false)}
       >
         {isCompleted ? (

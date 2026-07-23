@@ -83,7 +83,7 @@ function App() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [registrosPorPagina, setRegistrosPorPagina] = useState(50);
   
-  const [syncModalState, setSyncModalState] = useState({ active: false, status: 'processing', text: '' });
+  const [activeSyncTasks, setActiveSyncTasks] = useState([]);
 
   const [listaBancos, setListaBancos] = useState([]);
   const [selecionados, setSelecionados] = useState([]);
@@ -261,10 +261,10 @@ function App() {
         if (!resSync.ok) throw new Error("Falha ao iniciar sincronização.");
         const dataSync = await resSync.json();
         
-        setSyncModalState({ active: true, taskId: dataSync.task_id });
+        setActiveSyncTasks(prev => [...prev, { active: true, taskId: dataSync.task_id }]);
         return; 
       } catch (err) {
-        setSyncModalState({ active: true, status: 'error', text: err.message });
+        setActiveSyncTasks(prev => [...prev, { active: true, status: 'error', text: err.message, taskId: `err-${Date.now()}` }]);
         return;
       }
     }
@@ -332,7 +332,8 @@ function App() {
         }
       }
     } catch (erro) {
-      setSyncModalState({ active: true, status: 'error', text: `Erro: ${erro.message}` });
+      console.error(erro);
+      setActiveSyncTasks(prev => [...prev, { active: true, status: 'error', text: `Erro: ${erro.message}`, taskId: `err-${Date.now()}` }]);
     } finally {
       setCarregandoTela(false);
     }
@@ -1106,12 +1107,20 @@ function App() {
 
         <ModalHistoricoRecibos modalHistoricoRecibosAberto={modalHistoricoRecibosAberto} setModalHistoricoRecibosAberto={setModalHistoricoRecibosAberto} historicoRecibos={historicoRecibos} filtroHistoricoCliente={filtroHistoricoCliente} setFiltroHistoricoCliente={setFiltroHistoricoCliente} filtroHistoricoData={filtroHistoricoData} setFiltroHistoricoData={setFiltroHistoricoData} carregandoHistorico={carregandoHistorico} handleDesfazerBaixa={handleDesfazerBaixa} setReciboGerado={setReciboGerado} />
         <ModalSnapshots modalSnapshotsAberto={modalSnapshotsAberto} setModalSnapshotsAberto={setModalSnapshotsAberto} paginaSnapshots={paginaSnapshots} setPaginaSnapshots={setPaginaSnapshots} registrosPorPaginaSnapshots={registrosPorPaginaSnapshots} setRegistrosPorPaginaSnapshots={setRegistrosPorPaginaSnapshots} modalDataInicial={modalDataInicial} setModalDataInicial={setModalDataInicial} modalDataFinal={modalDataFinal} setModalDataFinal={setModalDataFinal} handleDeletarSnapshot={handleDeletarSnapshot} handleResincronizarSnapshot={handleResincronizarSnapshot} snapshotsPaginados={snapshotsPaginados} totalPaginasSnapshots={totalPaginasSnapshots} totalSnapshots={totalSnapshots} />
-        <ProgressModal 
-          taskId={syncModalState.taskId}
-          manualState={!syncModalState.taskId ? syncModalState : null} 
-          onClose={() => setSyncModalState({ active: false, status: 'processing', text: '' })} 
-          onSuccess={() => handleBuscarDados(false)}
-        />
+        
+        <div className="fixed bottom-6 right-6 flex flex-col gap-4 z-[100] items-end pointer-events-none">
+          {activeSyncTasks.map((taskState) => (
+            <div key={taskState.taskId} className="pointer-events-auto">
+              <ProgressModal 
+                taskId={taskState.taskId?.startsWith('err-') ? null : taskState.taskId}
+                manualState={taskState.taskId?.startsWith('err-') ? taskState : null} 
+                onClose={() => setActiveSyncTasks(prev => prev.filter(t => t.taskId !== taskState.taskId))} 
+                onSuccess={() => handleBuscarDados(false)}
+              />
+            </div>
+          ))}
+        </div>
+
         </main>
     </div>
       )}
