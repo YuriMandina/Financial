@@ -7,6 +7,8 @@ from core.database import get_db
 from core.deps import get_current_user_and_set_org, current_org
 from services import omie_products
 from services.boning_engine import calculate_boning_process
+from api.tasks import TaskManager
+from core.database import SessionLocal
 
 router = APIRouter(prefix="/api/boning", tags=["boning"])
 
@@ -69,23 +71,29 @@ class TemplateSchema(BaseModel):
     samples: Optional[List[SampleSchema]] = None
 
 # --- [BLOCO: OMIE SYNC & CONFIG] ---
+def bg_sync_omie(task_id: str, org_id: int):
+    try:
+        db = SessionLocal()
+        TaskManager.update_task(task_id, progress=10.0, log="Iniciando sincronização com Omie...")
+        inseridos = omie_products.sincronizar_produtos_e_familias(db, org_id, task_id=task_id)
+        
+        msg = f"{inseridos} produtos sincronizados com sucesso." if inseridos > 0 else "Sincronização concluída, mas nenhum produto novo encontrado."
+        TaskManager.update_task(task_id, progress=100.0, log=msg, status="completed", result={"inseridos": inseridos})
+    except Exception as e:
+        import traceback
+        TaskManager.update_task(task_id, log=f"Erro: {str(e)}", status="error")
+    finally:
+        db.close()
+
 @router.post("/sync-omie")
 async def sync_omie(
     background_tasks: BackgroundTasks,
-    user: models.User = Depends(get_current_user_and_set_org),
-    db: Session = Depends(get_db)
+    user: models.User = Depends(get_current_user_and_set_org)
 ):
-    try:
-        org_id = current_org.get().id
-        inseridos = omie_products.sincronizar_produtos_e_familias(db, org_id)
-        
-        if inseridos == 0:
-            return {"status": "success", "message": "Sincronização concluída, mas nenhum produto encontrado."}
-            
-        return {"status": "success", "message": f"{inseridos} produtos sincronizados com sucesso."}
-    except Exception as e:
-        import traceback
-        return {"status": "error", "detail": traceback.format_exc()}
+    task_id = TaskManager.create_task()
+    org_id = current_org.get().id
+    background_tasks.add_task(bg_sync_omie, task_id, org_id)
+    return {"task_id": task_id, "message": "Sincronização iniciada em background."}
 
 @router.get("/products")
 async def get_products(
@@ -298,67 +306,89 @@ async def calculate_apportionment(
     result = calculate_boning_process(req, db, org_id)
     return result
 
+def bg_export_cmc(task_id: str, process_id: int, req_date: str, local_id_map: dict, org_id: int):
+    import time
+    from datetime import datetime
+    db = SessionLocal()
+    try:
+        process = db.query(models.BoningProcess).filter_by(id=process_id, organization_id=org_id).first()
+        if not process:
+            TaskManager.update_task(task_id, log="Processo não encontrado.", status="error")
+            return
+            
+        erros = []
+        sucessos_ids = []
+        total_items = len(process.items)
+        
+        TaskManager.update_task(task_id, progress=5.0, log=f"Iniciando exportação de {total_items} itens para a Omie...")
+        
+        for idx, item in enumerate(process.items):
+            omie_prod_id = item.product.omie_id
+            novo_cmc = item.unit_cost
+            peso_gerado = item.actual_weight
+            data_processo = req_date if req_date else process.created_at
+            local_id = local_id_map.get(omie_prod_id, 0)
+            
+            TaskManager.update_task(task_id, log=f"Lançando {item.product.name} (Qtd: {peso_gerado})...")
+            
+            sucesso, msg_or_id = omie_products.lancar_entrada_estoque_omie(
+                produto_id=omie_prod_id, 
+                quantidade=peso_gerado, 
+                custo_unitario=novo_cmc, 
+                data_processo=data_processo,
+                local_id=local_id
+            )
+            
+            if not sucesso:
+                erros.append(f"Produto {item.product.name}: {msg_or_id}")
+                TaskManager.update_task(task_id, log=f"Falha em {item.product.name}: {msg_or_id}")
+            else:
+                if msg_or_id:
+                    sucessos_ids.append(msg_or_id)
+                # Forçar a atualização do CMC no cadastro do produto Omie
+                omie_products.atualizar_custo_produto(omie_prod_id, novo_cmc)
+                TaskManager.update_task(task_id, log=f"Sucesso: {item.product.name} lançado e CMC atualizado.")
+                
+            progress = 5.0 + (90.0 * ((idx + 1) / total_items))
+            TaskManager.update_task(task_id, progress=progress)
+            time.sleep(3.0) # Proteção contra rate limit
+            
+        if sucessos_ids:
+            TaskManager.update_task(task_id, log="Gerando snapshot de reversão...")
+            snap = models.SyncSnapshot(
+                cache_key=f"RATEIO_CUSTEIO_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                tipo_relatorio="RATEIO_CUSTEIO",
+                data_referencia=req_date if req_date else datetime.now().strftime("%Y-%m-%d"),
+                dados={"ajustes_ids": sucessos_ids},
+                organization_id=org_id
+            )
+            db.add(snap)
+            db.commit()
+            
+        if erros:
+            TaskManager.update_task(task_id, log=f"Exportação finalizada com {len(erros)} erro(s).", status="error", result={"erros": erros})
+        else:
+            TaskManager.update_task(task_id, progress=100.0, log="Exportação concluída com sucesso para a Omie!", status="completed")
+            
+    except Exception as e:
+        import traceback
+        TaskManager.update_task(task_id, log=f"Erro inesperado: {str(e)}", status="error")
+    finally:
+        db.close()
+
 @router.post("/process/{process_id}/export-cmc")
 async def export_cmc(
     process_id: int,
     req: ExportCmcRequest,
-    user: models.User = Depends(get_current_user_and_set_org),
-    db: Session = Depends(get_db)
+    background_tasks: BackgroundTasks,
+    user: models.User = Depends(get_current_user_and_set_org)
 ):
-    process = db.query(models.BoningProcess).filter_by(id=process_id, organization_id=current_org.get().id).first()
-    if not process:
-        raise HTTPException(status_code=404, detail="Processo não encontrado")
-    
-    import time
-    erros = []
-    sucessos_ids = []
-    
+    org_id = current_org.get().id
     local_id_map = {item.product_id: item.local_id for item in req.items}
+    task_id = TaskManager.create_task()
     
-    for item in process.items:
-        omie_prod_id = item.product.omie_id
-        novo_cmc = item.unit_cost
-        peso_gerado = item.actual_weight
-        data_processo = req.date if req.date else process.created_at
-        
-        local_id = local_id_map.get(omie_prod_id, 0)
-        
-        print(f"[EXPORT-CMC] Produto {item.product.name} (ID: {omie_prod_id}) - Qtd: {peso_gerado}, CMC_Lido_DB: {novo_cmc}, Local: {local_id}")
-        
-        sucesso, msg_or_id = omie_products.lancar_entrada_estoque_omie(
-            produto_id=omie_prod_id, 
-            quantidade=peso_gerado, 
-            custo_unitario=novo_cmc, 
-            data_processo=data_processo,
-            local_id=local_id
-        )
-        if not sucesso:
-            erros.append(f"Produto {item.product.name}: {msg_or_id}")
-        else:
-            if msg_or_id:
-                sucessos_ids.append(msg_or_id)
-            
-            # Forçar a atualização do CMC no cadastro do produto Omie
-            omie_products.atualizar_custo_produto(omie_prod_id, novo_cmc)
-            
-        time.sleep(3.0) # Proteção rigorosa contra rate limit do Omie
-            
-    if erros:
-        raise HTTPException(status_code=500, detail={"erros": erros})
-        
-    if sucessos_ids:
-        from datetime import datetime
-        snap = models.SyncSnapshot(
-            cache_key=f"RATEIO_CUSTEIO_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-            tipo_relatorio="RATEIO_CUSTEIO",
-            data_referencia=req.date if req.date else datetime.now().strftime("%Y-%m-%d"),
-            dados={"ajustes_ids": sucessos_ids},
-            organization_id=current_org.get().id
-        )
-        db.add(snap)
-        db.commit()
-        
-    return {"message": "Exportado com sucesso para a Omie"}
+    background_tasks.add_task(bg_export_cmc, task_id, process_id, req.date, local_id_map, org_id)
+    return {"task_id": task_id, "message": "Exportação iniciada em background."}
 
 @router.post("/check-stocks")
 async def check_stocks(
@@ -381,38 +411,59 @@ async def check_stocks(
         raise HTTPException(status_code=500, detail=str(e))
     return {"stocks": results}
 
-@router.post("/fix-negative-stocks")
-async def fix_negative_stocks(
-    req: FixStocksRequest,
-    user: models.User = Depends(get_current_user_and_set_org),
-    db: Session = Depends(get_db)
-):
+def bg_fix_negative_stocks(task_id: str, req_items: list, req_date: str, org_id: int):
     import time
     from datetime import datetime
+    db = SessionLocal()
     try:
         sucessos_ids = []
-        for item in req.items:
-            product = db.query(models.BoningProduct).filter_by(id=item.product_id, organization_id=current_org.get().id).first()
+        total_items = len(req_items)
+        TaskManager.update_task(task_id, progress=5.0, log=f"Iniciando correção de {total_items} estoques...")
+        
+        for idx, item in enumerate(req_items):
+            product = db.query(models.BoningProduct).filter_by(id=item.product_id, organization_id=org_id).first()
             if product and product.omie_id:
-                res = omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req.date, item.saldo_negativo, item.unit_cost)
+                TaskManager.update_task(task_id, log=f"Zerando estoque de {product.name} (Qtd: {item.saldo_negativo})...")
+                res = omie_products.zerar_estoque_negativo(product.omie_id, item.local_id, req_date, item.saldo_negativo, item.unit_cost)
                 if isinstance(res, dict) and "id_ajuste" in res:
                     sucessos_ids.append(res["id_ajuste"])
+                    TaskManager.update_task(task_id, log=f"Sucesso: {product.name} zerado.")
+                else:
+                    TaskManager.update_task(task_id, log=f"Aviso: {product.name} retornou sem ID de ajuste.")
                 time.sleep(1.0)
+            
+            progress = 5.0 + (90.0 * ((idx + 1) / total_items))
+            TaskManager.update_task(task_id, progress=progress)
                 
         if sucessos_ids:
+            TaskManager.update_task(task_id, log="Gerando snapshot para possível reversão...")
             snap = models.SyncSnapshot(
                 cache_key=f"ESTOQUES_NEGATIVOS_{datetime.now().strftime('%Y%m%d%H%M%S')}",
                 tipo_relatorio="ESTOQUES_NEGATIVOS",
-                data_referencia=req.date,
+                data_referencia=req_date,
                 dados={"ajustes_ids": sucessos_ids},
-                organization_id=current_org.get().id
+                organization_id=org_id
             )
             db.add(snap)
             db.commit()
             
-        return {"message": "Estoques corrigidos"}
+        TaskManager.update_task(task_id, progress=100.0, log="Correção de estoques concluída com sucesso!", status="completed")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        import traceback
+        TaskManager.update_task(task_id, log=f"Erro: {str(e)}", status="error")
+    finally:
+        db.close()
+
+@router.post("/fix-negative-stocks")
+async def fix_negative_stocks(
+    req: FixStocksRequest,
+    background_tasks: BackgroundTasks,
+    user: models.User = Depends(get_current_user_and_set_org)
+):
+    org_id = current_org.get().id
+    task_id = TaskManager.create_task()
+    background_tasks.add_task(bg_fix_negative_stocks, task_id, req.items, req.date, org_id)
+    return {"task_id": task_id, "message": "Correção de estoques iniciada em background."}
 
 @router.get("/snapshots/historico")
 async def get_historico_snapshots(
@@ -432,29 +483,54 @@ async def get_historico_snapshots(
         "quantidade_lancamentos": len(s.dados.get("ajustes_ids", []))
     } for s in snaps]
 
+def bg_revert_snapshot(task_id: str, snapshot_id: int, org_id: int):
+    import time
+    db = SessionLocal()
+    try:
+        snap = db.query(models.SyncSnapshot).filter_by(id=snapshot_id, organization_id=org_id).first()
+        if not snap:
+            TaskManager.update_task(task_id, log="Snapshot não encontrado.", status="error")
+            return
+            
+        ajustes_ids = snap.dados.get("ajustes_ids", [])
+        total_items = len(ajustes_ids)
+        erros = []
+        
+        TaskManager.update_task(task_id, progress=5.0, log=f"Iniciando reversão de {total_items} lançamentos...")
+        
+        for idx, aid in enumerate(ajustes_ids):
+            TaskManager.update_task(task_id, log=f"Revertendo lançamento ID {aid}...")
+            sucesso, msg = omie_products.excluir_ajuste_estoque(aid)
+            if not sucesso:
+                erros.append(f"Ajuste {aid}: {msg}")
+                TaskManager.update_task(task_id, log=f"Falha ao reverter {aid}: {msg}")
+            else:
+                TaskManager.update_task(task_id, log=f"Lançamento {aid} revertido com sucesso.")
+            
+            progress = 5.0 + (90.0 * ((idx + 1) / total_items))
+            TaskManager.update_task(task_id, progress=progress)
+            time.sleep(1.0)
+            
+        if erros:
+            TaskManager.update_task(task_id, log=f"Reversão finalizada com {len(erros)} erro(s).", status="error", result={"erros": erros})
+        else:
+            db.delete(snap)
+            db.commit()
+            TaskManager.update_task(task_id, progress=100.0, log="Todos os lançamentos foram revertidos e o histórico foi limpo!", status="completed")
+            
+    except Exception as e:
+        import traceback
+        TaskManager.update_task(task_id, log=f"Erro inesperado: {str(e)}", status="error")
+    finally:
+        db.close()
+
 @router.delete("/revert-snapshot/{snapshot_id}")
 async def revert_snapshot(
     snapshot_id: int,
-    user: models.User = Depends(get_current_user_and_set_org),
-    db: Session = Depends(get_db)
+    background_tasks: BackgroundTasks,
+    user: models.User = Depends(get_current_user_and_set_org)
 ):
-    import time
-    snap = db.query(models.SyncSnapshot).filter_by(id=snapshot_id, organization_id=current_org.get().id).first()
-    if not snap:
-        raise HTTPException(404, "Snapshot não encontrado")
-        
-    ajustes_ids = snap.dados.get("ajustes_ids", [])
-    erros = []
-    
-    for aid in ajustes_ids:
-        sucesso, msg = omie_products.excluir_ajuste_estoque(aid)
-        if not sucesso:
-            erros.append(f"Ajuste {aid}: {msg}")
-        time.sleep(1.0)
-        
-    if erros:
-        raise HTTPException(400, f"Falha ao reverter alguns lançamentos. Motivo retornado pela Omie: {' | '.join(erros)}")
-        
-    db.delete(snap)
-    db.commit()
-    return {"message": "Reversão concluída com sucesso"}
+    org_id = current_org.get().id
+    task_id = TaskManager.create_task()
+    background_tasks.add_task(bg_revert_snapshot, task_id, snapshot_id, org_id)
+    return {"task_id": task_id, "message": "Reversão iniciada em background."}

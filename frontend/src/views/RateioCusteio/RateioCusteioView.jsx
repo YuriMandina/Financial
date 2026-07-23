@@ -6,12 +6,15 @@ const formatMoney = (val) => new Intl.NumberFormat('pt-BR', { minimumFractionDig
 import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Trash2, Edit2, CalendarDays, Database, AlertTriangle } from 'lucide-react';
 import { NumericFormat } from 'react-number-format';
 import DatePicker from '../../components/common/DatePicker';
+import ProgressModal from '../../components/common/ProgressModal';
 
 export default function RateioECusteio({ token }) {
   const [activeTab, setActiveTab] = useState('sync');
+  const [activeTaskId, setActiveTaskId] = useState(null);
   
   return (
     <div className="p-6 text-slate-200">
+      <ProgressModal taskId={activeTaskId} onClose={() => setActiveTaskId(null)} />
       <div className="flex gap-4 mb-6 border-b border-slate-700 pb-2">
         <button 
           onClick={() => setActiveTab('sync')}
@@ -39,16 +42,16 @@ export default function RateioECusteio({ token }) {
         </button>
       </div>
 
-      {activeTab === 'sync' && <SyncTab token={token} />}
+      {activeTab === 'sync' && <SyncTab token={token} onTaskStart={setActiveTaskId} />}
       {activeTab === 'templates' && <TemplatesTab token={token} />}
-      {activeTab === 'operacao' && <OperationTab token={token} />}
-      {activeTab === 'historico' && <HistoryTab token={token} />}
+      {activeTab === 'operacao' && <OperationTab token={token} onTaskStart={setActiveTaskId} />}
+      {activeTab === 'historico' && <HistoryTab token={token} onTaskStart={setActiveTaskId} />}
     </div>
   );
 }
 
 // --- [BLOCO: Sincronização Omie] ---
-function SyncTab({ token }) {
+function SyncTab({ token, onTaskStart }) {
   const [products, setProducts] = useState([]);
   const [families, setFamilies] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -70,20 +73,17 @@ function SyncTab({ token }) {
   };
 
   const handleSync = async () => {
-    setLoading(true);
     try {
       const res = await fetch('http://localhost:8000/api/boning/sync-omie', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Erro interno no servidor');
+      const data = await res.json();
+      if (res.ok && data.task_id) {
+        onTaskStart(data.task_id);
+      } else {
+        alert("Erro ao iniciar sincronização: " + (data.detail || data.message));
       }
-      await loadData();
-      alert('Sincronização concluída!');
-    } catch (e) { 
-      console.error(e);
-      alert('Falha ao sincronizar: ' + e.message);
+    } catch (err) {
+      alert("Erro na requisição: " + err.message);
     }
-    setLoading(false);
   };
 
   const toggleStandard = async (id) => {
@@ -124,7 +124,7 @@ function SyncTab({ token }) {
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-bold">Selecionar famílias para rateio e custeio</h3>
             <button onClick={handleSync} disabled={loading} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2">
-              {loading ? 'Sincronizando...' : <><Download size={18}/> Sincronizar Omie</>}
+              <Download size={18}/> Sincronizar Omie
             </button>
           </div>
           <div className="bg-slate-800 rounded-xl overflow-hidden shadow-lg border border-slate-700">
@@ -636,8 +636,8 @@ function TemplatesTab({ token }) {
   );
 }
 
-// --- [BLOCO: ABA 3 - Novo Rateio] ---
-function OperationTab({ token }) {
+// --- [BLOCO: Operação de Rateio e Custeio] ---
+function OperationTab({ token, onTaskStart }) {
   const [mode, setMode] = useState('TEMPLATE'); // 'MANUAL' or 'TEMPLATE'
   const [carcassWeight, setCarcassWeight] = useState('');
   const [carcassCost, setCarcassCost] = useState('');
@@ -704,7 +704,6 @@ function OperationTab({ token }) {
 
   const activeTemplate = useMemo(() => templates.find(t => t.id === Number(selectedTemplate)), [templates, selectedTemplate]);
 
-  // Se for modo padrão, recálculo visual das estimativas baseado no peso da carcaça preenchido
   const derivedCuts = useMemo(() => {
     if (mode === 'TEMPLATE' && activeTemplate && carcassWeight) {
       return activeTemplate.items.map(i => ({
@@ -776,66 +775,66 @@ function OperationTab({ token }) {
   const handleFixStocks = async () => {
     if (!exportDate || !stocksData) return;
     setFixingStocks(true);
+    const itemsToFix = Object.entries(stocksData)
+      .filter(([_, info]) => info.saldo < 0)
+      .map(([pid, info]) => ({
+        product_id: parseInt(pid),
+        local_id: info.local_id,
+        saldo_negativo: Math.abs(info.saldo),
+        unit_cost: calculationResult?.items?.find(i => i.product_id == pid)?.unit_cost || 0
+      }));
+
+    if (itemsToFix.length === 0) {
+      alert("Não há estoques negativos para ajustar.");
+      setFixingStocks(false);
+      return;
+    }
+
     try {
-      const itemsToFix = Object.entries(stocksData)
-        .filter(([_, data]) => data.saldo < 0)
-        .map(([pid, data]) => {
-           const calcItem = calculationResult.items.find(i => i.product_id === parseInt(pid));
-           return {
-             product_id: parseInt(pid),
-             local_id: data.local_id,
-             saldo_negativo: data.saldo,
-             unit_cost: calcItem ? calcItem.unit_cost : 0.01
-           };
-        });
-      
       const res = await fetch('http://localhost:8000/api/boning/fix-negative-stocks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ date: exportDate, items: itemsToFix })
       });
-      
-      if (res.ok) {
-        await handleCheckStocks();
-        alert("Estoques negativos ajustados para 0,00 com sucesso!");
+      const data = await res.json();
+      if (res.ok && data.task_id) {
+        onTaskStart(data.task_id);
       } else {
-        const err = await res.json();
-        alert(`Erro ao ajustar estoques: ${err.detail || 'Desconhecido'}`);
+        alert(data.detail || "Erro ao corrigir estoques");
       }
     } catch (e) {
-        alert("Erro de rede ao corrigir estoques.");
+      alert("Falha: " + e.message);
     } finally {
       setFixingStocks(false);
     }
   };
 
   const handleExport = async () => {
-    if (!calculationResult || !stocksVerified || hasNegativeStocks) return;
+    if (!calculationResult || !calculationResult.process_id) return;
     setExporting(true);
     try {
-      const exportItems = calculationResult.items.map(i => ({
-        product_id: i.product_id,
-        local_id: stocksData[i.product_id]?.local_id || 0
-      }));
-
       const res = await fetch(`http://localhost:8000/api/boning/process/${calculationResult.process_id}/export-cmc`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ date: exportDate, items: exportItems })
+        body: JSON.stringify({
+          date: exportDate,
+          items: calculationResult.items.map(i => ({ product_id: i.product_id, local_id: stocksData?.[i.product_id]?.local_id || 0 }))
+        })
       });
-      if (res.ok) {
-        alert('Custo Médio (CMC) atualizado com sucesso no cadastro dos produtos no Omie!');
+      const data = await res.json();
+      if (res.ok && data.task_id) {
+        onTaskStart(data.task_id);
       } else {
-        const err = await res.json();
-        alert('Erros ao exportar: ' + JSON.stringify(err.detail));
+        alert("Erro ao exportar: " + (data.detail || data.message || JSON.stringify(data)));
       }
-    } catch(e) { console.error(e); }
+    } catch (e) {
+      alert("Falha na exportação: " + e.message);
+    }
     setExporting(false);
   };
 
   return (
     <div className="flex flex-col gap-6">
-      {/* PAINEL DE INPUT E SELEÇÃO DE MODO */}
       <div className="w-full bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-xl flex flex-col">
         <h3 className="text-xl font-bold mb-4 text-white">Configuração do Rateio</h3>
         <div className="space-y-4 flex-1">
@@ -957,7 +956,6 @@ function OperationTab({ token }) {
                   <label className="text-sm font-medium text-slate-400">Cortes Gerados (Lançamento Manual)</label>
                   <button onClick={addManualCut} className="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-white font-bold flex items-center gap-1"><Plus size={14}/> Adicionar Corte</button>
                 </div>
-                {/* LÓGICA REATIVA: INPUTS LIVRES PARA DIGITAÇÃO NO MODO MANUAL */}
                 <div className="space-y-2 pr-1">
                   {manualCuts.map((mc, idx) => (
                     <div key={idx} className="flex gap-2 items-center">
@@ -988,7 +986,7 @@ function OperationTab({ token }) {
                       <div className="w-16 text-right text-xs font-mono text-orange-400/80 font-bold">
                         {formatPerc(((Number(carcassWeight) - manualCuts.reduce((acc, c) => acc + Number(c.actual_weight || 0), 0)) / Number(carcassWeight)) * 100)}%
                       </div>
-                      <div className="w-6"></div> {/* Espaçador para alinhar com o botão da lixeira */}
+                      <div className="w-6"></div>
                     </div>
                   )}
                 </div>
@@ -1002,7 +1000,6 @@ function OperationTab({ token }) {
         </button>
       </div>
 
-      {/* PAINEL DE RESULTADOS (MOTOR MATEMÁTICO) */}
       <div className="w-full bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-xl flex flex-col">
         <h3 className="text-xl font-bold mb-6 text-white flex items-center gap-2"><CheckCircle2 className="text-emerald-500" /> Painel de Resultados (Custeio Conjunto)</h3>
         
@@ -1071,7 +1068,6 @@ function OperationTab({ token }) {
               </table>
             </div>
             
-            {/* --- VALIDAÇÃO DE ESTOQUE --- */}
             <div className="mt-8 bg-slate-900 border border-slate-700/50 rounded-xl p-6 shadow-lg relative z-20">
               <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 blur-3xl rounded-full"></div>
@@ -1169,10 +1165,9 @@ function OperationTab({ token }) {
 }
 
 // --- [BLOCO: ABA 4 - Histórico e Reversão] ---
-function HistoryTab({ token }) {
+function HistoryTab({ token, onTaskStart }) {
   const [snapshots, setSnapshots] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [reverting, setReverting] = useState(false);
 
   const loadHistorico = async () => {
     setLoading(true);
@@ -1190,20 +1185,21 @@ function HistoryTab({ token }) {
 
   const handleRevert = async (snap) => {
     if (!window.confirm(`Tem certeza que deseja reverter e EXCLUIR TODOS OS LANÇAMENTOS da Omie vinculados ao snapshot ID ${snap.id}?`)) return;
-    setReverting(true);
+
     try {
-      const res = await fetch(`http://localhost:8000/api/boning/revert-snapshot/${snap.id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Erro ao reverter');
+      const res = await fetch(`http://localhost:8000/api/boning/revert-snapshot/${snap.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.task_id) {
+        onTaskStart(data.task_id);
+      } else {
+        alert(data.detail || "Erro ao reverter.");
       }
-      alert('Reversão concluída com sucesso!');
-      await loadHistorico();
     } catch (e) {
-      console.error(e);
-      alert('Falha ao reverter:\n\n' + e.message);
+      alert("Erro na comunicação: " + e.message);
     }
-    setReverting(false);
   };
 
   return (

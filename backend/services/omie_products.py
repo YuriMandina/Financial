@@ -1,13 +1,17 @@
 import requests
 from core.deps import current_org
+from api.tasks import TaskManager
 
-def sincronizar_produtos_e_familias(db, org_id):
-    import models
+def sincronizar_produtos_e_familias(db, org_id, task_id=None):
+    import models.models as models
     url = "https://app.omie.com.br/api/v1/geral/produtos/"
     pagina_atual, total_paginas = 1, 1
     
     familias_dict = {}  # omie_id (codigo_familia) -> db_fam (object)
     produtos_inseridos = 0
+
+    if task_id:
+        TaskManager.update_task(task_id, log="Iniciando extração de páginas da Omie...")
 
     while pagina_atual <= total_paginas:
         payload = {
@@ -77,6 +81,9 @@ def sincronizar_produtos_e_familias(db, org_id):
                 produtos_inseridos += 1
 
             db.commit()
+            if task_id:
+                progress = 10.0 + (90.0 * (pagina_atual / total_paginas))
+                TaskManager.update_task(task_id, progress=progress, log=f"Página {pagina_atual} de {total_paginas} processada. {produtos_inseridos} produtos novos/atualizados.")
         except Exception as e:
             raise Exception(f"Erro no ListarProdutos (Sync): {e}")
 
