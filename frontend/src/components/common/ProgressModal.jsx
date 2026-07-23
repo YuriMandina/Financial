@@ -9,7 +9,8 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess 
 
   useEffect(() => {
     if (!taskId) return;
-
+    
+    setMinimized(true);
     let interval;
     
     const fetchTask = async () => {
@@ -180,6 +181,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess 
                 if (isCompleted && onSuccess) {
                   onSuccess();
                 }
+                setMinimized(true);
                 onClose();
               }}
               className={`w-full py-3 px-4 rounded-xl font-medium text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-95 ${
