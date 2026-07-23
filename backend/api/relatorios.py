@@ -2,12 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import traceback
+import time
 import requests
+import json
 import pandas as pd
+from datetime import datetime
+
 import models.models as models
+from core.database import SessionLocal
 from core.deps import current_org, get_current_user_and_set_org
-from core.utils import tratar_vazio, safe_float
-from api.tasks import TaskManager
+from core.utils import tratar_vazio
+from api.tasks import TaskManager, TaskQueue
 from services.omie_dicionarios import (
     extrair_dicionario_contas_correntes, 
     extrair_dicionario_fornecedores, 
@@ -53,10 +58,9 @@ def bg_sync_relatorio(task_id: str, module: str, data_inicio: str, data_fim: str
         TaskManager.update_task(task_id, log=f"Erro durante sincronização: {str(e)}", status="error")
 
 @router.post("/api/relatorios/{module}/sync")
-def sync_module_dados(
+async def sync_module_dados(
     module: str, 
     req: SyncRequest,
-    background_tasks: BackgroundTasks, 
     current_user: models.User = Depends(get_current_user_and_set_org)
 ):
     current_org.set(current_user.organization)
@@ -65,9 +69,10 @@ def sync_module_dados(
         raise HTTPException(status_code=400, detail="Módulo inválido para sincronização.")
         
     task_id = TaskManager.create_task()
+    TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila de sincronização...")
     org_id = current_org.get().id
     
-    background_tasks.add_task(bg_sync_relatorio, task_id, module, req.data_inicio, req.data_fim, org_id)
+    await TaskQueue.enqueue(bg_sync_relatorio, task_id, module, req.data_inicio, req.data_fim, org_id)
     return {"task_id": task_id, "message": "Sincronização iniciada em background."}
 
 @router.get("/api/geral/bancos")

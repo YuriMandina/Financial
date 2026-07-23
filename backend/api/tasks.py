@@ -1,8 +1,36 @@
 from fastapi import APIRouter, HTTPException
+import asyncio
+import functools
 from typing import Dict, Any
 import uuid
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+class TaskQueue:
+    _queue = asyncio.Queue()
+    _worker_task = None
+
+    @classmethod
+    async def enqueue(cls, func, *args, **kwargs):
+        if cls._worker_task is None:
+            cls._worker_task = asyncio.create_task(cls._worker())
+        await cls._queue.put((func, args, kwargs))
+
+    @classmethod
+    async def _worker(cls):
+        loop = asyncio.get_running_loop()
+        while True:
+            func, args, kwargs = await cls._queue.get()
+            try:
+                if asyncio.iscoroutinefunction(func):
+                    await func(*args, **kwargs)
+                else:
+                    pfunc = functools.partial(func, *args, **kwargs)
+                    await loop.run_in_executor(None, pfunc)
+            except Exception as e:
+                print("Worker error:", e)
+            finally:
+                cls._queue.task_done()
 
 class TaskManager:
     _tasks: Dict[str, Dict[str, Any]] = {}

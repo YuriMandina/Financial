@@ -9,7 +9,7 @@ import models.models as models
 from core.database import SessionLocal
 from core.deps import current_org, get_current_user_and_set_org
 from core.utils import tratar_vazio
-from api.tasks import TaskManager
+from api.tasks import TaskManager, TaskQueue
 from services.omie_dicionarios import (
     extrair_dicionario_contas_correntes, 
     extrair_dicionario_fornecedores, 
@@ -30,15 +30,15 @@ def bg_sync_recebimentos(task_id: str, org_id: int):
         TaskManager.update_task(task_id, log=f"Erro durante sincronização: {str(e)}", status="error")
 
 @router.post("/api/relatorios/recebimentos/sync")
-def sync_recebimentos(
-    background_tasks: BackgroundTasks, 
+async def sync_recebimentos(
     current_user: models.User = Depends(get_current_user_and_set_org)
 ):
     current_org.set(current_user.organization)
     task_id = TaskManager.create_task()
+    TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila de sincronização...")
     org_id = current_org.get().id
     
-    background_tasks.add_task(bg_sync_recebimentos, task_id, org_id)
+    await TaskQueue.enqueue(bg_sync_recebimentos, task_id, org_id)
     return {"task_id": task_id, "message": "Sincronização iniciada em background."}
 
 class PagamentoItem(BaseModel):
