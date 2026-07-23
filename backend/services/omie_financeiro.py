@@ -6,8 +6,9 @@ import pandas as pd
 import concurrent.futures
 from core.deps import current_org
 from core.cache import obter_global_db, obter_fatiado_db
+from api.tasks import TaskManager
 
-def _omie_extrair_contas_pagar_abertas(min_f_str=None, max_f_str=None):
+def _omie_extrair_contas_pagar_abertas(min_f_str=None, max_f_str=None, task_id=None):
     # A Omie não tem filtro fácil de data para contas em aberto, então puxamos tudo
     url = "https://app.omie.com.br/api/v1/financas/contapagar/"
     pagina_atual, total_paginas = 1, 1
@@ -40,12 +41,16 @@ def _omie_extrair_contas_pagar_abertas(min_f_str=None, max_f_str=None):
         except:
             break
 
+        if task_id:
+            progress = (pagina_atual / total_paginas) * 100
+            TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Contas a Pagar: Página {pagina_atual} de {total_paginas}")
+
         pagina_atual += 1
         time.sleep(0.3)
 
     return todas_contas
 
-def extrair_contas_pagar_abertas(data_inicio: str, data_fim: str):
+def extrair_contas_pagar_abertas(data_inicio: str, data_fim: str, **kwargs):
     def extract_date(item):
         d = item.get("data_previsao")
         if not d: return "1970-01-01"
@@ -60,10 +65,12 @@ def extrair_contas_pagar_abertas(data_inicio: str, data_fim: str):
         "Contas a Pagar (Abertas)",
         "contas_pagar_abertas",
         _omie_extrair_contas_pagar_abertas,
-        extract_date
+        extract_date,
+        task_id=kwargs.get('task_id'),
+        force_sync=kwargs.get('force_sync', False)
     )
 
-def _omie_extrair_contas_receber_abertas(min_f_str=None, max_f_str=None):
+def _omie_extrair_contas_receber_abertas(min_f_str=None, max_f_str=None, task_id=None):
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
     app_key = current_org.get().omie_app_key
     app_secret = current_org.get().omie_app_secret
@@ -145,18 +152,23 @@ def _omie_extrair_contas_receber_abertas(min_f_str=None, max_f_str=None):
         # Delay fixo
         time.sleep(0.35)
 
+        if task_id:
+            progress = (pagina / total_paginas) * 100
+            TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Contas a Receber: Página {pagina} de {total_paginas}")
+
     return todas_contas
 
-def extrair_contas_receber_abertas(force_sync=False, return_metadata=False):
+def extrair_contas_receber_abertas(force_sync=False, return_metadata=False, **kwargs):
     return obter_global_db(
         "contas_receber_abertas_global",
         "Contas a Receber (Abertas)",
         _omie_extrair_contas_receber_abertas,
         force_sync=force_sync,
-        return_metadata=return_metadata
+        return_metadata=return_metadata,
+        task_id=kwargs.get('task_id')
     )
 
-def _omie_extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
+def _omie_extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str, task_id=None):
     url = "https://app.omie.com.br/api/v1/financas/mf/"
     dt_inicio_omie = pd.to_datetime(data_inicio).strftime("%d/%m/%Y")
     dt_fim_omie = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
@@ -192,22 +204,28 @@ def _omie_extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
         except:
             break
 
+        if task_id:
+            progress = (pagina_atual / total_paginas) * 100
+            TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Movimentos Pagos: Página {pagina_atual} de {total_paginas}")
+
         pagina_atual += 1
         time.sleep(0.3)
 
     return todos_movimentos
 
-def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str):
+def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str, **kwargs):
     return obter_fatiado_db(
         data_inicio,
         data_fim,
         "Contas Pagas",
         "mov_pagos",
         _omie_extrair_movimentos_pagos_periodo,
-        lambda mov: pd.to_datetime(mov.get("detalhes", {}).get("dDtPagamento", "01/01/1900"), format="%d/%m/%Y", errors="coerce").strftime("%Y-%m-%d")
+        lambda mov: pd.to_datetime(mov.get("detalhes", {}).get("dDtPagamento", "01/01/1900"), format="%d/%m/%Y", errors="coerce").strftime("%Y-%m-%d"),
+        task_id=kwargs.get('task_id'),
+        force_sync=kwargs.get('force_sync', False)
     )
 
-def _omie_fetch_pages_parallel(url, call_name, array_name, d_ini, d_fim):
+def _omie_fetch_pages_parallel(url, call_name, array_name, d_ini, d_fim, task_id=None):
     app_key = current_org.get().omie_app_key
     app_secret = current_org.get().omie_app_secret
     
@@ -259,24 +277,32 @@ def _omie_fetch_pages_parallel(url, call_name, array_name, d_ini, d_fim):
         return []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        results = executor.map(fetch_page, range(2, total_paginas + 1))
-        for res_list in results:
+        futures = {executor.submit(fetch_page, pagina): pagina for pagina in range(2, total_paginas + 1)}
+        paginas_completadas = 1 # Primeira página já foi
+        
+        for future in concurrent.futures.as_completed(futures):
+            res_list = future.result()
             if res_list:
                 todas_contas.extend(res_list)
                 
+            paginas_completadas += 1
+            if task_id:
+                progress = (paginas_completadas / total_paginas) * 100
+                TaskManager.update_task(task_id, progress=progress, log=f"Extraindo {call_name}: Página {paginas_completadas} de {total_paginas}")
+                
     return todas_contas
 
-def _omie_extrair_dre_pagar_emissao(data_ini_str, data_fim_str):
+def _omie_extrair_dre_pagar_emissao(data_ini_str, data_fim_str, task_id=None):
     d_ini = f"{data_ini_str[8:10]}/{data_ini_str[5:7]}/{data_ini_str[0:4]}"
     d_fim = f"{data_fim_str[8:10]}/{data_fim_str[5:7]}/{data_fim_str[0:4]}"
     url = "https://app.omie.com.br/api/v1/financas/contapagar/"
-    return _omie_fetch_pages_parallel(url, "ListarContasPagar", "conta_pagar_cadastro", d_ini, d_fim)
+    return _omie_fetch_pages_parallel(url, "ListarContasPagar", "conta_pagar_cadastro", d_ini, d_fim, task_id=task_id)
 
-def _omie_extrair_dre_receber_emissao(data_ini_str, data_fim_str):
+def _omie_extrair_dre_receber_emissao(data_ini_str, data_fim_str, task_id=None):
     d_ini = f"{data_ini_str[8:10]}/{data_ini_str[5:7]}/{data_ini_str[0:4]}"
     d_fim = f"{data_fim_str[8:10]}/{data_fim_str[5:7]}/{data_fim_str[0:4]}"
     url = "https://app.omie.com.br/api/v1/financas/contareceber/"
-    return _omie_fetch_pages_parallel(url, "ListarContasReceber", "conta_receber_cadastro", d_ini, d_fim)
+    return _omie_fetch_pages_parallel(url, "ListarContasReceber", "conta_receber_cadastro", d_ini, d_fim, task_id=task_id)
 
 def _extract_emissao(item):
     d = item.get("data_emissao")
@@ -284,22 +310,26 @@ def _extract_emissao(item):
         return f"{d[6:10]}-{d[3:5]}-{d[0:2]}"
     return "1900-01-01"
 
-def extrair_dre_pagar(data_inicio, data_fim):
+def extrair_dre_pagar(data_inicio, data_fim, **kwargs):
     return obter_fatiado_db(
         data_inicio,
         data_fim,
         "DRE Pagar",
         "dre_pagar",
         _omie_extrair_dre_pagar_emissao,
-        _extract_emissao
+        _extract_emissao,
+        task_id=kwargs.get('task_id'),
+        force_sync=kwargs.get('force_sync', False)
     )
 
-def extrair_dre_receber(data_inicio, data_fim):
+def extrair_dre_receber(data_inicio, data_fim, **kwargs):
     return obter_fatiado_db(
         data_inicio,
         data_fim,
         "DRE Receber",
         "dre_receber",
         _omie_extrair_dre_receber_emissao,
-        _extract_emissao
+        _extract_emissao,
+        task_id=kwargs.get('task_id'),
+        force_sync=kwargs.get('force_sync', False)
     )

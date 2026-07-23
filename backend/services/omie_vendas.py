@@ -6,18 +6,21 @@ import pandas as pd
 from core.deps import current_org
 from core.cache import obter_global_db, obter_fatiado_db
 from core.utils import safe_float
+from api.tasks import TaskManager
 
-def extrair_movimento_vendas(data_inicio: str, data_fim: str):
+def extrair_movimento_vendas(data_inicio: str, data_fim: str, **kwargs):
     return obter_fatiado_db(
         data_inicio,
         data_fim,
         "Vendas PDV",
         "movimento_vendas_pdv",
         _omie_extrair_movimento_vendas,
-        lambda item: pd.to_datetime(item.get("data_emissao", "01/01/1900"), format="%d/%m/%Y", errors="coerce").strftime("%Y-%m-%d")
+        lambda item: pd.to_datetime(item.get("data_emissao", "01/01/1900"), format="%d/%m/%Y", errors="coerce").strftime("%Y-%m-%d"),
+        task_id=kwargs.get('task_id'),
+        force_sync=kwargs.get('force_sync', False)
     )
 
-def _omie_extrair_movimento_vendas(data_inicio: str, data_fim: str):
+def _omie_extrair_movimento_vendas(data_inicio: str, data_fim: str, task_id=None):
     url = "https://app.omie.com.br/api/v1/produtos/cupomfiscalconsultar/"
     dt_inicio_omie = pd.to_datetime(data_inicio).strftime("%d/%m/%Y")
     dt_fim_omie = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
@@ -100,6 +103,10 @@ def _omie_extrair_movimento_vendas(data_inicio: str, data_fim: str):
         except Exception:
             traceback.print_exc()
             break
+
+        if task_id:
+            progress = (pagina_atual / total_paginas) * 100
+            TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Vendas: Página {pagina_atual} de {total_paginas}")
 
         pagina_atual += 1
         time.sleep(0.3)

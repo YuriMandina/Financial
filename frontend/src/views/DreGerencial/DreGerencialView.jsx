@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, DollarSign, ArrowUpCircle, ArrowDownCircle, Target } from 'lucide-react';
 import DateRangePicker from '../../components/common/DateRangePicker';
+import ProgressModal from '../../components/common/ProgressModal';
 
 export const DreGerencial = ({ token }) => {
   const [loading, setLoading] = useState(false);
@@ -8,10 +9,38 @@ export const DreGerencial = ({ token }) => {
   const [error, setError] = useState('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
+  
+  const [syncModalState, setSyncModalState] = useState({ active: false, status: 'processing', text: '' });
 
-  const fetchDre = async () => {
+  const fetchDre = async (isSync = false) => {
     setLoading(true);
     setError('');
+
+    if (isSync) {
+        setSyncModalState({ active: true, status: 'processing', text: 'Iniciando sincronização...' });
+        try {
+            const res = await fetch(`http://localhost:8000/api/relatorios/dre/sync`, {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ data_inicio: dataInicio, data_fim: dataFim })
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.detail || 'Erro ao sincronizar DRE');
+            
+            setSyncModalState({ active: true, taskId: json.task_id });
+            return;
+        } catch (err) {
+            setSyncModalState({ active: true, status: 'error', text: `Erro: ${err.message}` });
+            setLoading(false);
+            return;
+        }
+    }
+
+
+
     try {
       const res = await fetch(`http://localhost:8000/api/relatorios/dre/dados?data_inicio=${dataInicio}&data_fim=${dataFim}`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -21,6 +50,7 @@ export const DreGerencial = ({ token }) => {
       setData(json);
     } catch (err) {
       setError(err.message);
+      setSyncModalState({ active: true, status: 'error', text: `Erro: ${err.message}` });
     } finally {
       setLoading(false);
     }
@@ -57,7 +87,7 @@ export const DreGerencial = ({ token }) => {
             onEndChange={setDataFim} 
           />
           <button 
-            onClick={fetchDre}
+            onClick={() => fetchDre(true)}
             disabled={loading || !dataInicio || !dataFim}
             className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-xl transition flex items-center gap-2 shadow-lg shadow-indigo-500/20 disabled:opacity-50"
           >
@@ -149,6 +179,13 @@ export const DreGerencial = ({ token }) => {
           </div>
         </>
       )}
+      
+      <ProgressModal 
+        taskId={syncModalState.taskId}
+        manualState={!syncModalState.taskId ? syncModalState : null} 
+        onClose={() => setSyncModalState({ active: false, status: 'processing', text: '' })} 
+        onSuccess={() => fetchDre(false)}
+      />
     </div>
   );
 };

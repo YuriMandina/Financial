@@ -4,7 +4,7 @@ from core.database import SessionLocal
 from models.models import SyncSnapshot
 from core.deps import current_org
 
-def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global", force_sync=False, return_metadata=False, **kwargs):
+def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global", force_sync=False, return_metadata=False, task_id=None, **kwargs):
     db = SessionLocal()
     try:
         snap = db.query(SyncSnapshot).filter(SyncSnapshot.cache_key == cache_key, SyncSnapshot.organization_id == current_org.get().id).first()
@@ -15,6 +15,9 @@ def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global
         if snap and force_sync:
             db.delete(snap)
             db.commit()
+            
+        if task_id:
+            kwargs['task_id'] = task_id
             
         dados = fetch_fn(*args, **kwargs)
         if dados is not None:
@@ -33,7 +36,7 @@ def obter_global_db(cache_key, tipo_relatorio, fetch_fn, *args, data_ref="Global
     finally:
         db.close()
 
-def obter_fatiado_db(data_inicio, data_fim, tipo_relatorio, cache_key_prefix, fetch_fn, extract_date_fn):
+def obter_fatiado_db(data_inicio, data_fim, tipo_relatorio, cache_key_prefix, fetch_fn, extract_date_fn, task_id=None, force_sync=False):
     db = SessionLocal()
     try:
         dt_inicio = pd.to_datetime(data_inicio)
@@ -48,6 +51,12 @@ def obter_fatiado_db(data_inicio, data_fim, tipo_relatorio, cache_key_prefix, fe
             SyncSnapshot.cache_key.in_(chaves_buscadas)
         ).all()
         
+        if force_sync and salvos:
+            for snap in salvos:
+                db.delete(snap)
+            db.commit()
+            salvos = []
+        
         datas_salvas = {snap.data_referencia: snap.dados for snap in salvos}
         datas_faltantes = [d for d in todas_datas if d.strftime("%Y-%m-%d") not in datas_salvas]
         
@@ -59,7 +68,10 @@ def obter_fatiado_db(data_inicio, data_fim, tipo_relatorio, cache_key_prefix, fe
             min_f = min(datas_faltantes)
             max_f = max(datas_faltantes)
             
-            novos_dados = fetch_fn(min_f.strftime("%Y-%m-%d"), max_f.strftime("%Y-%m-%d"))
+            if task_id:
+                novos_dados = fetch_fn(min_f.strftime("%Y-%m-%d"), max_f.strftime("%Y-%m-%d"), task_id=task_id)
+            else:
+                novos_dados = fetch_fn(min_f.strftime("%Y-%m-%d"), max_f.strftime("%Y-%m-%d"))
             
             dados_por_dia = {d.strftime("%Y-%m-%d"): [] for d in datas_faltantes}
             

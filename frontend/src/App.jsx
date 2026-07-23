@@ -24,6 +24,7 @@ import Topbar from './components/layout/Topbar';
 import ModalRecebimento from './components/modals/ModalRecebimento';
 import ModalHistoricoRecibos from './components/modals/ModalHistoricoRecibos';
 import ModalSnapshots from './components/modals/ModalSnapshots';
+import ProgressModal from './components/common/ProgressModal';
 import ReciboPagamento from './components/modals/ReciboPagamento';
 import ReciboCobranca from './components/modals/ReciboCobranca';
 
@@ -81,6 +82,8 @@ function App() {
 
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [registrosPorPagina, setRegistrosPorPagina] = useState(50);
+  
+  const [syncModalState, setSyncModalState] = useState({ active: false, status: 'processing', text: '' });
 
   const [listaBancos, setListaBancos] = useState([]);
   const [selecionados, setSelecionados] = useState([]);
@@ -234,6 +237,38 @@ function App() {
       alert("Por favor, selecione a Data Inicial e a Data Final.");
       return;
     }
+
+    if (isForceSync) {
+      try {
+        let endpointBase = menuAtivo === 'contas-pagas' ? 'contas-pagas' 
+          : menuAtivo === 'recebimentos' ? 'recebimentos' 
+          : menuAtivo === 'curva-abc' ? 'curva-abc' 
+          : menuAtivo === 'dre-gerencial' ? 'dre'
+          : 'contas-a-pagar';
+          
+        if (menuAtivo === 'dashboard') {
+            alert("A sincronização em lote do dashboard foi desativada temporariamente. Por favor, sincronize cada módulo individualmente.");
+            return;
+        }
+
+        const urlSync = `http://localhost:8000/api/relatorios/${endpointBase}/sync`;
+        const resSync = await fetchWithAuth(urlSync, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data_inicio: dataInicial, data_fim: dataFinal })
+        });
+        
+        if (!resSync.ok) throw new Error("Falha ao iniciar sincronização.");
+        const dataSync = await resSync.json();
+        
+        setSyncModalState({ active: true, taskId: dataSync.task_id });
+        return; 
+      } catch (err) {
+        setSyncModalState({ active: true, status: 'error', text: err.message });
+        return;
+      }
+    }
+
     setCarregandoTela(true);
     setContaFiltro('TODAS');
     setClienteFiltro('');
@@ -277,9 +312,8 @@ function App() {
         setContasBrutas(dados.itens || []);
       } else {
         const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' : menuAtivo === 'recebimentos' ? 'recebimentos' : 'contas-a-pagar';
-        const isForce = isForceSync === true;
         const url = menuAtivo === 'recebimentos' 
-          ? `http://localhost:8000/api/relatorios/recebimentos/dados?force_sync=${isForce}`
+          ? `http://localhost:8000/api/relatorios/recebimentos/dados`
           : `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
 
         const resposta = await fetchWithAuth(url);
@@ -298,7 +332,7 @@ function App() {
         }
       }
     } catch (erro) {
-      alert(`Erro: ${erro.message}`);
+      setSyncModalState({ active: true, status: 'error', text: `Erro: ${erro.message}` });
     } finally {
       setCarregandoTela(false);
     }
@@ -1001,7 +1035,7 @@ function App() {
                 />
               )}
 
-              <button onClick={() => handleBuscarDados(menuAtivo === 'recebimentos')} disabled={carregandoTela} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold transition-all disabled:opacity-50">
+              <button onClick={() => handleBuscarDados(true)} disabled={carregandoTela} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold transition-all disabled:opacity-50">
                 {carregandoTela ? <Loader2 className="animate-spin" size={16} /> : <Database size={16} />}
                 SINCRONIZAR DADOS
               </button>
@@ -1072,6 +1106,12 @@ function App() {
 
         <ModalHistoricoRecibos modalHistoricoRecibosAberto={modalHistoricoRecibosAberto} setModalHistoricoRecibosAberto={setModalHistoricoRecibosAberto} historicoRecibos={historicoRecibos} filtroHistoricoCliente={filtroHistoricoCliente} setFiltroHistoricoCliente={setFiltroHistoricoCliente} filtroHistoricoData={filtroHistoricoData} setFiltroHistoricoData={setFiltroHistoricoData} carregandoHistorico={carregandoHistorico} handleDesfazerBaixa={handleDesfazerBaixa} setReciboGerado={setReciboGerado} />
         <ModalSnapshots modalSnapshotsAberto={modalSnapshotsAberto} setModalSnapshotsAberto={setModalSnapshotsAberto} paginaSnapshots={paginaSnapshots} setPaginaSnapshots={setPaginaSnapshots} registrosPorPaginaSnapshots={registrosPorPaginaSnapshots} setRegistrosPorPaginaSnapshots={setRegistrosPorPaginaSnapshots} modalDataInicial={modalDataInicial} setModalDataInicial={setModalDataInicial} modalDataFinal={modalDataFinal} setModalDataFinal={setModalDataFinal} handleDeletarSnapshot={handleDeletarSnapshot} handleResincronizarSnapshot={handleResincronizarSnapshot} snapshotsPaginados={snapshotsPaginados} totalPaginasSnapshots={totalPaginasSnapshots} totalSnapshots={totalSnapshots} />
+        <ProgressModal 
+          taskId={syncModalState.taskId}
+          manualState={!syncModalState.taskId ? syncModalState : null} 
+          onClose={() => setSyncModalState({ active: false, status: 'processing', text: '' })} 
+          onSuccess={() => handleBuscarDados(false)}
+        />
         </main>
     </div>
       )}

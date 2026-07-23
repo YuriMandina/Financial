@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 import traceback
 import requests
 import pandas as pd
 import models.models as models
 from core.deps import current_org, get_current_user_and_set_org
 from core.utils import tratar_vazio, safe_float
+from api.tasks import TaskManager
 from services.omie_dicionarios import (
     extrair_dicionario_contas_correntes, 
     extrair_dicionario_fornecedores, 
@@ -23,6 +25,50 @@ from services.omie_vendas import (
 )
 
 router = APIRouter()
+
+class SyncRequest(BaseModel):
+    data_inicio: str = None
+    data_fim: str = None
+
+def bg_sync_relatorio(task_id: str, module: str, data_inicio: str, data_fim: str, org_id: int):
+    try:
+        TaskManager.update_task(task_id, progress=5.0, log=f"Iniciando sincronização de {module}...")
+        
+        if module == "contas-a-pagar":
+            extrair_contas_pagar_abertas(data_inicio, data_fim, task_id=task_id, force_sync=True)
+        elif module == "contas-pagas":
+            extrair_movimentos_pagos_periodo(data_inicio, data_fim, task_id=task_id, force_sync=True)
+        elif module == "curva-abc":
+            extrair_movimento_vendas(data_inicio, data_fim, task_id=task_id, force_sync=True)
+        elif module == "dre":
+            TaskManager.update_task(task_id, log="Extraindo DRE a Pagar...")
+            extrair_dre_pagar(data_inicio, data_fim, task_id=task_id, force_sync=True)
+            TaskManager.update_task(task_id, log="Extraindo DRE a Receber...")
+            extrair_dre_receber(data_inicio, data_fim, task_id=task_id, force_sync=True)
+            
+        TaskManager.update_task(task_id, progress=100.0, log="Sincronização concluída com sucesso!", status="completed")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        TaskManager.update_task(task_id, log=f"Erro durante sincronização: {str(e)}", status="error")
+
+@router.post("/api/relatorios/{module}/sync")
+def sync_module_dados(
+    module: str, 
+    req: SyncRequest,
+    background_tasks: BackgroundTasks, 
+    current_user: models.User = Depends(get_current_user_and_set_org)
+):
+    current_org.set(current_user.organization)
+    valid_modules = ["contas-a-pagar", "contas-pagas", "curva-abc", "dre"]
+    if module not in valid_modules:
+        raise HTTPException(status_code=400, detail="Módulo inválido para sincronização.")
+        
+    task_id = TaskManager.create_task()
+    org_id = current_org.get().id
+    
+    background_tasks.add_task(bg_sync_relatorio, task_id, module, req.data_inicio, req.data_fim, org_id)
+    return {"task_id": task_id, "message": "Sincronização iniciada em background."}
 
 @router.get("/api/geral/bancos")
 def obter_bancos(current_user: models.User = Depends(get_current_user_and_set_org)):

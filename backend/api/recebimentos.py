@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import traceback
@@ -9,6 +9,7 @@ import models.models as models
 from core.database import SessionLocal
 from core.deps import current_org, get_current_user_and_set_org
 from core.utils import tratar_vazio
+from api.tasks import TaskManager
 from services.omie_dicionarios import (
     extrair_dicionario_contas_correntes, 
     extrair_dicionario_fornecedores, 
@@ -17,6 +18,28 @@ from services.omie_dicionarios import (
 from services.omie_financeiro import extrair_contas_receber_abertas
 
 router = APIRouter()
+
+def bg_sync_recebimentos(task_id: str, org_id: int):
+    try:
+        TaskManager.update_task(task_id, progress=5.0, log=f"Iniciando sincronização de Recebimentos...")
+        extrair_contas_receber_abertas(task_id=task_id, force_sync=True)
+        TaskManager.update_task(task_id, progress=100.0, log="Sincronização concluída com sucesso!", status="completed")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        TaskManager.update_task(task_id, log=f"Erro durante sincronização: {str(e)}", status="error")
+
+@router.post("/api/relatorios/recebimentos/sync")
+def sync_recebimentos(
+    background_tasks: BackgroundTasks, 
+    current_user: models.User = Depends(get_current_user_and_set_org)
+):
+    current_org.set(current_user.organization)
+    task_id = TaskManager.create_task()
+    org_id = current_org.get().id
+    
+    background_tasks.add_task(bg_sync_recebimentos, task_id, org_id)
+    return {"task_id": task_id, "message": "Sincronização iniciada em background."}
 
 class PagamentoItem(BaseModel):
     codigo_lancamento: int
