@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 import asyncio
 import functools
+import contextvars
 from typing import Dict, Any
 import uuid
 
@@ -14,18 +15,20 @@ class TaskQueue:
     async def enqueue(cls, func, *args, **kwargs):
         if cls._worker_task is None:
             cls._worker_task = asyncio.create_task(cls._worker())
-        await cls._queue.put((func, args, kwargs))
+        ctx = contextvars.copy_context()
+        await cls._queue.put((func, args, kwargs, ctx))
 
     @classmethod
     async def _worker(cls):
         loop = asyncio.get_running_loop()
         while True:
-            func, args, kwargs = await cls._queue.get()
+            func, args, kwargs, ctx = await cls._queue.get()
             try:
                 if asyncio.iscoroutinefunction(func):
+                    # Para coroutines seria ideal ctx.run mas asyncio lida melhor com tasks independentes
                     await func(*args, **kwargs)
                 else:
-                    pfunc = functools.partial(func, *args, **kwargs)
+                    pfunc = functools.partial(ctx.run, func, *args, **kwargs)
                     await loop.run_in_executor(None, pfunc)
             except Exception as e:
                 print("Worker error:", e)
