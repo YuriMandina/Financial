@@ -35,16 +35,16 @@ def bg_sync_relatorio(task_id: str, module: str, data_inicio: str, data_fim: str
         TaskManager.update_task(task_id, progress=5.0, log=f"Iniciando sincronização de {module}...")
         
         if module == "contas-a-pagar":
-            extrair_contas_pagar_abertas(data_inicio, data_fim, task_id=task_id, force_sync=True)
+            extrair_contas_pagar_abertas(data_inicio, data_fim, task_id=task_id, force_sync=False)
         elif module == "contas-pagas":
-            extrair_movimentos_pagos_periodo(data_inicio, data_fim, task_id=task_id, force_sync=True)
+            extrair_movimentos_pagos_periodo(data_inicio, data_fim, task_id=task_id, force_sync=False)
         elif module == "curva-abc":
-            extrair_movimento_vendas(data_inicio, data_fim, task_id=task_id, force_sync=True)
+            extrair_movimento_vendas(data_inicio, data_fim, task_id=task_id, force_sync=False)
         elif module == "dre":
             TaskManager.update_task(task_id, log="Extraindo DRE a Pagar...")
-            extrair_dre_pagar(data_inicio, data_fim, task_id=task_id, force_sync=True)
+            extrair_dre_pagar(data_inicio, data_fim, task_id=task_id, force_sync=False)
             TaskManager.update_task(task_id, log="Extraindo DRE a Receber...")
-            extrair_dre_receber(data_inicio, data_fim, task_id=task_id, force_sync=True)
+            extrair_dre_receber(data_inicio, data_fim, task_id=task_id, force_sync=False)
             
         TaskManager.update_task(task_id, progress=100.0, log="Sincronização concluída com sucesso!", status="completed")
     except Exception as e:
