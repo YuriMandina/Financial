@@ -27,10 +27,14 @@ export const DreGerencial = ({ token, onTaskStart }) => {
             const json = await res.json();
             if (!res.ok) throw new Error(json.detail || 'Erro ao sincronizar DRE');
             
-            if (onTaskStart) onTaskStart(json.task_id, 'Sincronizando DRE');
+            if (onTaskStart) onTaskStart(json.task_id, 'Sincronizando DRE', () => fetchDre(false));
             return;
         } catch (err) {
-            alert(`Erro: ${err.message}`);
+            if (onTaskStart) {
+                onTaskStart(`err-${Date.now()}`, 'Erro na Sincronização', null, 'error', err.message);
+            } else {
+                alert(`Erro: ${err.message}`);
+            }
             setLoading(false);
             return;
         }

@@ -85,8 +85,8 @@ function App() {
   
   const [activeSyncTasks, setActiveSyncTasks] = useState([]);
 
-  const handleGlobalTaskStart = (taskId, title, onSuccess) => {
-    setActiveSyncTasks(prev => [...prev, { taskId, title, onSuccess }]);
+  const handleGlobalTaskStart = (taskId, title, onSuccess = null, status = 'processing', text = '') => {
+    setActiveSyncTasks(prev => [...prev, { taskId, title, onSuccess, status, text }]);
   };
 
   const [listaBancos, setListaBancos] = useState([]);

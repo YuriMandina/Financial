@@ -75,12 +75,12 @@ function SyncTab({ token, onTaskStart }) {
       const res = await fetch('http://localhost:8000/api/boning/sync-omie', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id, 'Sincronizando Famílias e Produtos');
+        onTaskStart(data.task_id, 'Sincronizando Famílias e Produtos', loadData);
       } else {
-        alert("Erro ao iniciar sincronização: " + (data.detail || data.message));
+        onTaskStart(`err-${Date.now()}`, 'Erro ao iniciar sincronização', null, 'error', data.detail || data.message);
       }
     } catch (err) {
-      alert("Erro na requisição: " + err.message);
+      onTaskStart(`err-${Date.now()}`, 'Erro na requisição', null, 'error', err.message);
     }
   };
 
@@ -798,10 +798,10 @@ function OperationTab({ token, onTaskStart }) {
       if (res.ok && data.task_id) {
         onTaskStart(data.task_id, 'Zerando Estoques');
       } else {
-        alert(data.detail || "Erro ao corrigir estoques");
+        onTaskStart(`err-${Date.now()}`, 'Erro ao corrigir estoques', null, 'error', data.detail || "Falha desconhecida");
       }
     } catch (e) {
-      alert("Falha: " + e.message);
+      onTaskStart(`err-${Date.now()}`, 'Falha', null, 'error', e.message);
     } finally {
       setFixingStocks(false);
     }
@@ -821,12 +821,12 @@ function OperationTab({ token, onTaskStart }) {
       });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id, 'Lançando Rateio e Custeio');
+        onTaskStart(data.task_id, 'Lançando Rateio e Custeio', () => { setCalculationResult(null); setMode('TEMPLATE'); });
       } else {
-        alert("Erro ao exportar: " + (data.detail || data.message || JSON.stringify(data)));
+        onTaskStart(`err-${Date.now()}`, 'Erro ao exportar', null, 'error', data.detail || data.message || JSON.stringify(data));
       }
     } catch (e) {
-      alert("Falha na exportação: " + e.message);
+      onTaskStart(`err-${Date.now()}`, 'Falha na exportação', null, 'error', e.message);
     }
     setExporting(false);
   };
@@ -1191,12 +1191,12 @@ function HistoryTab({ token, onTaskStart }) {
       });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id, 'Revertendo Rateio');
+        onTaskStart(data.task_id, 'Revertendo Rateio', loadHistorico);
       } else {
-        alert(data.detail || "Erro ao reverter.");
+        onTaskStart(`err-${Date.now()}`, 'Erro ao reverter', null, 'error', data.detail || "Falha desconhecida");
       }
     } catch (e) {
-      alert("Erro na comunicação: " + e.message);
+      onTaskStart(`err-${Date.now()}`, 'Erro na comunicação', null, 'error', e.message);
     }
   };
 
