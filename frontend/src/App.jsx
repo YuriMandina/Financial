@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, startTransition } from 'react';
 import html2canvas from 'html2canvas';
 import {
   Settings as SettingsIcon, LayoutDashboard, FileText, TrendingUp, Users, Search, CalendarDays,
@@ -330,24 +330,28 @@ function App() {
         const dadosPagas = resPagas.ok ? await resPagas.json() : { contas: [] };
         const dadosRec = resRec.ok ? await resRec.json() : { contas: [] };
         
-        setDashboardData({
-          pagar: dadosPagar.contas || [],
-          pagas: dadosPagas.contas || [],
-          receber: dadosRec.contas || []
+        startTransition(() => {
+          setDashboardData({
+            pagar: dadosPagar.contas || [],
+            pagas: dadosPagas.contas || [],
+            receber: dadosRec.contas || []
+          });
         });
       } else if (menuAtivo === 'curva-abc') {
         const url = `http://localhost:8000/api/relatorios/curva-abc/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         const resposta = await fetchWithAuth(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
         const dados = await resposta.json();
-        // Armazena o resumo financeiro global no estado dedicado
-        setResumoCurvaAbc(dados.resumo || null);
-        // Lista de famílias retornada pelo backend
-        setFamiliasList(dados.familias || []);
-        setFamiliasFiltro([]);   // reset filtros ao recarregar
-        setClasseAbcFiltro([]);
-        // Alimenta o estado padrão com a lista de produtos
-        setContasBrutas(dados.itens || []);
+        startTransition(() => {
+          // Armazena o resumo financeiro global no estado dedicado
+          setResumoCurvaAbc(dados.resumo || null);
+          // Lista de famílias retornada pelo backend
+          setFamiliasList(dados.familias || []);
+          setFamiliasFiltro([]);   // reset filtros ao recarregar
+          setClasseAbcFiltro([]);
+          // Alimenta o estado padrão com a lista de produtos
+          setContasBrutas(dados.itens || []);
+        });
       } else {
         const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' : menuAtivo === 'recebimentos' ? 'recebimentos' : 'contas-a-pagar';
         const url = menuAtivo === 'recebimentos' 
@@ -357,10 +361,12 @@ function App() {
         const resposta = await fetchWithAuth(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
         const dados = await resposta.json();
-        setContasBrutas(dados.contas || []);
-        if (menuAtivo === 'recebimentos') {
-          setUltimaSincronizacaoRecebimentos(dados.ultima_sincronizacao || null);
-        }
+        startTransition(() => {
+          setContasBrutas(dados.contas || []);
+          if (menuAtivo === 'recebimentos') {
+            setUltimaSincronizacaoRecebimentos(dados.ultima_sincronizacao || null);
+          }
+        });
 
         if (menuAtivo === 'recebimentos' && listaBancos.length === 0) {
           fetchWithAuth('http://localhost:8000/api/geral/bancos')
@@ -1160,7 +1166,7 @@ function App() {
                   } else if (taskState.onSuccess) {
                     taskState.onSuccess();
                   }
-                  handleBuscarDados(false);
+                  setTimeout(() => handleBuscarDados(false), 100);
                 }}
                 title={taskState.title}
               />
