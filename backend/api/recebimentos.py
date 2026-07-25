@@ -154,84 +154,104 @@ def obter_recebimentos_abertos(data_inicio: str = None, data_fim: str = None, fo
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"detail": str(e)})
 
-@router.post("/api/relatorios/recebimentos/baixar")
-def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = Depends(get_current_user_and_set_org)):
-    current_org.set(current_user.organization)
-    url = "https://app.omie.com.br/api/v1/financas/contareceber/"
-    erros = []
-    baixas_sucesso = []
+def bg_baixar_recebimentos_lote(task_id: str, req_dict: dict, org_id: int):
+    try:
+        req = BaixaLoteRequest(**req_dict)
+        db = SessionLocal()
+        org = db.query(models.Organization).filter(models.Organization.id == org_id).first()
+        current_org.set(org)
+        
+        url = "https://app.omie.com.br/api/v1/financas/contareceber/"
+        erros = []
+        baixas_sucesso = []
+        
+        TaskManager.update_task(task_id, progress=5.0, log="Iniciando processamento das baixas no Omie...")
+        
+        total_items = len(req.pagamentos)
+        for i, pag in enumerate(req.pagamentos):
+            time.sleep(0.3)
+            payload = {
+                "call": "LancarRecebimento",
+                "app_key": current_org.get().omie_app_key,
+                "app_secret": current_org.get().omie_app_secret,
+                "param": [
+                    {
+                        "codigo_lancamento": pag.codigo_lancamento,
+                        "codigo_conta_corrente": req.id_conta_corrente,
+                        "valor": pag.valor,
+                        "desconto": pag.desconto,
+                        "juros": pag.juros,
+                        "data": req.data_pagamento,
+                        "observacao": "Baixa em Lote c/ Rateio via GabaritoBI",
+                    }
+                ],
+            }
+            try:
+                res = requests.post(
+                    url, json=payload, headers={"Content-Type": "application/json"}
+                ).json()
+                if "faultstring" in res:
+                    erros.append(f"Erro na nota {pag.codigo_lancamento}: {res['faultstring']}")
+                else:
+                    baixas_sucesso.append({
+                        "codigo_lancamento": pag.codigo_lancamento,
+                        "codigo_baixa": res.get("codigo_baixa")
+                    })
+            except Exception as e:
+                erros.append(f"Erro na comunicação: {str(e)}")
+            
+            progress = 5.0 + ((i + 1) / total_items) * 80.0
+            TaskManager.update_task(task_id, progress=progress, log=f"Processado {i+1} de {total_items} recebimentos...")
 
-    for pag in req.pagamentos:
-        time.sleep(0.3)
+        if baixas_sucesso:
+            TaskManager.update_task(task_id, progress=90.0, log="Atualizando cache local...")
+            try:
+                cache_key = "contas_receber_abertas_global"
+                snap = db.query(models.SyncSnapshot).filter(
+                    models.SyncSnapshot.cache_key == cache_key, 
+                    models.SyncSnapshot.organization_id == current_org.get().id
+                ).first()
 
-        payload = {
-            "call": "LancarRecebimento",
-            "app_key": current_org.get().omie_app_key,
-            "app_secret": current_org.get().omie_app_secret,
-            "param": [
-                {
-                    "codigo_lancamento": pag.codigo_lancamento,
-                    "codigo_conta_corrente": req.id_conta_corrente,
-                    "valor": pag.valor,
-                    "desconto": pag.desconto,
-                    "juros": pag.juros,
-                    "data": req.data_pagamento,
-                    "observacao": "Baixa em Lote c/ Rateio via GabaritoBI",
-                }
-            ],
-        }
-        try:
-            res = requests.post(
-                url, json=payload, headers={"Content-Type": "application/json"}
-            ).json()
-            if "faultstring" in res:
-                erros.append(
-                    f"Erro na nota {pag.codigo_lancamento}: {res['faultstring']}"
-                )
-            else:
-                baixas_sucesso.append({
-                    "codigo_lancamento": pag.codigo_lancamento,
-                    "codigo_baixa": res.get("codigo_baixa")
-                })
-        except Exception as e:
-            erros.append(f"Erro na comunicação: {str(e)}")
-
-    if erros:
-        return JSONResponse(status_code=400, content={"detail": " | ".join(erros)})
-
-    if baixas_sucesso:
-        try:
-            db = SessionLocal()
-            cache_key = "contas_receber_abertas_global"
-            snap = db.query(models.SyncSnapshot).filter(
-                models.SyncSnapshot.cache_key == cache_key, 
-                models.SyncSnapshot.organization_id == current_org.get().id
-            ).first()
-
-            if snap and isinstance(snap.dados, list):
-                dados_atualizados = list(snap.dados)
-                for pag in req.pagamentos:
-                    for c in dados_atualizados:
-                        if c.get("codigo_lancamento_omie") == pag.codigo_lancamento:
-                            v_pag = float(c.get("valor_pag") or 0.0)
-                            c["valor_pag"] = v_pag + pag.valor
-                            break
+                if snap and isinstance(snap.dados, list):
+                    dados_atualizados = list(snap.dados)
+                    for pag in req.pagamentos:
+                        for c in dados_atualizados:
+                            if c.get("codigo_lancamento_omie") == pag.codigo_lancamento:
+                                v_pag = float(c.get("valor_pag") or 0.0)
+                                c["valor_pag"] = v_pag + pag.valor
+                                break
+                    
+                    snap.dados = dados_atualizados
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(snap, "dados")
+                    db.commit()
+            except Exception as e:
+                print("Erro ao atualizar cache local:", e)
                 
-                snap.dados = dados_atualizados
-                from sqlalchemy.orm.attributes import flag_modified
-                flag_modified(snap, "dados")
-                db.commit()
-            db.close()
-        except Exception as e:
-            print("Erro ao atualizar cache local:", e)
+        db.close()
 
-    return JSONResponse(
-        content={
-            "status": "success", 
-            "mensagem": "Recebimentos em lote registrados!",
-            "baixas": baixas_sucesso
-        }
-    )
+        if erros:
+            TaskManager.update_task(task_id, log="Concluído com erros: " + " | ".join(erros), status="error")
+        else:
+            TaskManager.update_task(
+                task_id, 
+                progress=100.0, 
+                log="Recebimentos efetuados com sucesso!", 
+                status="completed", 
+                result={"baixas": baixas_sucesso}
+            )
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        TaskManager.update_task(task_id, log=f"Erro fatal: {str(e)}", status="error")
+
+@router.post("/api/relatorios/recebimentos/baixar")
+async def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = Depends(get_current_user_and_set_org)):
+    task_id = TaskManager.create_task("baixar_recebimentos")
+    TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila...")
+    await TaskQueue.enqueue(bg_baixar_recebimentos_lote, task_id, req.dict(), current_org.get().id)
+    return {"task_id": task_id, "message": "Iniciando recebimento em lote..."}
 
 @router.post("/api/recibos")
 def salvar_recibo(req: RecebimentoReciboCreate, current_user: models.User = Depends(get_current_user_and_set_org)):

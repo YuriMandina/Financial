@@ -99,7 +99,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
           onClick={(e) => {
             e.stopPropagation();
             if (isCompleted || isError) {
-              if (isCompleted && onSuccess) onSuccess();
+              if (isCompleted && onSuccess) onSuccess(task?.result);
               onClose();
             } else {
               handleCancel(e);
@@ -216,7 +216,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
             <button
               onClick={() => {
                 if (isCompleted && onSuccess) {
-                  onSuccess();
+                  onSuccess(task?.result);
                 }
                 setMinimized(true);
                 onClose();

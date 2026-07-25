@@ -805,42 +805,86 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Erro ao processar as notas.");
 
-      const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
-      const totais = calcularTotaisModal();
+      if (data.task_id) {
+        handleGlobalTaskStart(data.task_id, "Efetivando Recebimento", async (result) => {
+          const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
+          const totais = calcularTotaisModal();
+          
+          const pagamentosComBaixa = pagamentosTratados.map(p => {
+            const baixaEncontrada = result?.baixas?.find(b => b.codigo_lancamento === p.codigo_lancamento);
+            return {
+               ...p,
+               codigo_baixa: baixaEncontrada ? baixaEncontrada.codigo_baixa : null
+            };
+          });
 
-      const pagamentosComBaixa = pagamentosTratados.map(p => {
-        const baixaEncontrada = data.baixas?.find(b => b.codigo_lancamento === p.codigo_lancamento);
-        return {
-           ...p,
-           codigo_baixa: baixaEncontrada ? baixaEncontrada.codigo_baixa : null
-        };
-      });
+          const novoRecibo = {
+            cliente: modalBaixa.cliente,
+            banco: bancoSelecionado,
+            data_pagamento: `${dia}/${mes}/${ano}`,
+            totalOriginal: totais.totalOriginal,
+            totalDesconto: totais.totalDesconto,
+            totalJuros: totais.totalJuros,
+            totalPago: totais.totalPago,
+            notas: pagamentosComBaixa
+          };
 
-      const novoRecibo = {
-        cliente: modalBaixa.cliente,
-        banco: bancoSelecionado,
-        data_pagamento: `${dia}/${mes}/${ano}`,
-        totalOriginal: totais.totalOriginal,
-        totalDesconto: totais.totalDesconto,
-        totalJuros: totais.totalJuros,
-        totalPago: totais.totalPago,
-        notas: pagamentosComBaixa
-      };
+          try {
+            await fetchWithAuth('http://localhost:8000/api/recibos', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(novoRecibo)
+            });
+          } catch (err) {
+            console.error("Erro ao salvar recibo:", err);
+          }
 
-      try {
-        await fetchWithAuth('http://localhost:8000/api/recibos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(novoRecibo)
+          setReciboGerado(novoRecibo);
+          setModalBaixa({ aberto: false, cliente: '', contas: [] });
+          
+          // Wait briefly to allow cache updates to propagate just in case
+          setTimeout(() => {
+            setGlobalRefreshCounter(prev => prev + 1);
+          }, 500);
         });
-      } catch (err) {
-        console.error("Erro ao salvar recibo:", err);
+      } else {
+        // Fallback for synchronous execution if the backend hasn't been updated
+        const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
+        const totais = calcularTotaisModal();
+        
+        const pagamentosComBaixa = pagamentosTratados.map(p => {
+          const baixaEncontrada = data.baixas?.find(b => b.codigo_lancamento === p.codigo_lancamento);
+          return {
+             ...p,
+             codigo_baixa: baixaEncontrada ? baixaEncontrada.codigo_baixa : null
+          };
+        });
+
+        const novoRecibo = {
+          cliente: modalBaixa.cliente,
+          banco: bancoSelecionado,
+          data_pagamento: `${dia}/${mes}/${ano}`,
+          totalOriginal: totais.totalOriginal,
+          totalDesconto: totais.totalDesconto,
+          totalJuros: totais.totalJuros,
+          totalPago: totais.totalPago,
+          notas: pagamentosComBaixa
+        };
+
+        try {
+          await fetchWithAuth('http://localhost:8000/api/recibos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(novoRecibo)
+          });
+        } catch (err) {
+          console.error("Erro ao salvar recibo:", err);
+        }
+
+        setReciboGerado(novoRecibo);
+        setModalBaixa({ aberto: false, cliente: '', contas: [] });
+        handleBuscarDados();
       }
-
-      setReciboGerado(novoRecibo);
-
-      setModalBaixa({ aberto: false, cliente: '', contas: [] });
-      handleBuscarDados();
     } catch (e) {
       alert("Erro ao receber valores: " + e.message);
     } finally {
