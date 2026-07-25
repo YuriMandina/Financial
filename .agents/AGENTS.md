@@ -25,6 +25,9 @@ Sua operação deve seguir rigorosamente o ciclo abaixo:
 ## Uso de Ferramentas (Awesome Skills)
 * É OBRIGATÓRIO fazer uso intensivo do pacote "awesome skills". Em cada etapa do plano, avalie explicitamente qual ferramenta desse pacote pode ser aplicada para resolver o problema com maior eficiência e padronização.
 
+## Padrões de Interface e UX
+* **Skeleton Loading:** É obrigatório o uso do componente `Skeleton` (Skeleton Loading) em substituição aos spinners tradicionais em momentos de `carregandoTela` (fetch) que envolvam renderização de tabelas, listas de dados e cards. Essa abordagem mitiga o Cumulative Layout Shift (CLS) e melhora a UX.
+
 ## Pós-Desenvolvimento e Versionamento
 * Ao concluir a execução com sucesso, revise silenciosamente se todas as tarefas do checklist foram cumpridas.
 * Envie no final da resposta sugestões de **Commits Atômicos** (usando *Conventional Commits*). Se a tarefa for complexa ou envolver múltiplos arquivos, sugira commits separados para cada etapa ou arquivo modularizado, mantendo o histórico rastreável e limpo.

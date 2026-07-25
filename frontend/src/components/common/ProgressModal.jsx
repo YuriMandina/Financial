@@ -67,7 +67,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
   if (minimized) {
     return (
       <div 
-        className={`bg-white rounded-2xl shadow-2xl p-4 flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform relative group border-2 ${manualState?.warning ? 'border-amber-500 animate-pulse' : 'border-slate-100'}`} 
+        className={`bg-slate-900 rounded-2xl shadow-2xl p-4 flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform relative group border-2 ${manualState?.warning ? 'border-amber-500 animate-pulse' : 'border-slate-800 hover:border-slate-700'}`} 
         onClick={() => setMinimized(false)}
       >
         {isCompleted ? (
@@ -78,10 +78,10 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
           <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
         )}
         <div className="flex flex-col pr-8">
-          <span className="text-sm font-bold text-slate-800">
+          <span className="text-sm font-bold text-white">
             {title || 'Sincronizando...'}
           </span>
-          <span className="text-xs text-slate-500 font-medium">
+          <span className="text-xs text-slate-400 font-medium">
             {manualState?.warning ? (
                <span className="text-amber-600 font-bold line-clamp-2 leading-tight max-w-[220px] block text-[11px]">
                  {manualState.warning}
@@ -115,8 +115,8 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
         
         {/* HEADER */}
         <div className="relative bg-gradient-to-r from-blue-600 to-indigo-700 p-6 text-white text-center flex-shrink-0">
@@ -154,11 +154,11 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
 
         {/* PROGRESS BAR */}
         <div className="px-6 pt-6 flex-shrink-0">
-          <div className="flex justify-between text-sm font-medium text-gray-700 mb-2">
+          <div className="flex justify-between text-sm font-medium text-slate-300 mb-2">
             <span>Progresso</span>
             <span>{taskId ? Math.round(progress) : (isCompleted ? 100 : (isError ? 0 : '...'))}%</span>
           </div>
-          <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden shadow-inner">
+          <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden shadow-inner">
             <div 
               className={`h-full transition-all duration-500 ease-out rounded-full ${isError ? 'bg-red-500' : 'bg-gradient-to-r from-blue-500 to-indigo-500'} ${!taskId && !isCompleted && !isError ? 'w-full animate-pulse' : ''}`}
               style={{ width: taskId || isCompleted || isError ? `${progress}%` : '100%' }}
@@ -168,13 +168,13 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
 
         {/* LOGS */}
         <div className="p-6 flex-1 overflow-y-auto min-h-[200px]">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-            <ChevronDown className="w-4 h-4 text-gray-400" /> Detalhes do Processo
+          <h3 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
+            <ChevronDown className="w-4 h-4 text-slate-500" /> Detalhes do Processo
           </h3>
           
-          <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 font-mono text-sm space-y-3">
+          <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-sm space-y-3">
             {!task && !error && !manualState && (
-              <div className="flex items-center text-gray-400 gap-2">
+              <div className="flex items-center text-slate-500 gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" /> Inicializando tarefa...
               </div>
             )}
@@ -190,10 +190,10 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
                 key={index} 
                 className={`flex items-start gap-2 ${
                   log.done 
-                    ? 'text-gray-600' 
+                    ? 'text-slate-400' 
                     : isError 
-                      ? 'text-red-600' 
-                      : 'text-blue-600 font-medium'
+                      ? 'text-red-400' 
+                      : 'text-indigo-400 font-medium'
                 }`}
               >
                 {log.done ? (
@@ -232,7 +232,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
           ) : (
             <button
               onClick={handleCancel}
-              className="w-full py-3 px-4 rounded-xl font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors border border-red-200"
+              className="w-full py-3 px-4 rounded-xl font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors border border-red-500/20"
             >
               Cancelar Operação
             </button>
