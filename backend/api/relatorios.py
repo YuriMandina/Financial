@@ -11,7 +11,7 @@ from datetime import datetime
 import models.models as models
 from core.database import SessionLocal
 from core.deps import current_org, get_current_user_and_set_org
-from core.utils import tratar_vazio
+from core.utils import tratar_vazio, safe_float
 from api.tasks import TaskManager, TaskQueue
 from services.omie_dicionarios import (
     extrair_dicionario_contas_correntes, 
