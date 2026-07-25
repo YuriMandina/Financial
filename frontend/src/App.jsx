@@ -261,10 +261,19 @@ function App() {
         if (!resSync.ok) throw new Error("Falha ao iniciar sincronização.");
         const dataSync = await resSync.json();
         
-        setActiveSyncTasks(prev => [...prev, { active: true, taskId: dataSync.task_id }]);
+        const titleMap = {
+          'contas-pagas': 'Sincronizando Contas Pagas',
+          'recebimentos': 'Sincronizando Recebimentos',
+          'curva-abc': 'Sincronizando Curva ABC',
+          'dre-gerencial': 'Sincronizando DRE',
+          'contas-a-pagar': 'Sincronizando Contas a Pagar'
+        };
+        const taskTitle = titleMap[menuAtivo] || 'Sincronizando...';
+
+        setActiveSyncTasks(prev => [...prev, { active: true, taskId: dataSync.task_id, title: taskTitle }]);
         return; 
       } catch (err) {
-        setActiveSyncTasks(prev => [...prev, { active: true, status: 'error', text: err.message, taskId: `err-${Date.now()}` }]);
+        setActiveSyncTasks(prev => [...prev, { active: true, status: 'error', text: err.message, taskId: `err-${Date.now()}`, title: 'Erro na Sincronização' }]);
         return;
       }
     }
@@ -333,7 +342,7 @@ function App() {
       }
     } catch (erro) {
       console.error(erro);
-      setActiveSyncTasks(prev => [...prev, { active: true, status: 'error', text: `Erro: ${erro.message}`, taskId: `err-${Date.now()}` }]);
+      setActiveSyncTasks(prev => [...prev, { active: true, status: 'error', text: `Erro: ${erro.message}`, taskId: `err-${Date.now()}`, title: 'Erro ao buscar dados' }]);
     } finally {
       setCarregandoTela(false);
     }
@@ -1116,6 +1125,7 @@ function App() {
                 manualState={taskState.taskId?.startsWith('err-') ? taskState : null} 
                 onClose={() => setActiveSyncTasks(prev => prev.filter(t => t.taskId !== taskState.taskId))} 
                 onSuccess={() => handleBuscarDados(false)}
+                title={taskState.title}
               />
             </div>
           ))}

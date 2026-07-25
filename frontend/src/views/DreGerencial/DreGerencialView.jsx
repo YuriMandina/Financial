@@ -17,7 +17,7 @@ export const DreGerencial = ({ token }) => {
     setError('');
 
     if (isSync) {
-        setSyncModalState({ active: true, status: 'processing', text: 'Iniciando sincronização...' });
+        setSyncModalState({ active: true, status: 'processing', text: 'Iniciando sincronização...', title: 'Sincronizando DRE' });
         try {
             const res = await fetch(`http://localhost:8000/api/relatorios/dre/sync`, {
                 method: 'POST',
@@ -30,10 +30,10 @@ export const DreGerencial = ({ token }) => {
             const json = await res.json();
             if (!res.ok) throw new Error(json.detail || 'Erro ao sincronizar DRE');
             
-            setSyncModalState({ active: true, taskId: json.task_id });
+            setSyncModalState({ active: true, taskId: json.task_id, title: 'Sincronizando DRE' });
             return;
         } catch (err) {
-            setSyncModalState({ active: true, status: 'error', text: `Erro: ${err.message}` });
+            setSyncModalState({ active: true, status: 'error', text: `Erro: ${err.message}`, title: 'Erro na Sincronização' });
             setLoading(false);
             return;
         }
@@ -50,7 +50,7 @@ export const DreGerencial = ({ token }) => {
       setData(json);
     } catch (err) {
       setError(err.message);
-      setSyncModalState({ active: true, status: 'error', text: `Erro: ${err.message}` });
+      setSyncModalState({ active: true, status: 'error', text: `Erro: ${err.message}`, title: 'Erro ao sincronizar DRE' });
     } finally {
       setLoading(false);
     }
@@ -180,12 +180,17 @@ export const DreGerencial = ({ token }) => {
         </>
       )}
       
-      <ProgressModal 
-        taskId={syncModalState.taskId}
-        manualState={!syncModalState.taskId ? syncModalState : null} 
-        onClose={() => setSyncModalState({ active: false, status: 'processing', text: '' })} 
-        onSuccess={() => fetchDre(false)}
-      />
+      <div className="fixed bottom-6 right-6 flex flex-col gap-4 z-[100] items-end pointer-events-none">
+        <div className="pointer-events-auto">
+          <ProgressModal 
+            taskId={syncModalState.taskId}
+            manualState={!syncModalState.taskId ? syncModalState : null} 
+            onClose={() => setSyncModalState({ active: false, status: 'processing', text: '' })} 
+            onSuccess={() => fetchDre(false)}
+            title={syncModalState.title}
+          />
+        </div>
+      </div>
     </div>
   );
 };

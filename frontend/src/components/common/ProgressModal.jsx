@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Loader2, CheckCircle2, XCircle, ChevronDown, Check } from 'lucide-react';
 
-export default function ProgressModal({ taskId, onClose, manualState, onSuccess }) {
+export default function ProgressModal({ taskId, onClose, manualState, onSuccess, title }) {
   const [task, setTask] = useState(null);
   const [error, setError] = useState(null);
   const [minimized, setMinimized] = useState(true);
@@ -67,7 +67,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess 
         )}
         <div className="flex flex-col pr-4">
           <span className="text-sm font-bold text-slate-800">
-            {isCompleted ? 'Concluído!' : isError ? 'Erro' : 'Sincronizando...'}
+            {isCompleted ? 'Concluído!' : isError ? 'Erro' : (title || 'Sincronizando...')}
           </span>
           <span className="text-xs text-slate-500 font-medium">
             {taskId ? Math.round(progress) : (isCompleted ? 100 : (isError ? 0 : '...'))}% • Clique para abrir
@@ -108,7 +108,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess 
             )}
           </div>
           <h2 className="text-2xl font-bold mb-1">
-            {isCompleted ? 'Processo Concluído!' : isError ? 'Ocorreu um Erro' : 'Processando...'}
+            {isCompleted ? 'Processo Concluído!' : isError ? 'Ocorreu um Erro' : (title || 'Processando...')}
           </h2>
           <p className="text-blue-100 text-sm">
             {isCompleted ? 'A operação foi finalizada com sucesso.' : isError ? 'Infelizmente a operação falhou.' : 'Por favor, aguarde enquanto sincronizamos os dados.'}

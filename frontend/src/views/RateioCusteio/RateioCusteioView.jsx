@@ -10,11 +10,29 @@ import ProgressModal from '../../components/common/ProgressModal';
 
 export default function RateioECusteio({ token }) {
   const [activeTab, setActiveTab] = useState('sync');
-  const [activeTaskId, setActiveTaskId] = useState(null);
+  const [activeTasks, setActiveTasks] = useState([]);
+  
+  const handleTaskStart = (taskId, title) => {
+    setActiveTasks(prev => [...prev, { taskId, title }]);
+  };
+  
+  const removeTask = (taskId) => {
+    setActiveTasks(prev => prev.filter(t => t.taskId !== taskId));
+  };
   
   return (
     <div className="p-6 text-slate-200">
-      <ProgressModal taskId={activeTaskId} onClose={() => setActiveTaskId(null)} />
+      <div className="fixed bottom-6 right-6 flex flex-col gap-4 z-[100] items-end pointer-events-none">
+        {activeTasks.map(task => (
+          <div key={task.taskId} className="pointer-events-auto">
+            <ProgressModal 
+              taskId={task.taskId} 
+              title={task.title}
+              onClose={() => removeTask(task.taskId)} 
+            />
+          </div>
+        ))}
+      </div>
       <div className="flex gap-4 mb-6 border-b border-slate-700 pb-2">
         <button 
           onClick={() => setActiveTab('sync')}
@@ -42,10 +60,10 @@ export default function RateioECusteio({ token }) {
         </button>
       </div>
 
-      {activeTab === 'sync' && <SyncTab token={token} onTaskStart={setActiveTaskId} />}
+      {activeTab === 'sync' && <SyncTab token={token} onTaskStart={handleTaskStart} />}
       {activeTab === 'templates' && <TemplatesTab token={token} />}
-      {activeTab === 'operacao' && <OperationTab token={token} onTaskStart={setActiveTaskId} />}
-      {activeTab === 'historico' && <HistoryTab token={token} onTaskStart={setActiveTaskId} />}
+      {activeTab === 'operacao' && <OperationTab token={token} onTaskStart={handleTaskStart} />}
+      {activeTab === 'historico' && <HistoryTab token={token} onTaskStart={handleTaskStart} />}
     </div>
   );
 }
@@ -77,7 +95,7 @@ function SyncTab({ token, onTaskStart }) {
       const res = await fetch('http://localhost:8000/api/boning/sync-omie', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id);
+        onTaskStart(data.task_id, 'Sincronizando Famílias e Produtos');
       } else {
         alert("Erro ao iniciar sincronização: " + (data.detail || data.message));
       }
@@ -798,7 +816,7 @@ function OperationTab({ token, onTaskStart }) {
       });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id);
+        onTaskStart(data.task_id, 'Zerando Estoques');
       } else {
         alert(data.detail || "Erro ao corrigir estoques");
       }
@@ -823,7 +841,7 @@ function OperationTab({ token, onTaskStart }) {
       });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id);
+        onTaskStart(data.task_id, 'Lançando Rateio e Custeio');
       } else {
         alert("Erro ao exportar: " + (data.detail || data.message || JSON.stringify(data)));
       }
@@ -1193,7 +1211,7 @@ function HistoryTab({ token, onTaskStart }) {
       });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id);
+        onTaskStart(data.task_id, 'Revertendo Rateio');
       } else {
         alert(data.detail || "Erro ao reverter.");
       }
