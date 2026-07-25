@@ -36,6 +36,6 @@ app.include_router(boning_router)
 
 # Rotas extraídas
 app.include_router(snapshots_router)
-app.include_router(relatorios_router)
 app.include_router(recebimentos_router)
+app.include_router(relatorios_router)
 app.include_router(tasks_router)
