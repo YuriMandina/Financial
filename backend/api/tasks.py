@@ -58,13 +58,13 @@ class TaskManager:
         return task_id
 
     @classmethod
-    def has_active_task(cls, action_id: str) -> bool:
+    def get_active_task_id(cls, action_id: str) -> str:
         if not action_id:
-            return False
+            return None
         for tid, t in cls._tasks.items():
             if t.get("action_id") == action_id and t.get("status") not in ["completed", "error", "canceled"]:
-                return True
-        return False
+                return tid
+        return None
 
     @classmethod
     def cancel_task(cls, task_id: str):

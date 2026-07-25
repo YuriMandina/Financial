@@ -67,7 +67,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
   if (minimized) {
     return (
       <div 
-        className="bg-white rounded-2xl shadow-2xl p-4 flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform border border-slate-100 relative group" 
+        className={`bg-white rounded-2xl shadow-2xl p-4 flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform relative group border-2 ${manualState?.warning ? 'border-amber-500 animate-pulse' : 'border-slate-100'}`} 
         onClick={() => setMinimized(false)}
       >
         {isCompleted ? (
@@ -82,7 +82,11 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
             {isCompleted ? 'Concluído!' : isError ? 'Erro' : (title || 'Sincronizando...')}
           </span>
           <span className="text-xs text-slate-500 font-medium">
-            {taskId ? Math.round(progress) : (isCompleted ? 100 : (isError ? 0 : '...'))}% • Clique para abrir
+            {manualState?.warning ? (
+               <span className="text-amber-600 font-bold">{manualState.warning}</span>
+            ) : (
+               taskId ? Math.round(progress) + "% • Clique para abrir" : (isCompleted ? 100 : (isError ? 0 : '...')) + "% • Clique para abrir"
+            )}
           </span>
         </div>
         <button

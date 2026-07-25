@@ -87,7 +87,22 @@ function App() {
   const [globalRefreshCounter, setGlobalRefreshCounter] = useState(0);
 
   const handleGlobalTaskStart = (taskId, title, onSuccess = null, status = 'processing', text = '') => {
-    setActiveSyncTasks(prev => [...prev, { taskId, title, onSuccess, status, text, active: true }]);
+    setActiveSyncTasks(prev => {
+      const existing = prev.find(t => t.taskId === taskId);
+      if (existing) {
+        if (status === 'duplicate') {
+          setTimeout(() => {
+            setActiveSyncTasks(current => current.map(t => t.taskId === taskId ? { ...t, warning: null } : t));
+          }, 4000);
+          return prev.map(t => t.taskId === taskId ? { ...t, warning: text } : t);
+        }
+        return prev;
+      }
+      if (status === 'duplicate') {
+        return [...prev, { taskId, title, onSuccess, status: 'processing', text: '', active: true, warning: text }];
+      }
+      return [...prev, { taskId, title, onSuccess, status, text, active: true }];
+    });
   };
 
   const [listaBancos, setListaBancos] = useState([]);
@@ -1127,7 +1142,7 @@ function App() {
             <div key={taskState.taskId} className="pointer-events-auto">
               <ProgressModal 
                 taskId={taskState.taskId?.startsWith('err-') ? null : taskState.taskId}
-                manualState={taskState.taskId?.startsWith('err-') ? taskState : null} 
+                manualState={taskState} 
                 onClose={() => setActiveSyncTasks(prev => prev.filter(t => t.taskId !== taskState.taskId))} 
                 onSuccess={() => {
                   if (typeof taskState.onSuccess === 'string') {

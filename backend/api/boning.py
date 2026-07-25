@@ -90,8 +90,10 @@ async def sync_omie(
     user: models.User = Depends(get_current_user_and_set_org)
 ):
     action_id = "sync_omie"
-    if TaskManager.has_active_task(action_id):
-        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+    active_id = TaskManager.get_active_task_id(action_id)
+    if active_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=409, content={"detail": "Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.", "task_id": active_id})
     task_id = TaskManager.create_task(action_id)
     org_id = current_org.get().id
     await TaskQueue.enqueue(bg_sync_omie, task_id, org_id)
@@ -385,8 +387,10 @@ async def export_cmc(
     user: models.User = Depends(get_current_user_and_set_org)
 ):
     action_id = f"export_cmc_{process_id}"
-    if TaskManager.has_active_task(action_id):
-        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+    active_id = TaskManager.get_active_task_id(action_id)
+    if active_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=409, content={"detail": "Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.", "task_id": active_id})
         
     org_id = current_org.get().id
     local_id_map = {item.product_id: item.local_id for item in req.items}
@@ -465,8 +469,10 @@ async def fix_negative_stocks(
     user: models.User = Depends(get_current_user_and_set_org)
 ):
     action_id = "fix_negative_stocks"
-    if TaskManager.has_active_task(action_id):
-        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+    active_id = TaskManager.get_active_task_id(action_id)
+    if active_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=409, content={"detail": "Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.", "task_id": active_id})
         
     org_id = current_org.get().id
     task_id = TaskManager.create_task(action_id)
@@ -538,8 +544,10 @@ async def revert_snapshot(
     user: models.User = Depends(get_current_user_and_set_org)
 ):
     action_id = f"revert_{snapshot_id}"
-    if TaskManager.has_active_task(action_id):
-        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+    active_id = TaskManager.get_active_task_id(action_id)
+    if active_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=409, content={"detail": "Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.", "task_id": active_id})
         
     org_id = current_org.get().id
     task_id = TaskManager.create_task(action_id)

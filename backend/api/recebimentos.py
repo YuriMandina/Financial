@@ -35,8 +35,10 @@ async def sync_recebimentos(
 ):
     current_org.set(current_user.organization)
     action_id = "sync_recebimentos"
-    if TaskManager.has_active_task(action_id):
-        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+    active_id = TaskManager.get_active_task_id(action_id)
+    if active_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=409, content={"detail": "Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.", "task_id": active_id})
         
     task_id = TaskManager.create_task(action_id)
     TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila de sincronização...")
