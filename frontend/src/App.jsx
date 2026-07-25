@@ -253,6 +253,10 @@ function App() {
   };
 
   const handleBuscarDados = async (isForceSync = false) => {
+    if (['desossa', 'dre-gerencial', 'configuracoes'].includes(menuAtivo)) {
+      return;
+    }
+
     if ((!dataInicial || !dataFinal) && menuAtivo !== 'recebimentos') {
       alert("Por favor, selecione a Data Inicial e a Data Final.");
       return;
