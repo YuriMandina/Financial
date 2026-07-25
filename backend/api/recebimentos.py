@@ -417,7 +417,27 @@ def bg_desfazer_baixa(task_id: str, recibo_id: int, org_id: int):
 
             codigo_baixa = nota.get("codigo_baixa")
             codigo_lancamento = nota.get("codigo_lancamento")
+            
+            # Se for recibo antigo (antes da att) e não tem codigo_baixa salvo, busca na Omie
+            if not codigo_baixa and codigo_lancamento:
+                TaskManager.update_task(task_id, log=f"Buscando código da baixa para o lançamento {codigo_lancamento}...")
+                try:
+                    res_consulta = requests.post(url, json={
+                        "call": "ConsultarContaReceber",
+                        "app_key": current_org.get().omie_app_key,
+                        "app_secret": current_org.get().omie_app_secret,
+                        "param": [{"codigo_lancamento_omie": codigo_lancamento}]
+                    }, headers={"Content-Type": "application/json"}).json()
+                    
+                    if "recebimentos" in res_consulta and len(res_consulta["recebimentos"]) > 0:
+                        # Pega o código da última baixa feita nessa conta
+                        codigo_baixa = res_consulta["recebimentos"][-1].get("codigo_baixa")
+                except Exception as e:
+                    pass
+                time.sleep(0.3)
+
             if not codigo_baixa:
+                erros.append(f"Código da baixa não encontrado para o lançamento {codigo_lancamento}")
                 continue
 
             time.sleep(0.3)
@@ -431,6 +451,8 @@ def bg_desfazer_baixa(task_id: str, recibo_id: int, org_id: int):
                 res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}).json()
                 if "faultstring" in res:
                     erros.append(f"Erro na baixa {codigo_baixa}: {res['faultstring']}")
+                elif str(res.get("codigo_status", "0")) != "0":
+                    erros.append(f"Erro na baixa {codigo_baixa}: {res.get('descricao_status', 'Erro Omie')}")
                 else:
                     desfeitas_sucesso.append(nota)
             except Exception as e:
