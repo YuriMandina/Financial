@@ -796,6 +796,12 @@ function App() {
         }))
       };
 
+      const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
+      const totais = calcularTotaisModal();
+      const nomeCliente = modalBaixa.cliente;
+
+      setModalBaixa({ aberto: false, cliente: '', contas: [] });
+
       const res = await fetchWithAuth('http://localhost:8000/api/relatorios/recebimentos/baixar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -803,13 +809,16 @@ function App() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Erro ao processar as notas.");
+      if (!res.ok) {
+        if (res.status === 409 && data.task_id) {
+          handleGlobalTaskStart(data.task_id, "Efetivando Recebimento", null, "duplicate", data.detail);
+          return;
+        }
+        throw new Error(data.detail || "Erro ao processar as notas.");
+      }
 
       if (data.task_id) {
         handleGlobalTaskStart(data.task_id, "Efetivando Recebimento", async (result) => {
-          const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
-          const totais = calcularTotaisModal();
-          
           const pagamentosComBaixa = pagamentosTratados.map(p => {
             const baixaEncontrada = result?.baixas?.find(b => b.codigo_lancamento === p.codigo_lancamento);
             return {
@@ -819,7 +828,7 @@ function App() {
           });
 
           const novoRecibo = {
-            cliente: modalBaixa.cliente,
+            cliente: nomeCliente,
             banco: bancoSelecionado,
             data_pagamento: `${dia}/${mes}/${ano}`,
             totalOriginal: totais.totalOriginal,
@@ -840,18 +849,12 @@ function App() {
           }
 
           setReciboGerado(novoRecibo);
-          setModalBaixa({ aberto: false, cliente: '', contas: [] });
           
-          // Wait briefly to allow cache updates to propagate just in case
           setTimeout(() => {
             setGlobalRefreshCounter(prev => prev + 1);
           }, 500);
         });
       } else {
-        // Fallback for synchronous execution if the backend hasn't been updated
-        const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
-        const totais = calcularTotaisModal();
-        
         const pagamentosComBaixa = pagamentosTratados.map(p => {
           const baixaEncontrada = data.baixas?.find(b => b.codigo_lancamento === p.codigo_lancamento);
           return {
@@ -861,7 +864,7 @@ function App() {
         });
 
         const novoRecibo = {
-          cliente: modalBaixa.cliente,
+          cliente: nomeCliente,
           banco: bancoSelecionado,
           data_pagamento: `${dia}/${mes}/${ano}`,
           totalOriginal: totais.totalOriginal,
@@ -882,7 +885,6 @@ function App() {
         }
 
         setReciboGerado(novoRecibo);
-        setModalBaixa({ aberto: false, cliente: '', contas: [] });
         handleBuscarDados();
       }
     } catch (e) {
