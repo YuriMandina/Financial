@@ -3,12 +3,23 @@ import { Loader2, DollarSign, ArrowUpCircle, ArrowDownCircle, Target } from 'luc
 import DateRangePicker from '../../components/common/DateRangePicker';
 import ProgressModal from '../../components/common/ProgressModal';
 
-export const DreGerencial = ({ token, onTaskStart }) => {
+export const DreGerencial = ({ token, onTaskStart, refreshCounter }) => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
+  const [dataInicio, setDataInicio] = useState(() => sessionStorage.getItem('dre_dataInicio') || '');
+  const [dataFim, setDataFim] = useState(() => sessionStorage.getItem('dre_dataFim') || '');
+
+  useEffect(() => {
+    if (dataInicio) sessionStorage.setItem('dre_dataInicio', dataInicio);
+    if (dataFim) sessionStorage.setItem('dre_dataFim', dataFim);
+  }, [dataInicio, dataFim]);
+
+  useEffect(() => {
+    if (refreshCounter > 0 && dataInicio && dataFim) {
+      fetchDre(false);
+    }
+  }, [refreshCounter]);
 
   const fetchDre = async (isSync = false) => {
     setLoading(true);
@@ -27,7 +38,7 @@ export const DreGerencial = ({ token, onTaskStart }) => {
             const json = await res.json();
             if (!res.ok) throw new Error(json.detail || 'Erro ao sincronizar DRE');
             
-            if (onTaskStart) onTaskStart(json.task_id, 'Sincronizando DRE', () => fetchDre(false));
+            if (onTaskStart) onTaskStart(json.task_id, 'Sincronizando DRE', 'dre-gerencial');
             return;
         } catch (err) {
             if (onTaskStart) {

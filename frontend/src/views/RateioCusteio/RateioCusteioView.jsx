@@ -8,8 +8,12 @@ import { NumericFormat } from 'react-number-format';
 import DatePicker from '../../components/common/DatePicker';
 import ProgressModal from '../../components/common/ProgressModal';
 
-export default function RateioECusteio({ token, onTaskStart }) {
-  const [activeTab, setActiveTab] = useState('sync');
+export default function RateioECusteio({ token, onTaskStart, refreshCounter }) {
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('desossa_activeTab') || 'sync');
+
+  useEffect(() => {
+    sessionStorage.setItem('desossa_activeTab', activeTab);
+  }, [activeTab]);
   
   return (
     <div className="p-6 text-slate-200">
@@ -40,23 +44,23 @@ export default function RateioECusteio({ token, onTaskStart }) {
         </button>
       </div>
 
-      {activeTab === 'sync' && <SyncTab token={token} onTaskStart={onTaskStart} />}
+      {activeTab === 'sync' && <SyncTab token={token} onTaskStart={onTaskStart} refreshCounter={refreshCounter} />}
       {activeTab === 'templates' && <TemplatesTab token={token} />}
-      {activeTab === 'operacao' && <OperationTab token={token} onTaskStart={onTaskStart} />}
-      {activeTab === 'historico' && <HistoryTab token={token} onTaskStart={onTaskStart} />}
+      {activeTab === 'operacao' && <OperationTab token={token} onTaskStart={onTaskStart} refreshCounter={refreshCounter} />}
+      {activeTab === 'historico' && <HistoryTab token={token} onTaskStart={onTaskStart} refreshCounter={refreshCounter} />}
     </div>
   );
 }
 
 // --- [BLOCO: Sincronização Omie] ---
-function SyncTab({ token, onTaskStart }) {
+function SyncTab({ token, onTaskStart, refreshCounter }) {
   const [products, setProducts] = useState([]);
   const [families, setFamilies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedFamily, setSelectedFamily] = useState('');
   const [activeView, setActiveView] = useState('families');
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [refreshCounter]);
 
   const loadData = async () => {
     try {
@@ -75,7 +79,7 @@ function SyncTab({ token, onTaskStart }) {
       const res = await fetch('http://localhost:8000/api/boning/sync-omie', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id, 'Sincronizando Famílias e Produtos', loadData);
+        onTaskStart(data.task_id, 'Sincronizando Famílias e Produtos', 'desossa');
       } else {
         onTaskStart(`err-${Date.now()}`, 'Erro ao iniciar sincronização', null, 'error', data.detail || data.message);
       }
@@ -635,7 +639,7 @@ function TemplatesTab({ token }) {
 }
 
 // --- [BLOCO: Operação de Rateio e Custeio] ---
-function OperationTab({ token, onTaskStart }) {
+function OperationTab({ token, onTaskStart, refreshCounter }) {
   const [mode, setMode] = useState('TEMPLATE'); // 'MANUAL' or 'TEMPLATE'
   const [carcassWeight, setCarcassWeight] = useState('');
   const [carcassCost, setCarcassCost] = useState('');
@@ -663,7 +667,7 @@ function OperationTab({ token, onTaskStart }) {
     setHasNegativeStocks(false);
   }, [exportDate, calculationResult]);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [refreshCounter]);
 
   const loadData = async () => {
     try {
@@ -796,7 +800,7 @@ function OperationTab({ token, onTaskStart }) {
       });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id, 'Zerando Estoques');
+        onTaskStart(data.task_id, 'Zerando Estoques', 'desossa');
       } else {
         onTaskStart(`err-${Date.now()}`, 'Erro ao corrigir estoques', null, 'error', data.detail || "Falha desconhecida");
       }
@@ -821,7 +825,7 @@ function OperationTab({ token, onTaskStart }) {
       });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id, 'Lançando Rateio e Custeio', () => { setCalculationResult(null); setMode('TEMPLATE'); });
+        onTaskStart(data.task_id, 'Lançando Rateio e Custeio', 'desossa');
       } else {
         onTaskStart(`err-${Date.now()}`, 'Erro ao exportar', null, 'error', data.detail || data.message || JSON.stringify(data));
       }
@@ -1163,23 +1167,25 @@ function OperationTab({ token, onTaskStart }) {
 }
 
 // --- [BLOCO: ABA 4 - Histórico e Reversão] ---
-function HistoryTab({ token, onTaskStart }) {
+function HistoryTab({ token, onTaskStart, refreshCounter }) {
   const [snapshots, setSnapshots] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const loadHistorico = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/boning/snapshots/historico', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch('http://localhost:8000/api/boning/history', { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
-      setSnapshots(data || []);
+      setSnapshots(data.snapshots || []);
     } catch (e) {
       console.error(e);
     }
     setLoading(false);
   };
 
-  useEffect(() => { loadHistorico(); }, []);
+  useEffect(() => {
+    loadHistorico();
+  }, [refreshCounter]);
 
   const handleRevert = async (snap) => {
     if (!window.confirm(`Tem certeza que deseja reverter e EXCLUIR TODOS OS LANÇAMENTOS da Omie vinculados ao snapshot ID ${snap.id}?`)) return;
@@ -1191,7 +1197,7 @@ function HistoryTab({ token, onTaskStart }) {
       });
       const data = await res.json();
       if (res.ok && data.task_id) {
-        onTaskStart(data.task_id, 'Revertendo Rateio', loadHistorico);
+        onTaskStart(data.task_id, 'Revertendo Rateio', 'desossa');
       } else {
         onTaskStart(`err-${Date.now()}`, 'Erro ao reverter', null, 'error', data.detail || "Falha desconhecida");
       }

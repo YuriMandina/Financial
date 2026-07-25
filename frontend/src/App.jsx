@@ -84,9 +84,10 @@ function App() {
   const [registrosPorPagina, setRegistrosPorPagina] = useState(50);
   
   const [activeSyncTasks, setActiveSyncTasks] = useState([]);
+  const [globalRefreshCounter, setGlobalRefreshCounter] = useState(0);
 
   const handleGlobalTaskStart = (taskId, title, onSuccess = null, status = 'processing', text = '') => {
-    setActiveSyncTasks(prev => [...prev, { taskId, title, onSuccess, status, text }]);
+    setActiveSyncTasks(prev => [...prev, { taskId, title, onSuccess, status, text, active: true }]);
   };
 
   const [listaBancos, setListaBancos] = useState([]);
@@ -1024,9 +1025,9 @@ function App() {
         {menuAtivo === 'configuracoes' ? (
           <Settings token={token} />
         ) : menuAtivo === 'desossa' ? (
-          <RateioECusteio token={token} onTaskStart={handleGlobalTaskStart} />
+          <RateioECusteio token={token} onTaskStart={handleGlobalTaskStart} refreshCounter={globalRefreshCounter} />
         ) : menuAtivo === 'dre-gerencial' ? (
-          <DreGerencial token={token} onTaskStart={handleGlobalTaskStart} />
+          <DreGerencial token={token} onTaskStart={handleGlobalTaskStart} refreshCounter={globalRefreshCounter} />
         ) : (
           <>
           <div className="flex-1 p-8 z-10 print:!p-0 print:!m-0 print:!block print:!overflow-visible">
@@ -1129,7 +1130,12 @@ function App() {
                 manualState={taskState.taskId?.startsWith('err-') ? taskState : null} 
                 onClose={() => setActiveSyncTasks(prev => prev.filter(t => t.taskId !== taskState.taskId))} 
                 onSuccess={() => {
-                  if (taskState.onSuccess) taskState.onSuccess();
+                  if (typeof taskState.onSuccess === 'string') {
+                    setMenuAtivo(taskState.onSuccess);
+                    setGlobalRefreshCounter(prev => prev + 1);
+                  } else if (taskState.onSuccess) {
+                    taskState.onSuccess();
+                  }
                   handleBuscarDados(false);
                 }}
                 title={taskState.title}
