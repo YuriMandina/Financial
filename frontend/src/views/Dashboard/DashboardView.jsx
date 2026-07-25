@@ -1,8 +1,21 @@
 import React from 'react';
 import { ArrowDownToLine, CheckCircle, TrendingUp, FileText, Database } from 'lucide-react';
+import Skeleton from '../../components/common/Skeleton';
 
 export default function DashboardView({ carregandoTela, dashboardData }) {
-  if (carregandoTela || !dashboardData) return null;
+  if (carregandoTela) {
+    return (
+      <div className="space-y-8 p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Skeleton type="card" />
+          <Skeleton type="card" />
+          <Skeleton type="card" />
+        </div>
+        <Skeleton type="table" rows={3} columns={3} />
+      </div>
+    );
+  }
+  if (!dashboardData) return null;
   return (
             <div className="animate-[fadeIn_0.5s_ease-out] space-y-8">
               {(() => {

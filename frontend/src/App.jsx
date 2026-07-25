@@ -159,6 +159,12 @@ function App() {
     }
   }, [menuAtivo]);
 
+  useEffect(() => {
+    if (globalRefreshCounter > 0) {
+      handleBuscarDados(false);
+    }
+  }, [globalRefreshCounter]);
+
   const carregarSnapshots = async () => {
     try {
       const res = await fetchWithAuth('http://localhost:8000/api/snapshots');
@@ -1162,11 +1168,10 @@ function App() {
                 onSuccess={() => {
                   if (typeof taskState.onSuccess === 'string') {
                     setMenuAtivo(taskState.onSuccess);
-                    setGlobalRefreshCounter(prev => prev + 1);
                   } else if (taskState.onSuccess) {
                     taskState.onSuccess();
                   }
-                  setTimeout(() => handleBuscarDados(false), 100);
+                  setGlobalRefreshCounter(prev => prev + 1);
                 }}
                 title={taskState.title}
               />

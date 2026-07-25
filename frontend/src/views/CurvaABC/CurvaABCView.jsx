@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { TrendingUp, Search, Download, Calculator, X, ChevronDown, CheckSquare, Square, Filter, Printer } from 'lucide-react';
+import Skeleton from '../../components/common/Skeleton';
 
 export default function CurvaABCView({ resumoCurvaAbc, dataInicial, dataFinal, isolarABC, setIsolarABC, familiasList, familiasFiltro, setFamiliasFiltro, classeAbcFiltro, setClasseAbcFiltro, dropFamiliaAberto, setDropFamiliaAberto, dropClasseAberto, setDropClasseAberto, menuAtivo, carregandoTela, curvaAbcProcessada, contasBrutas, clienteFiltro, setClienteFiltro, setPaginaAtual, setRegistrosPorPagina }) {
   const fmtQ = (v) => v?.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0,00';
@@ -7,7 +8,16 @@ export default function CurvaABCView({ resumoCurvaAbc, dataInicial, dataFinal, i
 
   const itensFiltrados = curvaAbcProcessada?.itens || [];
 
-  if (menuAtivo !== 'curva-abc' || carregandoTela || !resumoCurvaAbc) return null;
+  if (menuAtivo !== 'curva-abc') return null;
+  if (carregandoTela) {
+    return (
+      <div className="p-4 space-y-6">
+        <Skeleton type="card" />
+        <Skeleton type="table" rows={8} columns={5} />
+      </div>
+    );
+  }
+  if (!resumoCurvaAbc) return null;
 
   const totQtd = itensFiltrados.reduce((acc, i) => acc + i.quantidade, 0);
   const totCmvTotal = itensFiltrados.reduce((acc, i) => acc + i.cmv_total, 0);

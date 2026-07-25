@@ -1,9 +1,18 @@
 import React from 'react';
 import { Search, CalendarDays, Receipt, CheckSquare, Square, Calculator, Zap, FileText, Database, CreditCard, Filter, Printer, ChevronLeft, ChevronRight } from 'lucide-react';
 import CartaoCliente from '../../components/common/CartaoCliente';
+import Skeleton from '../../components/common/Skeleton';
 
 export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, totalGeral, clienteFiltro, setClienteFiltro, contaFiltro, setContaFiltro, listaBancos, isolarABC, paginaAtual, setPaginaAtual, totalItems, indiceInicio, indiceFim, registrosPorPagina, setRegistrosPorPagina, contasFiltradas, gruposRecebimentos, selecionados, toggleSelecao, toggleTodosCliente, abrirModalLote, gerarCobrancaLote, formatarDataComDia, converterDataBrParaDate, setModalBaixa, handleCarregarHistoricoRecibos, setModalHistoricoRecibosAberto, contasCorrentesDisponiveis, handleImprimir, dadosAgrupados, metricsVencimento, resumoCategorias, totalPaginas }) {
-  if (menuAtivo === 'curva-abc' || menuAtivo === 'dashboard' || carregandoTela || contasBrutas.length === 0) return null;
+  if (menuAtivo === 'curva-abc' || menuAtivo === 'dashboard') return null;
+  if (carregandoTela) {
+    return (
+      <div className="p-4">
+        <Skeleton type="table" rows={10} columns={6} />
+      </div>
+    );
+  }
+  if (contasBrutas.length === 0) return null;
 
   const getBadgeStyle = (status) => {
     switch (status) {

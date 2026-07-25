@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Target, DollarSign, Loader2, ArrowUpCircle, ArrowDownCircle, Database } from 'lucide-react';
+import Skeleton from '../../components/common/Skeleton';
 import DateRangePicker from '../../components/common/DateRangePicker';
 import ProgressModal from '../../components/common/ProgressModal';
 
@@ -117,6 +118,17 @@ export const DreGerencial = ({ token, onTaskStart, refreshCounter }) => {
       </div>
 
       {error && <div className="bg-red-500/10 text-red-400 border border-red-500/20 p-4 rounded-xl mb-6">{error}</div>}
+
+      {loading && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Skeleton type="card" />
+            <Skeleton type="card" />
+            <Skeleton type="card" />
+          </div>
+          <Skeleton type="table" rows={8} columns={4} />
+        </div>
+      )}
 
       {data && !loading && (
         <>
