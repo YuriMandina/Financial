@@ -83,7 +83,9 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
           </span>
           <span className="text-xs text-slate-500 font-medium">
             {manualState?.warning ? (
-               <span className="text-amber-600 font-bold">{manualState.warning}</span>
+               <span className="text-amber-600 font-bold line-clamp-2 leading-tight max-w-[220px] block text-[11px]">
+                 {manualState.warning}
+               </span>
             ) : (
                taskId ? Math.round(progress) + "% • Clique para abrir" : (isCompleted ? 100 : (isError ? 0 : '...')) + "% • Clique para abrir"
             )}
