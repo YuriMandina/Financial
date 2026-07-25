@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -7,7 +7,7 @@ from core.database import get_db
 from core.deps import get_current_user_and_set_org, current_org
 from services import omie_products
 from services.boning_engine import calculate_boning_process
-from api.tasks import TaskManager
+from api.tasks import TaskManager, TaskQueue
 from core.database import SessionLocal
 
 router = APIRouter(prefix="/api/boning", tags=["boning"])
@@ -87,13 +87,12 @@ def bg_sync_omie(task_id: str, org_id: int):
 
 @router.post("/sync-omie")
 async def sync_omie(
-    background_tasks: BackgroundTasks,
     user: models.User = Depends(get_current_user_and_set_org)
 ):
     task_id = TaskManager.create_task()
     org_id = current_org.get().id
-    background_tasks.add_task(bg_sync_omie, task_id, org_id)
-    return {"task_id": task_id, "message": "Sincronização iniciada em background."}
+    await TaskQueue.enqueue(bg_sync_omie, task_id, org_id)
+    return {"task_id": task_id, "message": "Sincronização iniciada na fila."}
 
 @router.get("/products")
 async def get_products(
@@ -380,15 +379,14 @@ def bg_export_cmc(task_id: str, process_id: int, req_date: str, local_id_map: di
 async def export_cmc(
     process_id: int,
     req: ExportCmcRequest,
-    background_tasks: BackgroundTasks,
     user: models.User = Depends(get_current_user_and_set_org)
 ):
     org_id = current_org.get().id
     local_id_map = {item.product_id: item.local_id for item in req.items}
     task_id = TaskManager.create_task()
     
-    background_tasks.add_task(bg_export_cmc, task_id, process_id, req.date, local_id_map, org_id)
-    return {"task_id": task_id, "message": "Exportação iniciada em background."}
+    await TaskQueue.enqueue(bg_export_cmc, task_id, process_id, req.date, local_id_map, org_id)
+    return {"task_id": task_id, "message": "Exportação iniciada na fila."}
 
 @router.post("/check-stocks")
 async def check_stocks(
@@ -457,13 +455,12 @@ def bg_fix_negative_stocks(task_id: str, req_items: list, req_date: str, org_id:
 @router.post("/fix-negative-stocks")
 async def fix_negative_stocks(
     req: FixStocksRequest,
-    background_tasks: BackgroundTasks,
     user: models.User = Depends(get_current_user_and_set_org)
 ):
     org_id = current_org.get().id
     task_id = TaskManager.create_task()
-    background_tasks.add_task(bg_fix_negative_stocks, task_id, req.items, req.date, org_id)
-    return {"task_id": task_id, "message": "Correção de estoques iniciada em background."}
+    await TaskQueue.enqueue(bg_fix_negative_stocks, task_id, req.items, req.date, org_id)
+    return {"task_id": task_id, "message": "Correção de estoques iniciada na fila."}
 
 @router.get("/snapshots/historico")
 async def get_historico_snapshots(
@@ -527,10 +524,9 @@ def bg_revert_snapshot(task_id: str, snapshot_id: int, org_id: int):
 @router.delete("/revert-snapshot/{snapshot_id}")
 async def revert_snapshot(
     snapshot_id: int,
-    background_tasks: BackgroundTasks,
     user: models.User = Depends(get_current_user_and_set_org)
 ):
     org_id = current_org.get().id
     task_id = TaskManager.create_task()
-    background_tasks.add_task(bg_revert_snapshot, task_id, snapshot_id, org_id)
-    return {"task_id": task_id, "message": "Reversão iniciada em background."}
+    await TaskQueue.enqueue(bg_revert_snapshot, task_id, snapshot_id, org_id)
+    return {"task_id": task_id, "message": "Reversão iniciada na fila."}
