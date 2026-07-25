@@ -350,46 +350,156 @@ def deletar_recibo(id: int, current_user: models.User = Depends(get_current_user
     finally:
         db.close()
 
-@router.post("/api/recibos/{id}/desfazer")
-def desfazer_baixa(id: int, current_user: models.User = Depends(get_current_user_and_set_org)):
-    current_org.set(current_user.organization)
-    db = SessionLocal()
+def bg_desfazer_baixa(task_id: str, recibo_id: int, org_id: int):
     try:
-        recibo = db.query(models.PaymentReceipt).filter(models.PaymentReceipt.id == id, models.PaymentReceipt.organization_id == current_org.get().id).first()
+        db = SessionLocal()
+        org = db.query(models.Organization).filter(models.Organization.id == org_id).first()
+        current_org.set(org)
+
+        recibo = db.query(models.PaymentReceipt).filter(models.PaymentReceipt.id == recibo_id, models.PaymentReceipt.organization_id == org_id).first()
         if not recibo:
-            return JSONResponse(status_code=404, content={"detail": "Recibo não encontrado"})
-        
+            TaskManager.update_task(task_id, log="Recibo não encontrado", status="error")
+            db.close()
+            return
+            
         url = "https://app.omie.com.br/api/v1/financas/contareceber/"
         erros = []
-        for nota in recibo.notas:
+        desfeitas_sucesso = []
+        
+        TaskManager.update_task(task_id, progress=5.0, log="Iniciando cancelamento das baixas no Omie...")
+        
+        total_items = len(recibo.notas)
+        for i, nota in enumerate(recibo.notas):
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                TaskManager.update_task(task_id, log="Cancelamento solicitado pelo usuário. Revertendo operações (re-baixando)...")
+                
+                # Fetch dictionary to find account id from bank name
+                dict_contas = extrair_dicionario_contas_correntes()
+                id_conta = 0
+                for k, v in dict_contas.items():
+                    if v == recibo.banco:
+                        id_conta = k
+                        break
+                        
+                rollback_erros = []
+                for baixa_reverter in desfeitas_sucesso:
+                    payload_rebaixar = {
+                        "call": "LancarRecebimento",
+                        "app_key": current_org.get().omie_app_key,
+                        "app_secret": current_org.get().omie_app_secret,
+                        "param": [
+                            {
+                                "codigo_lancamento": baixa_reverter["codigo_lancamento"],
+                                "codigo_conta_corrente": int(id_conta),
+                                "valor": baixa_reverter["valor"],
+                                "desconto": baixa_reverter.get("desconto", 0),
+                                "juros": baixa_reverter.get("juros", 0),
+                                "data": recibo.data_pagamento,
+                                "observacao": "Baixa restaurada pós-interrupção via GabaritoBI",
+                            }
+                        ]
+                    }
+                    try:
+                        res_rebaixar = requests.post(url, json=payload_rebaixar, headers={"Content-Type": "application/json"}).json()
+                        if "faultstring" in res_rebaixar:
+                            rollback_erros.append(f"Erro ao re-baixar {baixa_reverter['codigo_lancamento']}: {res_rebaixar['faultstring']}")
+                    except Exception as e:
+                        rollback_erros.append(f"Erro ao re-baixar {baixa_reverter['codigo_lancamento']}: {str(e)}")
+                    time.sleep(0.3)
+                    
+                if rollback_erros:
+                    TaskManager.update_task(task_id, log="Rollback com erros: " + " | ".join(rollback_erros), status="error")
+                else:
+                    TaskManager.update_task(task_id, log="Baixas restauradas com sucesso. Operação abortada.", status="error")
+                db.close()
+                return
+
             codigo_baixa = nota.get("codigo_baixa")
             codigo_lancamento = nota.get("codigo_lancamento")
             if not codigo_baixa:
                 continue
-                
+
+            time.sleep(0.3)
             payload = {
                 "call": "CancelarRecebimento",
                 "app_key": current_org.get().omie_app_key,
                 "app_secret": current_org.get().omie_app_secret,
-                "param": [
-                    {
-                        "codigo_baixa": codigo_baixa
-                    }
-                ]
+                "param": [{"codigo_baixa": codigo_baixa}]
             }
             try:
                 res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}).json()
                 if "faultstring" in res:
                     erros.append(f"Erro na baixa {codigo_baixa}: {res['faultstring']}")
+                else:
+                    desfeitas_sucesso.append(nota)
             except Exception as e:
                 erros.append(f"Erro na comunicação: {str(e)}")
-            time.sleep(0.3)
-            
+                
+            progress = 5.0 + ((i + 1) / total_items) * 80.0
+            TaskManager.update_task(task_id, progress=progress, log=f"Processado {i+1} de {total_items} cancelamentos...")
+
+        if desfeitas_sucesso:
+            TaskManager.update_task(task_id, progress=90.0, log="Atualizando cache local...")
+            try:
+                cache_key = "contas_receber_abertas_global"
+                snap = db.query(models.SyncSnapshot).filter(
+                    models.SyncSnapshot.cache_key == cache_key, 
+                    models.SyncSnapshot.organization_id == current_org.get().id
+                ).first()
+
+                if snap and isinstance(snap.dados, list):
+                    dados_atualizados = list(snap.dados)
+                    for desf in desfeitas_sucesso:
+                        for c in dados_atualizados:
+                            if c.get("codigo_lancamento_omie") == desf["codigo_lancamento"]:
+                                v_pag = float(c.get("valor_pag") or 0.0)
+                                val_cancelado = float(desf.get("valor") or 0.0)
+                                c["valor_pag"] = max(0.0, v_pag - val_cancelado)
+                                break
+                    
+                    snap.dados = dados_atualizados
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(snap, "dados")
+                    db.commit()
+            except Exception as e:
+                print("Erro ao atualizar cache local (desfazer):", e)
+                
         if erros:
-            return JSONResponse(status_code=400, content={"detail": " | ".join(erros)})
+            # If partially completed, don't delete receipt, but let user know
+            TaskManager.update_task(task_id, log="Concluído com erros: " + " | ".join(erros), status="error")
+        else:
+            db.delete(recibo)
+            db.commit()
+            TaskManager.update_task(
+                task_id, 
+                progress=100.0, 
+                log="Baixas desfeitas com sucesso e histórico removido!", 
+                status="completed"
+            )
             
-        db.delete(recibo)
-        db.commit()
-        return {"status": "success", "mensagem": "Baixas desfeitas com sucesso no Omie e histórico removido!"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        TaskManager.update_task(task_id, log=f"Erro fatal: {str(e)}", status="error")
     finally:
         db.close()
+
+@router.post("/api/recibos/{id}/desfazer")
+def desfazer_baixa(id: int, current_user: models.User = Depends(get_current_user_and_set_org)):
+    action_id = "desfazer_baixa"
+    active_id = TaskManager.get_active_task_id(action_id)
+    if active_id:
+        return JSONResponse(status_code=409, content={"detail": "Já existe um processamento de cancelamento em andamento. Aguarde.", "task_id": active_id})
+
+    task_id = TaskManager.create_task(action_id)
+    TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila...")
+    # asyncio run for enqueueing since desfazer_baixa is synchronous
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(TaskQueue.enqueue(bg_desfazer_baixa, task_id, id, current_user.organization.id))
+    except RuntimeError:
+        asyncio.run(TaskQueue.enqueue(bg_desfazer_baixa, task_id, id, current_user.organization.id))
+        
+    return {"task_id": task_id, "message": "Iniciando cancelamento do recibo..."}

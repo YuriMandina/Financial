@@ -550,10 +550,26 @@ function App() {
         method: 'POST'
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Falha ao desfazer a baixa.");
-      alert("Baixa desfeita com sucesso na Omie!");
-      handleCarregarHistoricoRecibos();
-      handleBuscarDados(); // Refresh current page
+      if (!res.ok) {
+        if (res.status === 409 && data.task_id) {
+          handleGlobalTaskStart(data.task_id, "Desfazendo Baixa...", null, "duplicate", data.detail);
+          return;
+        }
+        throw new Error(data.detail || "Falha ao desfazer a baixa.");
+      }
+      
+      if (data.task_id) {
+        handleGlobalTaskStart(data.task_id, "Desfazendo Baixa...", async () => {
+          handleCarregarHistoricoRecibos();
+          setTimeout(() => {
+            setGlobalRefreshCounter(prev => prev + 1);
+          }, 500);
+        });
+      } else {
+        alert("Baixa desfeita com sucesso na Omie!");
+        handleCarregarHistoricoRecibos();
+        handleBuscarDados(); // Refresh current page
+      }
     } catch (e) {
       alert("Erro: " + e.message);
     }
