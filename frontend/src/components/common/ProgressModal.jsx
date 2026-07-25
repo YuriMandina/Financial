@@ -79,15 +79,19 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
         )}
         <div className="flex flex-col pr-8">
           <span className="text-sm font-bold text-slate-800">
-            {isCompleted ? 'Concluído!' : isError ? 'Erro' : (title || 'Sincronizando...')}
+            {title || 'Sincronizando...'}
           </span>
           <span className="text-xs text-slate-500 font-medium">
             {manualState?.warning ? (
                <span className="text-amber-600 font-bold line-clamp-2 leading-tight max-w-[220px] block text-[11px]">
                  {manualState.warning}
                </span>
+            ) : isCompleted ? (
+               <span className="text-emerald-600 font-bold">Concluído! • Clique p/ continuar</span>
+            ) : isError ? (
+               <span className="text-red-500 font-bold">Erro • Clique p/ detalhes</span>
             ) : (
-               taskId ? Math.round(progress) + "% • Clique para abrir" : (isCompleted ? 100 : (isError ? 0 : '...')) + "% • Clique para abrir"
+               (taskId ? Math.round(progress) : '...') + "% • Clique para abrir"
             )}
           </span>
         </div>
