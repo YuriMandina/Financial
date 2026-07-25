@@ -12,18 +12,23 @@ class TaskQueue:
     _worker_task = None
 
     @classmethod
-    async def enqueue(cls, func, *args, **kwargs):
+    async def enqueue(cls, task_id, func, *args, **kwargs):
         if cls._worker_task is None:
             cls._worker_task = asyncio.create_task(cls._worker())
         ctx = contextvars.copy_context()
-        await cls._queue.put((func, args, kwargs, ctx))
+        await cls._queue.put((task_id, func, args, kwargs, ctx))
 
     @classmethod
     async def _worker(cls):
         loop = asyncio.get_running_loop()
         while True:
-            func, args, kwargs, ctx = await cls._queue.get()
+            task_id, func, args, kwargs, ctx = await cls._queue.get()
             try:
+                if task_id:
+                    t = TaskManager.get_task(task_id)
+                    if t and t.get("status") == "canceled":
+                        continue
+
                 if asyncio.iscoroutinefunction(func):
                     # Para coroutines seria ideal ctx.run mas asyncio lida melhor com tasks independentes
                     await func(*args, **kwargs)
@@ -39,15 +44,34 @@ class TaskManager:
     _tasks: Dict[str, Dict[str, Any]] = {}
 
     @classmethod
-    def create_task(cls) -> str:
+    def create_task(cls, action_id: str = None) -> str:
         task_id = str(uuid.uuid4())
         cls._tasks[task_id] = {
-            "status": "running",
+            "status": "queued",
             "progress": 0.0,
             "logs": [],
-            "result": None
+            "result": None,
+            "action_id": action_id
         }
         return task_id
+
+    @classmethod
+    def has_active_task(cls, action_id: str) -> bool:
+        if not action_id:
+            return False
+        for tid, t in cls._tasks.items():
+            if t.get("action_id") == action_id and t.get("status") not in ["completed", "error", "canceled"]:
+                return True
+        return False
+
+    @classmethod
+    def cancel_task(cls, task_id: str):
+        task = cls.get_task(task_id)
+        if task and task.get("status") not in ["completed", "error"]:
+            task["status"] = "canceled"
+            if task["logs"]:
+                task["logs"][-1]["done"] = True
+            task["logs"].append({"text": "Processo cancelado pelo usuário.", "done": True})
 
     @classmethod
     def get_task(cls, task_id: str) -> Dict[str, Any]:
@@ -82,3 +106,11 @@ def get_task_status(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="Task não encontrada")
     return task
+
+@router.delete("/{task_id}")
+def cancel_task(task_id: str):
+    task = TaskManager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task não encontrada")
+    TaskManager.cancel_task(task_id)
+    return {"message": "Tarefa cancelada com sucesso"}

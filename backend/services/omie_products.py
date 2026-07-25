@@ -14,6 +14,11 @@ def sincronizar_produtos_e_familias(db, org_id, task_id=None):
         TaskManager.update_task(task_id, log="Iniciando extração de páginas da Omie...")
 
     while pagina_atual <= total_paginas:
+        if task_id:
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                break
+                
         payload = {
             "call": "ListarProdutos",
             "app_key": current_org.get().omie_app_key,

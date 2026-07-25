@@ -36,6 +36,18 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
     return () => clearInterval(interval);
   }, [taskId]);
 
+  const handleCancel = async (e) => {
+    if (e) e.stopPropagation();
+    if (!taskId) return;
+    try {
+      await fetch(`http://localhost:8000/api/tasks/${taskId}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error("Erro ao cancelar:", err);
+    }
+    setMinimized(true);
+    onClose();
+  };
+
   useEffect(() => {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -174,8 +186,8 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
         </div>
 
         {/* FOOTER (BUTTONS) */}
-        {(isCompleted || isError) && (
-          <div className="px-6 pb-6 pt-2 flex-shrink-0">
+        <div className="px-6 pb-6 pt-2 flex-shrink-0">
+          {(isCompleted || isError) ? (
             <button
               onClick={() => {
                 if (isCompleted && onSuccess) {
@@ -192,8 +204,15 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
             >
               {isCompleted ? 'Continuar' : 'Fechar'}
             </button>
-          </div>
-        )}
+          ) : (
+            <button
+              onClick={handleCancel}
+              className="w-full py-3 px-4 rounded-xl font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors border border-red-200"
+            >
+              Cancelar Operação
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

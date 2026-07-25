@@ -105,6 +105,9 @@ def _omie_extrair_movimento_vendas(data_inicio: str, data_fim: str, task_id=None
             break
 
         if task_id:
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                break
             progress = (pagina_atual / total_paginas) * 100
             TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Vendas: Página {pagina_atual} de {total_paginas}")
 

@@ -34,7 +34,11 @@ async def sync_recebimentos(
     current_user: models.User = Depends(get_current_user_and_set_org)
 ):
     current_org.set(current_user.organization)
-    task_id = TaskManager.create_task()
+    action_id = "sync_recebimentos"
+    if TaskManager.has_active_task(action_id):
+        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+        
+    task_id = TaskManager.create_task(action_id)
     TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila de sincronização...")
     org_id = current_org.get().id
     

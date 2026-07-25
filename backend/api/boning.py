@@ -89,7 +89,10 @@ def bg_sync_omie(task_id: str, org_id: int):
 async def sync_omie(
     user: models.User = Depends(get_current_user_and_set_org)
 ):
-    task_id = TaskManager.create_task()
+    action_id = "sync_omie"
+    if TaskManager.has_active_task(action_id):
+        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+    task_id = TaskManager.create_task(action_id)
     org_id = current_org.get().id
     await TaskQueue.enqueue(bg_sync_omie, task_id, org_id)
     return {"task_id": task_id, "message": "Sincronização iniciada na fila."}
@@ -381,9 +384,13 @@ async def export_cmc(
     req: ExportCmcRequest,
     user: models.User = Depends(get_current_user_and_set_org)
 ):
+    action_id = f"export_cmc_{process_id}"
+    if TaskManager.has_active_task(action_id):
+        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+        
     org_id = current_org.get().id
     local_id_map = {item.product_id: item.local_id for item in req.items}
-    task_id = TaskManager.create_task()
+    task_id = TaskManager.create_task(action_id)
     
     await TaskQueue.enqueue(bg_export_cmc, task_id, process_id, req.date, local_id_map, org_id)
     return {"task_id": task_id, "message": "Exportação iniciada na fila."}
@@ -457,8 +464,12 @@ async def fix_negative_stocks(
     req: FixStocksRequest,
     user: models.User = Depends(get_current_user_and_set_org)
 ):
+    action_id = "fix_negative_stocks"
+    if TaskManager.has_active_task(action_id):
+        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+        
     org_id = current_org.get().id
-    task_id = TaskManager.create_task()
+    task_id = TaskManager.create_task(action_id)
     await TaskQueue.enqueue(bg_fix_negative_stocks, task_id, req.items, req.date, org_id)
     return {"task_id": task_id, "message": "Correção de estoques iniciada na fila."}
 
@@ -526,7 +537,11 @@ async def revert_snapshot(
     snapshot_id: int,
     user: models.User = Depends(get_current_user_and_set_org)
 ):
+    action_id = f"revert_{snapshot_id}"
+    if TaskManager.has_active_task(action_id):
+        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+        
     org_id = current_org.get().id
-    task_id = TaskManager.create_task()
+    task_id = TaskManager.create_task(action_id)
     await TaskQueue.enqueue(bg_revert_snapshot, task_id, snapshot_id, org_id)
     return {"task_id": task_id, "message": "Reversão iniciada na fila."}

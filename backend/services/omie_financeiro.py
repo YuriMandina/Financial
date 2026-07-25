@@ -42,6 +42,9 @@ def _omie_extrair_contas_pagar_abertas(min_f_str=None, max_f_str=None, task_id=N
             break
 
         if task_id:
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                break
             progress = (pagina_atual / total_paginas) * 100
             TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Contas a Pagar: Página {pagina_atual} de {total_paginas}")
 
@@ -153,6 +156,9 @@ def _omie_extrair_contas_receber_abertas(min_f_str=None, max_f_str=None, task_id
         time.sleep(0.35)
 
         if task_id:
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                break
             progress = (pagina / total_paginas) * 100
             TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Contas a Receber: Página {pagina} de {total_paginas}")
 
@@ -205,6 +211,9 @@ def _omie_extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str, task
             break
 
         if task_id:
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                break
             progress = (pagina_atual / total_paginas) * 100
             TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Movimentos Pagos: Página {pagina_atual} de {total_paginas}")
 
@@ -257,6 +266,10 @@ def _omie_fetch_pages_parallel(url, call_name, array_name, d_ini, d_fim, task_id
         return todas_contas
 
     def fetch_page(pagina):
+        if task_id:
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                return []
         page_payload = {
             "call": call_name,
             "app_key": app_key,
@@ -287,6 +300,9 @@ def _omie_fetch_pages_parallel(url, call_name, array_name, d_ini, d_fim, task_id
                 
             paginas_completadas += 1
             if task_id:
+                t = TaskManager.get_task(task_id)
+                if t and t.get("status") == "canceled":
+                    break
                 progress = (paginas_completadas / total_paginas) * 100
                 TaskManager.update_task(task_id, progress=progress, log=f"Extraindo {call_name}: Página {paginas_completadas} de {total_paginas}")
                 

@@ -68,12 +68,16 @@ async def sync_module_dados(
     if module not in valid_modules:
         raise HTTPException(status_code=400, detail="Módulo inválido para sincronização.")
         
-    task_id = TaskManager.create_task()
+    action_id = f"sync_relatorio_{module}"
+    if TaskManager.has_active_task(action_id):
+        raise HTTPException(status_code=400, detail="Esta ação já está em andamento. Cancele-a antes de iniciar uma nova.")
+        
+    task_id = TaskManager.create_task(action_id)
     TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila de sincronização...")
     org_id = current_org.get().id
     
     await TaskQueue.enqueue(bg_sync_relatorio, task_id, module, req.data_inicio, req.data_fim, org_id)
-    return {"task_id": task_id, "message": "Sincronização iniciada em background."}
+    return {"task_id": task_id, "message": "Sincronização iniciada na fila."}
 
 @router.get("/api/geral/bancos")
 def obter_bancos(current_user: models.User = Depends(get_current_user_and_set_org)):
