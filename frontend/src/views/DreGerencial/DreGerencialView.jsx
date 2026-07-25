@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, DollarSign, ArrowUpCircle, ArrowDownCircle, Target } from 'lucide-react';
+import { Target, DollarSign, Loader2, ArrowUpCircle, ArrowDownCircle, Database } from 'lucide-react';
 import DateRangePicker from '../../components/common/DateRangePicker';
 import ProgressModal from '../../components/common/ProgressModal';
 
@@ -108,10 +108,10 @@ export const DreGerencial = ({ token, onTaskStart, refreshCounter }) => {
           <button 
             onClick={() => fetchDre(true)}
             disabled={loading || !dataInicio || !dataFim}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-xl transition flex items-center gap-2 shadow-lg shadow-indigo-500/20 disabled:opacity-50"
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold transition-all disabled:opacity-50"
           >
-            {loading ? <Loader2 size={20} className="animate-spin" /> : <DollarSign size={20} />}
-            Sincronizar DRE
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />}
+            SINCRONIZAR DADOS
           </button>
         </div>
       </div>
