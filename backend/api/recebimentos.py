@@ -169,6 +169,36 @@ def bg_baixar_recebimentos_lote(task_id: str, req_dict: dict, org_id: int):
         
         total_items = len(req.pagamentos)
         for i, pag in enumerate(req.pagamentos):
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                TaskManager.update_task(task_id, log="Cancelamento solicitado pelo usuário. Revertendo baixas já efetuadas...")
+                rollback_erros = []
+                for baixa in baixas_sucesso:
+                    codigo_baixa = baixa.get("codigo_baixa")
+                    if not codigo_baixa:
+                        continue
+                    payload_cancel = {
+                        "call": "CancelarRecebimento",
+                        "app_key": current_org.get().omie_app_key,
+                        "app_secret": current_org.get().omie_app_secret,
+                        "param": [{"codigo_baixa": codigo_baixa}]
+                    }
+                    try:
+                        res_cancel = requests.post(url, json=payload_cancel, headers={"Content-Type": "application/json"}).json()
+                        if "faultstring" in res_cancel:
+                            rollback_erros.append(f"Erro ao reverter {codigo_baixa}: {res_cancel['faultstring']}")
+                    except Exception as e:
+                        rollback_erros.append(f"Erro ao reverter {codigo_baixa}: {str(e)}")
+                    time.sleep(0.3)
+                
+                if rollback_erros:
+                    TaskManager.update_task(task_id, log="Rollback com erros: " + " | ".join(rollback_erros), status="error")
+                else:
+                    TaskManager.update_task(task_id, log="Baixas revertidas com sucesso. Operação abortada.", status="error")
+                
+                db.close()
+                return
+
             time.sleep(0.3)
             payload = {
                 "call": "LancarRecebimento",
@@ -248,7 +278,13 @@ def bg_baixar_recebimentos_lote(task_id: str, req_dict: dict, org_id: int):
 
 @router.post("/api/relatorios/recebimentos/baixar")
 async def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = Depends(get_current_user_and_set_org)):
-    task_id = TaskManager.create_task("baixar_recebimentos")
+    action_id = "baixar_recebimentos"
+    active_id = TaskManager.get_active_task_id(action_id)
+    if active_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=409, content={"detail": "Já existe um processamento de baixas em andamento. Aguarde.", "task_id": active_id})
+
+    task_id = TaskManager.create_task(action_id)
     TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila...")
     await TaskQueue.enqueue(bg_baixar_recebimentos_lote, task_id, req.dict(), current_org.get().id)
     return {"task_id": task_id, "message": "Iniciando recebimento em lote..."}

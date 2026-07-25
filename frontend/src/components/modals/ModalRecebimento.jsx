@@ -155,7 +155,7 @@ export default function ModalRecebimento({ modalBaixa, setModalBaixa, calcularTo
               })()}
 
               <div className="flex gap-4">
-                <button onClick={() => setModalBaixa({ aberto: false, cliente: '', contas: [] })} className="flex-1 px-4 py-3 rounded-lg font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition">Cancelar</button>
+                <button onClick={() => setModalBaixa({ aberto: false, cliente: '', contas: [] })} className="flex-1 px-4 py-3 rounded-lg font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition">Fechar</button>
                 <button onClick={handleEfetuarBaixaLote} disabled={processandoBaixa || !contaDestino || !dataPagamento} className="flex-1 px-4 py-3 rounded-lg font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition disabled:opacity-50 flex justify-center items-center gap-2">
                   {processandoBaixa ? <><Loader2 size={18} className="animate-spin" /> Processando...</> : 'Confirmar Recebimento'}
                 </button>
