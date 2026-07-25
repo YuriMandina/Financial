@@ -102,7 +102,11 @@ def verify_email(payload: VerifyEmailPayload, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
-    access_token = auth.create_access_token(data={"sub": str(new_user.id)})
+    timeout = getattr(new_org, 'session_timeout_minutes', 120)
+    access_token = auth.create_access_token(
+        data={"sub": str(new_user.id)}, 
+        expires_delta=timedelta(minutes=timeout)
+    )
     return {"message": "Conta criada com sucesso", "access_token": access_token}
 
 @router.post("/login")
@@ -114,7 +118,11 @@ def login_user(user: UserLogin, db: Session = Depends(get_db)):
     if getattr(db_user, 'is_active', None) is False:
         raise HTTPException(status_code=401, detail="Esta conta foi inativada.")
     
-    access_token = auth.create_access_token(data={"sub": str(db_user.id)})
+    timeout = getattr(db_user.organization, 'session_timeout_minutes', 120) if db_user.organization else 120
+    access_token = auth.create_access_token(
+        data={"sub": str(db_user.id)},
+        expires_delta=timedelta(minutes=timeout)
+    )
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me")

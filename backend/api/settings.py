@@ -24,3 +24,18 @@ def save_omie_keys(keys: OmieKeys, db: Session = Depends(get_db), current_user: 
     current_user.organization.omie_app_secret = keys.app_secret
     db.commit()
     return {"message": "Chaves da Omie atualizadas com sucesso!"}
+
+class Preferences(BaseModel):
+    session_timeout_minutes: int
+
+@router.get("/preferences")
+def get_preferences(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return {
+        "session_timeout_minutes": getattr(current_user.organization, "session_timeout_minutes", 120)
+    }
+
+@router.post("/preferences")
+def save_preferences(prefs: Preferences, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    current_user.organization.session_timeout_minutes = prefs.session_timeout_minutes
+    db.commit()
+    return {"message": "Preferências atualizadas com sucesso!"}

@@ -11,6 +11,7 @@ class Organization(Base):
     name = Column(String, nullable=False)
     omie_app_key = Column(String, nullable=True)
     omie_app_secret = Column(String, nullable=True)
+    session_timeout_minutes = Column(Integer, default=120)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     users = relationship("User", back_populates="organization")

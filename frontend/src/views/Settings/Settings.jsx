@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck, Zap } from 'lucide-react';
+import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck, Zap, Shield } from 'lucide-react';
 
 export const Settings = ({ token }) => {
   const [activeTab, setActiveTab] = useState('omie');
@@ -13,8 +13,9 @@ export const Settings = ({ token }) => {
   const [showAppKey, setShowAppKey] = useState(false);
   const [showAppSecret, setShowAppSecret] = useState(false);
 
-  // Performance
+  // Performance & Preferences
   const [performanceMode, setPerformanceMode] = useState(() => localStorage.getItem('performanceMode') === 'true');
+  const [sessionTimeout, setSessionTimeout] = useState(120);
 
   // Invites
   const [inviteEmail, setInviteEmail] = useState('');
@@ -35,13 +36,19 @@ export const Settings = ({ token }) => {
         const data = await res.json();
         setAppKey(data.app_key || '');
         setAppSecret(data.app_secret || '');
-      } else {
+      } else if (activeTab === 'invites') {
         const res = await fetch('http://localhost:8000/api/invites/list', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
         setMembers(data.members || []);
         setPendingInvites(data.pending_invites || []);
+      } else if (activeTab === 'preferences' || activeTab === 'security') {
+        const res = await fetch('http://localhost:8000/api/settings/preferences', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        setSessionTimeout(data.session_timeout_minutes || 120);
       }
     } catch (err) {
       console.error(err);
@@ -150,6 +157,30 @@ export const Settings = ({ token }) => {
     else document.body.classList.remove('performance-mode');
   };
 
+  const handleSavePreferences = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('http://localhost:8000/api/settings/preferences', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ session_timeout_minutes: Number(sessionTimeout) })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Erro ao salvar preferências');
+      setSuccess('Preferências atualizadas com sucesso!');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="flex-1 p-8 z-10 print:hidden overflow-y-auto">
       <div className="flex items-center gap-4 mb-8">
@@ -175,6 +206,12 @@ export const Settings = ({ token }) => {
             className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === 'invites' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
           >
             <Users size={18} /> Membros e Convites
+          </button>
+          <button 
+            onClick={() => setActiveTab('security')}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === 'security' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+          >
+            <Shield size={18} /> Segurança
           </button>
           <button 
             onClick={() => setActiveTab('preferences')}
@@ -345,6 +382,46 @@ export const Settings = ({ token }) => {
                     <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                   </label>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'security' && (
+            <div className="space-y-8">
+              <div>
+                <h3 className="text-xl font-bold text-white mb-2">Segurança</h3>
+                <p className="text-sm text-slate-400 mb-6">Configurações de sessão aplicáveis a todos os membros da organização.</p>
+                
+                <form onSubmit={handleSavePreferences} className="space-y-6">
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-900/50 transition-colors gap-4">
+                    <div>
+                      <h4 className="text-white font-bold">Tempo de Sessão (Logout Automático)</h4>
+                      <p className="text-sm text-slate-400 mt-1">Tempo limite antes que a sessão expire por inatividade (requer novo login).</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <select
+                        value={sessionTimeout}
+                        onChange={e => setSessionTimeout(e.target.value)}
+                        className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-2 outline-none focus:border-indigo-500 font-medium"
+                      >
+                        <option value={15}>15 Minutos (Mais Seguro)</option>
+                        <option value={60}>1 Hora</option>
+                        <option value={240}>4 Horas</option>
+                        <option value={720}>12 Horas</option>
+                        <option value={1440}>24 Horas</option>
+                        <option value={10080}>7 Dias (Menos Seguro)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button 
+                    type="submit" 
+                    disabled={loading}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 className="animate-spin" size={20} /> : <Shield size={20} />}
+                    Salvar Configurações de Segurança
+                  </button>
+                </form>
               </div>
             </div>
           )}
