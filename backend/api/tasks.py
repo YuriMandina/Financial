@@ -12,10 +12,12 @@ class TaskQueue:
     _worker_task = None
 
     @classmethod
-    async def enqueue(cls, task_id, func, *args, **kwargs):
+    async def enqueue(cls, func, *args, **kwargs):
         if cls._worker_task is None:
             cls._worker_task = asyncio.create_task(cls._worker())
         ctx = contextvars.copy_context()
+        # Find task_id in args or kwargs (assuming it's usually passed)
+        task_id = args[0] if args and isinstance(args[0], str) else kwargs.get('task_id')
         await cls._queue.put((task_id, func, args, kwargs, ctx))
 
     @classmethod

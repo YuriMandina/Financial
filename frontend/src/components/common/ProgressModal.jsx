@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Loader2, CheckCircle2, XCircle, ChevronDown, Check } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, ChevronDown, Check, X } from 'lucide-react';
 
 export default function ProgressModal({ taskId, onClose, manualState, onSuccess, title }) {
   const [task, setTask] = useState(null);
@@ -67,7 +67,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
   if (minimized) {
     return (
       <div 
-        className="bg-white rounded-2xl shadow-2xl p-4 flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform border border-slate-100" 
+        className="bg-white rounded-2xl shadow-2xl p-4 flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform border border-slate-100 relative group" 
         onClick={() => setMinimized(false)}
       >
         {isCompleted ? (
@@ -77,7 +77,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
         ) : (
           <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
         )}
-        <div className="flex flex-col pr-4">
+        <div className="flex flex-col pr-8">
           <span className="text-sm font-bold text-slate-800">
             {isCompleted ? 'Concluído!' : isError ? 'Erro' : (title || 'Sincronizando...')}
           </span>
@@ -85,6 +85,21 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
             {taskId ? Math.round(progress) : (isCompleted ? 100 : (isError ? 0 : '...'))}% • Clique para abrir
           </span>
         </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isCompleted || isError) {
+              if (isCompleted && onSuccess) onSuccess();
+              onClose();
+            } else {
+              handleCancel(e);
+            }
+          }}
+          className="absolute top-2 right-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-1"
+          title={isCompleted || isError ? "Fechar" : "Cancelar Operação"}
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
     );
   }

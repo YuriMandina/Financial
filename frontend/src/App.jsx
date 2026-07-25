@@ -85,6 +85,10 @@ function App() {
   
   const [activeSyncTasks, setActiveSyncTasks] = useState([]);
 
+  const handleGlobalTaskStart = (taskId, title, onSuccess) => {
+    setActiveSyncTasks(prev => [...prev, { taskId, title, onSuccess }]);
+  };
+
   const [listaBancos, setListaBancos] = useState([]);
   const [selecionados, setSelecionados] = useState([]);
   const [modalBaixa, setModalBaixa] = useState({ aberto: false, cliente: '', contas: [] });
@@ -1020,9 +1024,9 @@ function App() {
         {menuAtivo === 'configuracoes' ? (
           <Settings token={token} />
         ) : menuAtivo === 'desossa' ? (
-          <RateioECusteio token={token} />
+          <RateioECusteio token={token} onTaskStart={handleGlobalTaskStart} />
         ) : menuAtivo === 'dre-gerencial' ? (
-          <DreGerencial token={token} />
+          <DreGerencial token={token} onTaskStart={handleGlobalTaskStart} />
         ) : (
           <>
           <div className="flex-1 p-8 z-10 print:!p-0 print:!m-0 print:!block print:!overflow-visible">
@@ -1124,7 +1128,10 @@ function App() {
                 taskId={taskState.taskId?.startsWith('err-') ? null : taskState.taskId}
                 manualState={taskState.taskId?.startsWith('err-') ? taskState : null} 
                 onClose={() => setActiveSyncTasks(prev => prev.filter(t => t.taskId !== taskState.taskId))} 
-                onSuccess={() => handleBuscarDados(false)}
+                onSuccess={() => {
+                  if (taskState.onSuccess) taskState.onSuccess();
+                  handleBuscarDados(false);
+                }}
                 title={taskState.title}
               />
             </div>

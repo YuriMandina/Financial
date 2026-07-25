@@ -3,21 +3,18 @@ import { Loader2, DollarSign, ArrowUpCircle, ArrowDownCircle, Target } from 'luc
 import DateRangePicker from '../../components/common/DateRangePicker';
 import ProgressModal from '../../components/common/ProgressModal';
 
-export const DreGerencial = ({ token }) => {
+export const DreGerencial = ({ token, onTaskStart }) => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
-  
-  const [syncModalState, setSyncModalState] = useState({ active: false, status: 'processing', text: '' });
 
   const fetchDre = async (isSync = false) => {
     setLoading(true);
     setError('');
 
     if (isSync) {
-        setSyncModalState({ active: true, status: 'processing', text: 'Iniciando sincronização...', title: 'Sincronizando DRE' });
         try {
             const res = await fetch(`http://localhost:8000/api/relatorios/dre/sync`, {
                 method: 'POST',
@@ -30,10 +27,10 @@ export const DreGerencial = ({ token }) => {
             const json = await res.json();
             if (!res.ok) throw new Error(json.detail || 'Erro ao sincronizar DRE');
             
-            setSyncModalState({ active: true, taskId: json.task_id, title: 'Sincronizando DRE' });
+            if (onTaskStart) onTaskStart(json.task_id, 'Sincronizando DRE');
             return;
         } catch (err) {
-            setSyncModalState({ active: true, status: 'error', text: `Erro: ${err.message}`, title: 'Erro na Sincronização' });
+            alert(`Erro: ${err.message}`);
             setLoading(false);
             return;
         }
@@ -179,18 +176,6 @@ export const DreGerencial = ({ token }) => {
           </div>
         </>
       )}
-      
-      <div className="fixed bottom-6 right-6 flex flex-col gap-4 z-[100] items-end pointer-events-none">
-        <div className="pointer-events-auto">
-          <ProgressModal 
-            taskId={syncModalState.taskId}
-            manualState={!syncModalState.taskId ? syncModalState : null} 
-            onClose={() => setSyncModalState({ active: false, status: 'processing', text: '' })} 
-            onSuccess={() => fetchDre(false)}
-            title={syncModalState.title}
-          />
-        </div>
-      </div>
     </div>
   );
 };
