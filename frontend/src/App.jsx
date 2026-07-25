@@ -835,13 +835,20 @@ function App() {
 
       if (data.task_id) {
         handleGlobalTaskStart(data.task_id, "Efetivando Recebimento", async (result) => {
-          const pagamentosComBaixa = pagamentosTratados.map(p => {
-            const baixaEncontrada = result?.baixas?.find(b => b.codigo_lancamento === p.codigo_lancamento);
-            return {
-               ...p,
-               codigo_baixa: baixaEncontrada ? baixaEncontrada.codigo_baixa : null
-            };
-          });
+          const pagamentosComBaixa = pagamentosTratados
+            .filter(p => result?.baixas?.some(b => b.codigo_lancamento === p.codigo_lancamento))
+            .map(p => {
+              const baixaEncontrada = result.baixas.find(b => b.codigo_lancamento === p.codigo_lancamento);
+              return {
+                ...p,
+                codigo_baixa: baixaEncontrada.codigo_baixa
+              };
+            });
+
+          if (pagamentosComBaixa.length === 0) {
+            console.log("Nenhuma baixa retornou sucesso do Omie. Histórico não será gerado.");
+            return;
+          }
 
           const novoRecibo = {
             cliente: nomeCliente,
