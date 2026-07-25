@@ -105,7 +105,9 @@ def obter_recebimentos_abertos(data_inicio: str = None, data_fim: str = None, fo
             valor_documento = float(c.get("valor_documento", 0.0))
             valor_pag = float(c.get("valor_pag", 0.0))
 
-            if valor_pag > 0 and valor_pag < valor_documento:
+            if valor_pag >= valor_documento:
+                continue
+            elif valor_pag > 0:
                 saldo = round(valor_documento - valor_pag, 2)
             else:
                 saldo = valor_documento
@@ -196,6 +198,32 @@ def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = D
 
     if erros:
         return JSONResponse(status_code=400, content={"detail": " | ".join(erros)})
+
+    if baixas_sucesso:
+        try:
+            db = SessionLocal()
+            cache_key = "contas_receber_abertas_global"
+            snap = db.query(models.SyncSnapshot).filter(
+                models.SyncSnapshot.cache_key == cache_key, 
+                models.SyncSnapshot.organization_id == current_org.get().id
+            ).first()
+
+            if snap and isinstance(snap.dados, list):
+                dados_atualizados = list(snap.dados)
+                for pag in req.pagamentos:
+                    for c in dados_atualizados:
+                        if c.get("codigo_lancamento_omie") == pag.codigo_lancamento:
+                            v_pag = float(c.get("valor_pag") or 0.0)
+                            c["valor_pag"] = v_pag + pag.valor
+                            break
+                
+                snap.dados = dados_atualizados
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(snap, "dados")
+                db.commit()
+            db.close()
+        except Exception as e:
+            print("Erro ao atualizar cache local:", e)
 
     return JSONResponse(
         content={
