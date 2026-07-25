@@ -36,6 +36,13 @@ export const DreGerencial = ({ token, onTaskStart, refreshCounter }) => {
                 body: JSON.stringify({ data_inicio: dataInicio, data_fim: dataFim })
             });
             const json = await res.json();
+            
+            if (res.status === 409 && json.task_id) {
+                if (onTaskStart) onTaskStart(json.task_id, 'Sincronizando DRE', 'dre-gerencial', 'duplicate', json.detail || "Ação em andamento");
+                setLoading(false);
+                return;
+            }
+            
             if (!res.ok) throw new Error(json.detail || 'Erro ao sincronizar DRE');
             
             if (onTaskStart) onTaskStart(json.task_id, 'Sincronizando DRE', 'dre-gerencial');

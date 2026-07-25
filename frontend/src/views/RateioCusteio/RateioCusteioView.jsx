@@ -80,6 +80,8 @@ function SyncTab({ token, onTaskStart, refreshCounter }) {
       const data = await res.json();
       if (res.ok && data.task_id) {
         onTaskStart(data.task_id, 'Sincronizando Famílias e Produtos', 'desossa');
+      } else if (res.status === 409 && data.task_id) {
+        onTaskStart(data.task_id, 'Sincronizando Famílias e Produtos', 'desossa', 'duplicate', data.detail || "Ação em andamento");
       } else {
         onTaskStart(`err-${Date.now()}`, 'Erro ao iniciar sincronização', null, 'error', data.detail || data.message);
       }
@@ -801,6 +803,8 @@ function OperationTab({ token, onTaskStart, refreshCounter }) {
       const data = await res.json();
       if (res.ok && data.task_id) {
         onTaskStart(data.task_id, 'Zerando Estoques', 'desossa');
+      } else if (res.status === 409 && data.task_id) {
+        onTaskStart(data.task_id, 'Zerando Estoques', 'desossa', 'duplicate', data.detail || "Ação em andamento");
       } else {
         onTaskStart(`err-${Date.now()}`, 'Erro ao corrigir estoques', null, 'error', data.detail || "Falha desconhecida");
       }
@@ -826,6 +830,8 @@ function OperationTab({ token, onTaskStart, refreshCounter }) {
       const data = await res.json();
       if (res.ok && data.task_id) {
         onTaskStart(data.task_id, 'Lançando Rateio e Custeio', 'desossa');
+      } else if (res.status === 409 && data.task_id) {
+        onTaskStart(data.task_id, 'Lançando Rateio e Custeio', 'desossa', 'duplicate', data.detail || "Ação em andamento");
       } else {
         onTaskStart(`err-${Date.now()}`, 'Erro ao exportar', null, 'error', data.detail || data.message || JSON.stringify(data));
       }
@@ -1198,6 +1204,8 @@ function HistoryTab({ token, onTaskStart, refreshCounter }) {
       const data = await res.json();
       if (res.ok && data.task_id) {
         onTaskStart(data.task_id, 'Revertendo Rateio', 'desossa');
+      } else if (res.status === 409 && data.task_id) {
+        onTaskStart(data.task_id, 'Revertendo Rateio', 'desossa', 'duplicate', data.detail || "Ação em andamento");
       } else {
         onTaskStart(`err-${Date.now()}`, 'Erro ao reverter', null, 'error', data.detail || "Falha desconhecida");
       }

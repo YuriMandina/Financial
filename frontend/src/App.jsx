@@ -277,8 +277,6 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data_inicio: dataInicial, data_fim: dataFinal })
         });
-        
-        if (!resSync.ok) throw new Error("Falha ao iniciar sincronização.");
         const dataSync = await resSync.json();
         
         const titleMap = {
@@ -290,10 +288,17 @@ function App() {
         };
         const taskTitle = titleMap[menuAtivo] || 'Sincronizando...';
 
-        setActiveSyncTasks(prev => [...prev, { active: true, taskId: dataSync.task_id, title: taskTitle }]);
+        if (resSync.status === 409 && dataSync.task_id) {
+            handleGlobalTaskStart(dataSync.task_id, taskTitle, menuAtivo, 'duplicate', dataSync.detail || "Ação em andamento");
+            return;
+        }
+
+        if (!resSync.ok) throw new Error(dataSync.detail || dataSync.message || "Falha ao iniciar sincronização.");
+
+        handleGlobalTaskStart(dataSync.task_id, taskTitle, menuAtivo);
         return; 
       } catch (err) {
-        setActiveSyncTasks(prev => [...prev, { active: true, status: 'error', text: err.message, taskId: `err-${Date.now()}`, title: 'Erro na Sincronização' }]);
+        handleGlobalTaskStart(`err-${Date.now()}`, 'Erro na Sincronização', null, 'error', err.message);
         return;
       }
     }
