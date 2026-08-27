@@ -493,8 +493,8 @@ async def get_historico_snapshots(
         "id": s.id,
         "tipo": "Lançamento de Rateio" if s.tipo_relatorio == "RATEIO_CUSTEIO" else "Correção de Estoque Negativo",
         "data_referencia": s.data_referencia,
-        "created_at": s.created_at.strftime("%d/%m/%Y %H:%M:%S"),
-        "quantidade_lancamentos": len(s.dados.get("ajustes_ids", []))
+        "created_at": s.created_at.strftime("%d/%m/%Y %H:%M:%S") if s.created_at else "",
+        "quantidade_lancamentos": len(s.dados.get("ajustes_ids", [])) if isinstance(s.dados, dict) else (len(s.dados) if isinstance(s.dados, list) else 0)
     } for s in snaps]
 
 def bg_revert_snapshot(task_id: str, snapshot_id: int, org_id: int):
@@ -506,7 +506,7 @@ def bg_revert_snapshot(task_id: str, snapshot_id: int, org_id: int):
             TaskManager.update_task(task_id, log="Snapshot não encontrado.", status="error")
             return
             
-        ajustes_ids = snap.dados.get("ajustes_ids", [])
+        ajustes_ids = snap.dados.get("ajustes_ids", []) if isinstance(snap.dados, dict) else (snap.dados if isinstance(snap.dados, list) else [])
         total_items = len(ajustes_ids)
         erros = []
         
