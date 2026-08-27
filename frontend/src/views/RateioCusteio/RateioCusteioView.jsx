@@ -1181,9 +1181,9 @@ function HistoryTab({ token, onTaskStart, refreshCounter }) {
   const loadHistorico = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/boning/history', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch('http://localhost:8000/api/boning/snapshots/historico', { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
-      setSnapshots(data.snapshots || []);
+      setSnapshots(Array.isArray(data) ? data : (data.snapshots || []));
     } catch (e) {
       console.error(e);
     }
@@ -1252,7 +1252,7 @@ function HistoryTab({ token, onTaskStart, refreshCounter }) {
                 <td className="px-6 py-4 text-right">
                   <button 
                     onClick={() => handleRevert(s)}
-                    disabled={reverting}
+                    disabled={loading}
                     className="bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded font-bold text-xs transition-colors disabled:opacity-50"
                   >
                     Reverter Lançamentos
