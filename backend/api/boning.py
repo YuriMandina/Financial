@@ -515,15 +515,19 @@ def bg_revert_snapshot(task_id: str, snapshot_id: int, org_id: int):
             return
             
         ajustes_ids = snap.dados.get("ajustes_ids", []) if isinstance(snap.dados, dict) else (snap.dados if isinstance(snap.dados, list) else [])
+        detalhes = snap.dados.get("detalhes", []) if isinstance(snap.dados, dict) else []
+        mapa_nomes = {d.get("id_ajuste"): d.get("nome_produto") for d in detalhes}
+
         total_items = len(ajustes_ids)
         TaskManager.update_task(task_id, progress=5.0, log=f"Enfileirando reversão de {total_items} lançamentos...")
         
         for aid in ajustes_ids:
+            nome = mapa_nomes.get(aid, f"Ajuste {aid}")
             job = models.OmieJobQueue(
                 organization_id=org_id,
                 task_id=task_id,
                 action_type="REVERT_ADJUST",
-                payload={"id_ajuste": aid, "snapshot_id": snapshot_id}
+                payload={"id_ajuste": aid, "snapshot_id": snapshot_id, "nome_produto": nome}
             )
             db.add(job)
             

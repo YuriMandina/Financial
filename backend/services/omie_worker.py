@@ -107,7 +107,7 @@ async def process_next_job():
         elif action == "EXPORT_CMC":
             prefix = f"[Lançar Custeio] {nome}"
         elif action == "REVERT_ADJUST":
-            prefix = f"[Reverter Lançamento] Ajuste {payload.get('id_ajuste')}"
+            prefix = f"[Reverter Lançamento] {nome}"
             
         if sucesso:
             job.status = "COMPLETED"
@@ -143,11 +143,20 @@ async def process_next_job():
                         from models.models import SyncSnapshot
                         from datetime import datetime
                         tipo = "RATEIO_CUSTEIO" if action == "EXPORT_CMC" else "ESTOQUES_NEGATIVOS"
+                        
+                        detalhes = []
+                        for s in sucessos:
+                            if s.error_msg and s.error_msg.isdigit():
+                                detalhes.append({
+                                    "id_ajuste": int(s.error_msg),
+                                    "nome_produto": s.payload.get("nome_produto")
+                                })
+
                         snap = SyncSnapshot(
                             cache_key=f"{tipo}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{len(ajustes_ids)}",
                             tipo_relatorio=tipo,
                             data_referencia=datetime.now().strftime("%Y-%m-%d"),
-                            dados={"ajustes_ids": ajustes_ids},
+                            dados={"ajustes_ids": ajustes_ids, "detalhes": detalhes},
                             organization_id=job.organization_id
                         )
                         db.add(snap)
