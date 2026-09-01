@@ -2,6 +2,8 @@ import requests
 from core.deps import current_org
 from api.tasks import TaskManager
 
+session = requests.Session()
+
 def sincronizar_produtos_e_familias(db, org_id, task_id=None):
     import models.models as models
     url = "https://app.omie.com.br/api/v1/geral/produtos/"
@@ -33,7 +35,7 @@ def sincronizar_produtos_e_familias(db, org_id, task_id=None):
             ],
         }
         try:
-            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
+            res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
             if "faultstring" in res:
                 raise Exception(f"Omie API Error: {res['faultstring']}")
                 
@@ -113,7 +115,7 @@ def atualizar_custo_produto(produto_id, novo_custo):
     }
     
     try:
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
+        res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
         if "faultstring" in res:
             raise Exception(f"Omie recusou alteração de produto: {res['faultstring']}")
         return True, "Atualizado com sucesso"
@@ -136,7 +138,7 @@ def obter_local_estoque_padrao(org_id):
         "param": [{"pagina": 1, "registros_por_pagina": 100}]
     }
     try:
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
+        res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
         for local in res.get("locaisEncontrados", []):
             if "PADRAO" in local.get("descricao", "").upper():
                 codigo = local.get("codigo_local_estoque")
@@ -173,7 +175,7 @@ def consultar_posicao_estoque(produto_id, data_formatada):
         }]
     }
     
-    res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
+    res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
     if "faultstring" in res:
         raise Exception(f"Omie recusou consulta de estoque: {res['faultstring']}")
         
@@ -212,7 +214,7 @@ def obter_cmc_produto_na_data(produto_id, data_formatada):
         }]
     }
 
-    res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
+    res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
     if "faultstring" in res:
         raise Exception(f"Omie recusou consulta de CMC: {res['faultstring']}")
         
@@ -260,26 +262,12 @@ def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo,
     }
     try:
         print(f"[OMIE] Zerando estoque do produto {produto_id}. Payload: {payload}")
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
         res_data = res.json()
         print(f"[OMIE] Resposta zerar estoque: {res_data}")
         
         if "faultstring" in res_data:
             raise Exception(f"Omie recusou ajuste: {res_data['faultstring']}")
-            
-        # Poll PosicaoEstoque up to 5 times to ensure consistency
-        import time
-        for _ in range(5):
-            time.sleep(1.0)
-            try:
-                saldo, _ = consultar_posicao_estoque(produto_id, data_formatada)
-                if saldo >= 0:
-                    break
-            except Exception as loop_e:
-                err_str = str(loop_e)
-                if "REDUNDANT" in err_str or "Aguarde" in err_str:
-                    res_data["warning_redundant"] = err_str
-                break
             
         return res_data
     except Exception as e:
@@ -323,7 +311,7 @@ def lancar_entrada_estoque_omie(produto_id, quantidade, custo_unitario, data_pro
     try:
         print(f"[OMIE_ENTRADA] Produto: {produto_id}, Qtd: {quantidade}, Custo_Unit: {custo_unitario}")
         print(f"[OMIE_ENTRADA] Payload: {payload}")
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
         res_data = res.json()
         print(f"[OMIE_ENTRADA] Resposta: {res_data}")
         if "faultstring" in res_data:
@@ -345,7 +333,7 @@ def excluir_ajuste_estoque(id_ajuste):
     }
     try:
         print(f"[OMIE_EXCLUSAO] Excluindo ajuste ID: {id_ajuste}")
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
         res_data = res.json()
         print(f"[OMIE_EXCLUSAO] Resposta: {res_data}")
         if "faultstring" in res_data:
