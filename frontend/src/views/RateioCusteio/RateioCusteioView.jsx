@@ -10,6 +10,7 @@ import ProgressModal from '../../components/common/ProgressModal';
 
 export default function RateioECusteio({ token, onTaskStart, refreshCounter }) {
   const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('desossa_activeTab') || 'sync');
+  const [calculationResult, setCalculationResult] = useState(null);
 
   useEffect(() => {
     sessionStorage.setItem('desossa_activeTab', activeTab);
@@ -42,12 +43,19 @@ export default function RateioECusteio({ token, onTaskStart, refreshCounter }) {
         >
           <Database size={18} /> Histórico e Reversão
         </button>
+        <button 
+          onClick={() => setActiveTab('simulador')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg transition-all ${activeTab === 'simulador' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+        >
+          <Settings size={18} /> Simulador de Preços
+        </button>
       </div>
 
       {activeTab === 'sync' && <SyncTab token={token} onTaskStart={onTaskStart} refreshCounter={refreshCounter} />}
       {activeTab === 'templates' && <TemplatesTab token={token} />}
-      {activeTab === 'operacao' && <OperationTab token={token} onTaskStart={onTaskStart} refreshCounter={refreshCounter} />}
+      {activeTab === 'operacao' && <OperationTab token={token} onTaskStart={onTaskStart} refreshCounter={refreshCounter} calculationResult={calculationResult} setCalculationResult={setCalculationResult} />}
       {activeTab === 'historico' && <HistoryTab token={token} onTaskStart={onTaskStart} refreshCounter={refreshCounter} />}
+      {activeTab === 'simulador' && <SimulatorTab token={token} onTaskStart={onTaskStart} calculationResult={calculationResult} />}
     </div>
   );
 }
@@ -642,7 +650,7 @@ function TemplatesTab({ token }) {
 }
 
 // --- [BLOCO: Operação de Rateio e Custeio] ---
-function OperationTab({ token, onTaskStart, refreshCounter }) {
+function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, setCalculationResult }) {
   const [mode, setMode] = useState('TEMPLATE'); // 'MANUAL' or 'TEMPLATE'
   const [carcassWeight, setCarcassWeight] = useState('');
   const [carcassCost, setCarcassCost] = useState('');
@@ -654,7 +662,6 @@ function OperationTab({ token, onTaskStart, refreshCounter }) {
   const [manualCuts, setManualCuts] = useState([]);
   const [copyTemplateId, setCopyTemplateId] = useState('');
 
-  const [calculationResult, setCalculationResult] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [exportDate, setExportDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -1287,6 +1294,158 @@ function HistoryTab({ token, onTaskStart, refreshCounter }) {
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// --- [BLOCO: ABA 5 - Simulador de Preços] ---
+function SimulatorTab({ token, onTaskStart, calculationResult }) {
+  const [prices, setPrices] = useState({});
+  const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    if (calculationResult && calculationResult.items) {
+      const initial = {};
+      calculationResult.items.forEach(i => {
+        initial[i.product_id] = i.unit_price;
+      });
+      setPrices(initial);
+    }
+  }, [calculationResult]);
+
+  if (!calculationResult) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-slate-500 opacity-50 p-20 animate-in fade-in">
+        <Settings size={64} className="mb-4" />
+        <p className="text-lg font-medium text-center">Execute um Rateio na aba anterior primeiro<br/>para simular os preços de venda (Pós-Rateio).</p>
+      </div>
+    );
+  }
+
+  // Calculate dynamic metrics
+  let expectedVPL = 0;
+  calculationResult.items.forEach(i => {
+    expectedVPL += (prices[i.product_id] || 0) * i.actual_weight;
+  });
+  
+  const totalCost = calculationResult.total_carcass_cost;
+  const expectedProfit = expectedVPL - totalCost;
+  const expectedMargin = expectedVPL > 0 ? (expectedProfit / expectedVPL) * 100 : 0;
+
+  const handleUpdate = async () => {
+    if (!window.confirm('Tem certeza que deseja atualizar todos os preços de venda no Omie?')) return;
+    setUpdating(true);
+    
+    const itemsToUpdate = calculationResult.items.map(i => ({
+      product_id: i.product_id,
+      new_price: prices[i.product_id] || 0
+    }));
+
+    try {
+      const res = await fetch('http://localhost:8000/api/boning/update-prices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ items: itemsToUpdate })
+      });
+      const data = await res.json();
+      if (res.ok && data.task_id) {
+        onTaskStart(data.task_id, 'Atualizando Preços no Omie', 'desossa');
+      } else if (res.status === 409 && data.task_id) {
+        onTaskStart(data.task_id, 'Atualizando Preços', 'desossa', 'duplicate', data.detail || "Ação em andamento");
+      } else {
+        onTaskStart(`err-${Date.now()}`, 'Erro ao atualizar preços', null, 'error', data.detail || data.message);
+      }
+    } catch (e) {
+      onTaskStart(`err-${Date.now()}`, 'Falha na comunicação', null, 'error', e.message);
+    }
+    setUpdating(false);
+  };
+
+  return (
+    <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-lg">
+          <p className="text-sm text-slate-400 font-bold mb-1">Custo Total (Rateado)</p>
+          <p className="text-3xl font-mono text-red-400">R$ {formatMoney(totalCost)}</p>
+        </div>
+        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-lg relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full"></div>
+          <p className="text-sm text-slate-400 font-bold mb-1 relative z-10">Faturamento Projetado (VPL)</p>
+          <p className="text-3xl font-mono text-indigo-400 relative z-10">R$ {formatMoney(expectedVPL)}</p>
+        </div>
+        <div className={`bg-slate-900 border p-6 rounded-xl shadow-lg relative overflow-hidden ${expectedMargin >= 0 ? 'border-emerald-500/30' : 'border-red-500/30'}`}>
+          <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl rounded-full ${expectedMargin >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}></div>
+          <p className="text-sm text-slate-400 font-bold mb-1 relative z-10">Margem Global Projetada</p>
+          <p className={`text-3xl font-mono font-bold relative z-10 ${expectedMargin >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {formatPerc(expectedMargin)}%
+          </p>
+          <p className="text-xs text-slate-500 mt-1 relative z-10">Lucro R$: {formatMoney(expectedProfit)}</p>
+        </div>
+      </div>
+
+      <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-xl flex flex-col">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <Settings className="text-indigo-400" /> Simulador Interativo (What-If)
+            </h3>
+            <p className="text-sm text-slate-400 mt-1">Simule o Novo Preço de Venda para ver o impacto imediato na margem individual de cada corte.</p>
+          </div>
+          <button 
+            onClick={handleUpdate}
+            disabled={updating}
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold shadow-lg transition-all"
+          >
+            {updating ? 'Processando...' : 'Atualizar Preços no Omie'}
+          </button>
+        </div>
+
+        <div className="overflow-x-auto border border-slate-700 rounded-lg">
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-slate-900 text-slate-400">
+              <tr>
+                <th className="p-4 font-semibold">Corte</th>
+                <th className="p-4 font-semibold text-right">Peso (Kg)</th>
+                <th className="p-4 font-semibold text-right text-red-300">Custo Base Rateado</th>
+                <th className="p-4 font-semibold text-right text-slate-500">Preço Atual</th>
+                <th className="p-4 font-semibold text-center bg-indigo-900/20 text-indigo-300 border-x border-slate-700">Novo Preço de Venda (R$)</th>
+                <th className="p-4 font-semibold text-right">Nova Margem Indiv. (%)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700">
+              {calculationResult.items.map(i => {
+                const currentPrice = prices[i.product_id] || 0;
+                const cost = i.unit_cost;
+                const margin = currentPrice > 0 ? ((currentPrice - cost) / currentPrice) * 100 : -100;
+                
+                return (
+                  <tr key={i.product_id} className="hover:bg-slate-700/30">
+                    <td className="p-4 font-bold text-white">{i.product_name}</td>
+                    <td className="p-4 text-right font-mono text-slate-300">{formatWeight(i.actual_weight)}</td>
+                    <td className="p-4 text-right font-mono text-red-300">R$ {formatMoney(cost)}</td>
+                    <td className="p-4 text-right font-mono text-slate-500">R$ {formatMoney(i.unit_price)}</td>
+                    <td className="p-4 text-center bg-indigo-900/10 border-x border-slate-700 relative group">
+                      <NumericFormat
+                        thousandSeparator="."
+                        decimalSeparator=","
+                        decimalScale={2}
+                        value={currentPrice}
+                        onValueChange={(values) => setPrices({...prices, [i.product_id]: values.floatValue || 0})}
+                        className="w-32 bg-slate-900 border border-indigo-500/50 rounded-md px-3 py-2 text-right font-mono font-bold text-indigo-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all shadow-inner"
+                      />
+                    </td>
+                    <td className="p-4 text-right font-mono">
+                      <span className={`px-2 py-1 rounded text-xs font-bold shadow-sm ${margin >= 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                        {formatPerc(margin)}%
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

@@ -559,3 +559,76 @@ async def revert_snapshot(
     task_id = TaskManager.create_task(action_id)
     await TaskQueue.enqueue(bg_revert_snapshot, task_id, snapshot_id, org_id)
     return {"task_id": task_id, "message": "Reversão iniciada na fila."}
+
+
+class PriceItem(BaseModel):
+    product_id: int
+    new_price: float
+
+class UpdatePricesRequest(BaseModel):
+    items: List[PriceItem]
+
+async def bg_update_prices(task_id: str, items: List[dict], org_id: int):
+    try:
+        from services import omie_products
+        from database import SessionLocal
+        
+        db = SessionLocal()
+        total = len(items)
+        success = 0
+        
+        TaskManager.update_task(task_id, progress=0, log=f"Iniciando atualização de {total} preços...")
+        
+        for idx, item in enumerate(items):
+            pid = item['product_id']
+            new_price = item['new_price']
+            
+            # Verificar status
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                TaskManager.update_task(task_id, status="canceled", log="Atualização cancelada.")
+                break
+                
+            prod = db.query(models.BoningProduct).filter_by(id=pid, organization_id=org_id).first()
+            if not prod or not prod.omie_id:
+                TaskManager.update_task(task_id, log=f"Pulando produto ID {pid} - Sem integração Omie.")
+                continue
+                
+            try:
+                # Atualizar Omie
+                await asyncio.to_thread(omie_products.alterar_preco_produto, prod.omie_id, new_price)
+                
+                # Atualizar DB Local
+                prod.unit_price = new_price
+                db.commit()
+                success += 1
+                
+                progress = ((idx + 1) / total) * 100
+                TaskManager.update_task(task_id, progress=progress, log=f"[{idx+1}/{total}] Produto {prod.name} atualizado para R$ {new_price:.2f}.")
+            except Exception as e:
+                TaskManager.update_task(task_id, log=f"Erro ao atualizar {prod.name}: {e}")
+                
+        db.close()
+        TaskManager.complete_task(task_id, log=f"Atualização concluída: {success}/{total} atualizados com sucesso.")
+    except Exception as e:
+        TaskManager.fail_task(task_id, str(e))
+
+@router.post("/update-prices")
+async def update_prices(
+    req: UpdatePricesRequest,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user_and_set_org)
+):
+    action_id = "update_prices"
+    active_id = TaskManager.get_active_task_id(action_id)
+    if active_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=409, content={"detail": "Atualização já em andamento.", "task_id": active_id})
+        
+    org_id = current_org.get().id
+    task_id = TaskManager.create_task(action_id)
+    items_dict = [{"product_id": i.product_id, "new_price": i.new_price} for i in req.items]
+    
+    await TaskQueue.enqueue(bg_update_prices, task_id, items_dict, org_id)
+    return {"task_id": task_id, "message": "Atualização de preços iniciada na fila."}
+
