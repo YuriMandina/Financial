@@ -90,7 +90,6 @@ async def process_next_job():
                 sucesso, res_msg = await asyncio.to_thread(omie_products.lancar_entrada_estoque_omie, prod_id, qtd, cost, dt, local_id)
                 if sucesso:
                     job.error_msg = str(res_msg)
-                    await asyncio.to_thread(omie_products.atualizar_custo_produto, prod_id, cost)
                     msg = "Custo exportado."
                     circuit_breaker.record_success()
                 else:

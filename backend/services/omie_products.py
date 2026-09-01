@@ -98,29 +98,7 @@ def sincronizar_produtos_e_familias(db, org_id, task_id=None):
 
     return produtos_inseridos
 
-def atualizar_custo_produto(produto_id, novo_custo):
-    url = "https://app.omie.com.br/api/v1/geral/produtos/"
-    payload = {
-        "call": "AlterarProduto",
-        "app_key": current_org.get().omie_app_key,
-        "app_secret": current_org.get().omie_app_secret,
-        "param": [
-            {
-                "codigo_produto": produto_id,
-                "dados_custos": {
-                    "valor_custo_medio_contabil": novo_custo
-                }
-            }
-        ]
-    }
-    
-    try:
-        res = session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30).json()
-        if "faultstring" in res:
-            raise Exception(f"Omie recusou alteração de produto: {res['faultstring']}")
-        return True, "Atualizado com sucesso"
-    except Exception as e:
-        raise e
+
 
 from datetime import datetime
 
