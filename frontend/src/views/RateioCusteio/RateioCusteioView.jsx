@@ -1303,41 +1303,45 @@ function HistoryTab({ token, onTaskStart, refreshCounter }) {
 function SimulatorTab({ token, onTaskStart, calculationResult }) {
   const [prices, setPrices] = useState({});
   const [updating, setUpdating] = useState(false);
+  const [processes, setProcesses] = useState([]);
+  const [selectedProcessId, setSelectedProcessId] = useState('current');
+  const [activeData, setActiveData] = useState(null);
 
   useEffect(() => {
-    if (calculationResult && calculationResult.items) {
+    fetch('http://localhost:8000/api/boning/processes', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(data => {
+         setProcesses(data.processes || []);
+      })
+      .catch(console.error);
+  }, [token]);
+
+  useEffect(() => {
+    let source = null;
+    if (selectedProcessId === 'current') {
+      source = calculationResult;
+    } else {
+      source = processes.find(p => p.id.toString() === selectedProcessId);
+    }
+    setActiveData(source);
+    
+    if (source && source.items) {
       const initial = {};
-      calculationResult.items.forEach(i => {
+      source.items.forEach(i => {
         initial[i.product_id] = i.unit_price;
       });
       setPrices(initial);
+    } else {
+      setPrices({});
     }
-  }, [calculationResult]);
-
-  if (!calculationResult) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center text-slate-500 opacity-50 p-20 animate-in fade-in">
-        <Settings size={64} className="mb-4" />
-        <p className="text-lg font-medium text-center">Execute um Rateio na aba anterior primeiro<br/>para simular os preços de venda (Pós-Rateio).</p>
-      </div>
-    );
-  }
-
-  // Calculate dynamic metrics
-  let expectedVPL = 0;
-  calculationResult.items.forEach(i => {
-    expectedVPL += (prices[i.product_id] || 0) * i.actual_weight;
-  });
-  
-  const totalCost = calculationResult.total_carcass_cost;
-  const expectedProfit = expectedVPL - totalCost;
-  const expectedMargin = expectedVPL > 0 ? (expectedProfit / expectedVPL) * 100 : 0;
+  }, [selectedProcessId, calculationResult, processes]);
 
   const handleUpdate = async () => {
+    if (!activeData || !activeData.items) return;
     if (!window.confirm('Tem certeza que deseja atualizar todos os preços de venda no Omie?')) return;
     setUpdating(true);
     
-    const itemsToUpdate = calculationResult.items.map(i => ({
+    const itemsToUpdate = activeData.items.map(i => ({
       product_id: i.product_id,
       new_price: prices[i.product_id] || 0
     }));
@@ -1362,91 +1366,142 @@ function SimulatorTab({ token, onTaskStart, calculationResult }) {
     setUpdating(false);
   };
 
+  let expectedVPL = 0;
+  let totalCost = 0;
+  let expectedProfit = 0;
+  let expectedMargin = 0;
+
+  if (activeData && activeData.items) {
+    activeData.items.forEach(i => {
+      expectedVPL += (prices[i.product_id] || 0) * i.actual_weight;
+    });
+    totalCost = activeData.total_carcass_cost;
+    expectedProfit = expectedVPL - totalCost;
+    expectedMargin = expectedVPL > 0 ? (expectedProfit / expectedVPL) * 100 : 0;
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-lg">
-          <p className="text-sm text-slate-400 font-bold mb-1">Custo Total (Rateado)</p>
-          <p className="text-3xl font-mono text-red-400">R$ {formatMoney(totalCost)}</p>
+      
+      {/* Seletor de Rateio */}
+      <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl flex items-center justify-between">
+        <div>
+          <h3 className="text-xl font-bold text-white flex items-center gap-2">
+            <Settings className="text-indigo-400" /> Origem dos Custos
+          </h3>
+          <p className="text-sm text-slate-400 mt-1">Selecione o Lote de Rateio para simular sobre seus custos congelados.</p>
         </div>
-        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full"></div>
-          <p className="text-sm text-slate-400 font-bold mb-1 relative z-10">Faturamento Projetado (VPL)</p>
-          <p className="text-3xl font-mono text-indigo-400 relative z-10">R$ {formatMoney(expectedVPL)}</p>
-        </div>
-        <div className={`bg-slate-900 border p-6 rounded-xl shadow-lg relative overflow-hidden ${expectedMargin >= 0 ? 'border-emerald-500/30' : 'border-red-500/30'}`}>
-          <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl rounded-full ${expectedMargin >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}></div>
-          <p className="text-sm text-slate-400 font-bold mb-1 relative z-10">Margem Global Projetada</p>
-          <p className={`text-3xl font-mono font-bold relative z-10 ${expectedMargin >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {formatPerc(expectedMargin)}%
-          </p>
-          <p className="text-xs text-slate-500 mt-1 relative z-10">Lucro R$: {formatMoney(expectedProfit)}</p>
-        </div>
-      </div>
-
-      <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-xl flex flex-col">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <Settings className="text-indigo-400" /> Simulador Interativo (What-If)
-            </h3>
-            <p className="text-sm text-slate-400 mt-1">Simule o Novo Preço de Venda para ver o impacto imediato na margem individual de cada corte.</p>
-          </div>
-          <button 
-            onClick={handleUpdate}
-            disabled={updating}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold shadow-lg transition-all"
+        <div>
+          <select 
+            className="bg-slate-900 border border-slate-700 text-white p-3 rounded-lg w-96 outline-none focus:border-indigo-500"
+            value={selectedProcessId}
+            onChange={(e) => setSelectedProcessId(e.target.value)}
           >
-            {updating ? 'Processando...' : 'Atualizar Preços no Omie'}
-          </button>
-        </div>
-
-        <div className="overflow-x-auto border border-slate-700 rounded-lg">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-slate-900 text-slate-400">
-              <tr>
-                <th className="p-4 font-semibold">Corte</th>
-                <th className="p-4 font-semibold text-right">Peso (Kg)</th>
-                <th className="p-4 font-semibold text-right text-red-300">Custo Base Rateado</th>
-                <th className="p-4 font-semibold text-right text-slate-500">Preço Atual</th>
-                <th className="p-4 font-semibold text-center bg-indigo-900/20 text-indigo-300 border-x border-slate-700">Novo Preço de Venda (R$)</th>
-                <th className="p-4 font-semibold text-right">Nova Margem Indiv. (%)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700">
-              {calculationResult.items.map(i => {
-                const currentPrice = prices[i.product_id] || 0;
-                const cost = i.unit_cost;
-                const margin = currentPrice > 0 ? ((currentPrice - cost) / currentPrice) * 100 : -100;
-                
-                return (
-                  <tr key={i.product_id} className="hover:bg-slate-700/30">
-                    <td className="p-4 font-bold text-white">{i.product_name}</td>
-                    <td className="p-4 text-right font-mono text-slate-300">{formatWeight(i.actual_weight)}</td>
-                    <td className="p-4 text-right font-mono text-red-300">R$ {formatMoney(cost)}</td>
-                    <td className="p-4 text-right font-mono text-slate-500">R$ {formatMoney(i.unit_price)}</td>
-                    <td className="p-4 text-center bg-indigo-900/10 border-x border-slate-700 relative group">
-                      <NumericFormat
-                        thousandSeparator="."
-                        decimalSeparator=","
-                        decimalScale={2}
-                        value={currentPrice}
-                        onValueChange={(values) => setPrices({...prices, [i.product_id]: values.floatValue || 0})}
-                        className="w-32 bg-slate-900 border border-indigo-500/50 rounded-md px-3 py-2 text-right font-mono font-bold text-indigo-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all shadow-inner"
-                      />
-                    </td>
-                    <td className="p-4 text-right font-mono">
-                      <span className={`px-2 py-1 rounded text-xs font-bold shadow-sm ${margin >= 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                        {formatPerc(margin)}%
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+            <option value="current">-- Rateio Atual (Em Memória) --</option>
+            {processes.map(p => {
+              const dt = p.created_at ? new Date(p.created_at).toLocaleString('pt-BR') : 'Data desconhecida';
+              return (
+                <option key={p.id} value={p.id.toString()}>
+                  Lote #{p.id} - {dt} - R$ {formatMoney(p.total_carcass_cost)}
+                </option>
+              );
+            })}
+          </select>
         </div>
       </div>
+
+      {!activeData ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 opacity-50 p-20">
+          <Database size={64} className="mb-4" />
+          <p className="text-lg font-medium text-center">Nenhum Rateio Selecionado.<br/>Selecione um lote no histórico ou rode um novo rateio.</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-lg">
+              <p className="text-sm text-slate-400 font-bold mb-1">Custo Total (Rateado do Lote)</p>
+              <p className="text-3xl font-mono text-red-400">R$ {formatMoney(totalCost)}</p>
+            </div>
+            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-lg relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full"></div>
+              <p className="text-sm text-slate-400 font-bold mb-1 relative z-10">Faturamento Projetado (VPL)</p>
+              <p className="text-3xl font-mono text-indigo-400 relative z-10">R$ {formatMoney(expectedVPL)}</p>
+            </div>
+            <div className={`bg-slate-900 border p-6 rounded-xl shadow-lg relative overflow-hidden ${expectedMargin >= 0 ? 'border-emerald-500/30' : 'border-red-500/30'}`}>
+              <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl rounded-full ${expectedMargin >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}></div>
+              <p className="text-sm text-slate-400 font-bold mb-1 relative z-10">Margem Global Projetada</p>
+              <p className={`text-3xl font-mono font-bold relative z-10 ${expectedMargin >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {formatPerc(expectedMargin)}%
+              </p>
+              <p className="text-xs text-slate-500 mt-1 relative z-10">Lucro R$: {formatMoney(expectedProfit)}</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-xl flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Calculator className="text-indigo-400" /> Simulador Interativo (What-If)
+                </h3>
+                <p className="text-sm text-slate-400 mt-1">Simule o Novo Preço de Venda. Os custos base estão congelados para este lote.</p>
+              </div>
+              <button 
+                onClick={handleUpdate}
+                disabled={updating}
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-bold shadow-lg transition-all"
+              >
+                {updating ? 'Processando...' : 'Atualizar Preços no Omie'}
+              </button>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-700 rounded-lg">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-slate-900 text-slate-400">
+                  <tr>
+                    <th className="p-4 font-semibold">Corte</th>
+                    <th className="p-4 font-semibold text-right">Peso (Kg)</th>
+                    <th className="p-4 font-semibold text-right text-red-300">Custo Base Rateado</th>
+                    <th className="p-4 font-semibold text-right text-slate-500">Preço Congelado (Histórico)</th>
+                    <th className="p-4 font-semibold text-center bg-indigo-900/20 text-indigo-300 border-x border-slate-700">Novo Preço de Venda (R$)</th>
+                    <th className="p-4 font-semibold text-right">Nova Margem Indiv. (%)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700">
+                  {activeData.items.map(i => {
+                    const currentPrice = prices[i.product_id] || 0;
+                    const cost = i.unit_cost;
+                    const margin = currentPrice > 0 ? ((currentPrice - cost) / currentPrice) * 100 : -100;
+                    
+                    return (
+                      <tr key={i.product_id} className="hover:bg-slate-700/30">
+                        <td className="p-4 font-bold text-white">{i.product_name}</td>
+                        <td className="p-4 text-right font-mono text-slate-300">{formatWeight(i.actual_weight)}</td>
+                        <td className="p-4 text-right font-mono text-red-300">R$ {formatMoney(cost)}</td>
+                        <td className="p-4 text-right font-mono text-slate-500">R$ {formatMoney(i.unit_price)}</td>
+                        <td className="p-4 text-center bg-indigo-900/10 border-x border-slate-700 relative group">
+                          <NumericFormat
+                            thousandSeparator="."
+                            decimalSeparator=","
+                            decimalScale={2}
+                            value={currentPrice}
+                            onValueChange={(values) => setPrices({...prices, [i.product_id]: values.floatValue || 0})}
+                            className="w-32 bg-slate-900 border border-indigo-500/50 rounded-md px-3 py-2 text-right font-mono font-bold text-indigo-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all shadow-inner"
+                          />
+                        </td>
+                        <td className="p-4 text-right font-mono">
+                          <span className={`px-2 py-1 rounded text-xs font-bold shadow-sm ${margin >= 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                            {formatPerc(margin)}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

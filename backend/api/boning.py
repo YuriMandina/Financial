@@ -492,6 +492,41 @@ async def reprocess_fix_negative_stocks(
     await TaskQueue.enqueue(bg_fix_negative_stocks, task_id, req.items, req.date, org_id)
     return {"task_id": task_id, "message": "Reprocessamento iniciado na fila."}
 
+@router.get("/processes")
+async def get_recent_processes(
+    user: models.User = Depends(get_current_user_and_set_org),
+    db: Session = Depends(get_db)
+):
+    processes = db.query(models.BoningProcess).filter(
+        models.BoningProcess.organization_id == current_org.get().id
+    ).order_by(models.BoningProcess.created_at.desc()).limit(20).all()
+    
+    res = []
+    for p in processes:
+        items = []
+        for i in p.items:
+            items.append({
+                "product_id": i.product_id,
+                "product_name": i.product.name,
+                "actual_weight": i.actual_weight,
+                "unit_price": i.unit_price,
+                "vpl": i.vpl,
+                "participation_percentage": i.participation_percentage,
+                "allocated_cost": i.allocated_cost,
+                "unit_cost": i.unit_cost
+            })
+            
+        res.append({
+            "id": p.id,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "mode": p.mode,
+            "total_carcass_weight": p.carcass_weight,
+            "total_carcass_cost": p.total_cost,
+            "items": items
+        })
+        
+    return {"processes": res}
+
 @router.get("/snapshots/historico")
 async def get_historico_snapshots(
     user: models.User = Depends(get_current_user_and_set_org),
