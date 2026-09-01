@@ -145,7 +145,10 @@ async def process_next_job():
                         tipo = "RATEIO_CUSTEIO" if action == "EXPORT_CMC" else "ESTOQUES_NEGATIVOS"
                         
                         detalhes = []
+                        process_id = None
                         for s in sucessos:
+                            if not process_id and s.payload.get("process_id"):
+                                process_id = s.payload.get("process_id")
                             if s.error_msg and s.error_msg.isdigit():
                                 detalhes.append({
                                     "id_ajuste": int(s.error_msg),
@@ -156,7 +159,7 @@ async def process_next_job():
                             cache_key=f"{tipo}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{len(ajustes_ids)}",
                             tipo_relatorio=tipo,
                             data_referencia=datetime.now().strftime("%Y-%m-%d"),
-                            dados={"ajustes_ids": ajustes_ids, "detalhes": detalhes},
+                            dados={"ajustes_ids": ajustes_ids, "detalhes": detalhes, "process_id": process_id},
                             organization_id=job.organization_id
                         )
                         db.add(snap)

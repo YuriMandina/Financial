@@ -337,7 +337,8 @@ def bg_export_cmc(task_id: str, process_id: int, req_date: str, local_id_map: di
                 "quantidade": item.actual_weight,
                 "custo_unitario": item.unit_cost,
                 "data_processo": data_processo,
-                "local_id": local_id
+                "local_id": local_id,
+                "process_id": process_id
             }
             
             job = models.OmieJobQueue(
@@ -497,9 +498,32 @@ async def get_recent_processes(
     user: models.User = Depends(get_current_user_and_set_org),
     db: Session = Depends(get_db)
 ):
+    # Buscar snapshots ativos de rateio
+    snapshots = db.query(models.SyncSnapshot).filter(
+        models.SyncSnapshot.organization_id == current_org.get().id,
+        models.SyncSnapshot.tipo_relatorio == "RATEIO_CUSTEIO"
+    ).order_by(models.SyncSnapshot.created_at.desc()).limit(20).all()
+    
+    process_ids = []
+    for snap in snapshots:
+        pid = snap.dados.get("process_id") if isinstance(snap.dados, dict) else None
+        if pid:
+            process_ids.append(pid)
+        else:
+            # Fallback para snapshots antigos sem process_id: pegar o último processo antes do snapshot
+            closest_process = db.query(models.BoningProcess).filter(
+                models.BoningProcess.organization_id == current_org.get().id,
+                models.BoningProcess.created_at <= snap.created_at
+            ).order_by(models.BoningProcess.created_at.desc()).first()
+            if closest_process:
+                process_ids.append(closest_process.id)
+                
+    if not process_ids:
+        return {"processes": []}
+        
     processes = db.query(models.BoningProcess).filter(
-        models.BoningProcess.organization_id == current_org.get().id
-    ).order_by(models.BoningProcess.created_at.desc()).limit(20).all()
+        models.BoningProcess.id.in_(process_ids)
+    ).order_by(models.BoningProcess.created_at.desc()).all()
     
     res = []
     for p in processes:
