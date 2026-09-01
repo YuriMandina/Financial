@@ -1120,22 +1120,22 @@ function OperationTab({ token, onTaskStart, refreshCounter }) {
               </div>
 
               {stocksVerified && (
-                <div className={`p-5 rounded-xl border ${hasNegativeStocks ? 'bg-red-500/10 border-red-500/30' : 'bg-emerald-500/10 border-emerald-500/30'} mt-6 relative z-10 transition-all`}>
+                <div className={`p-5 rounded-xl border ${hasNegativeStocks ? 'bg-orange-500/10 border-orange-500/30' : 'bg-emerald-500/10 border-emerald-500/30'} mt-6 relative z-10 transition-all`}>
                   {hasNegativeStocks ? (
                     <div>
                       <div className="flex items-start gap-4 mb-4">
-                        <AlertTriangle size={24} className="text-red-400 shrink-0 mt-0.5" />
+                        <AlertTriangle size={24} className="text-orange-400 shrink-0 mt-0.5" />
                         <div>
-                          <h5 className="font-bold text-red-400 text-base">Estoques Negativos Encontrados!</h5>
-                          <p className="text-sm text-red-300/80 mt-1">Você precisa ajustar (zerar) os estoques negativos no Omie antes de registrar a entrada, senão o custo médio (CMC) será completamente distorcido.</p>
+                          <h5 className="font-bold text-orange-400 text-base">Aviso: Furo de Estoque Encontrado!</h5>
+                          <p className="text-sm text-orange-300/80 mt-1">O sistema identificou saldo inicial negativo. Você pode zerar os estoques abaixo ou prosseguir diretamente (By-pass) deixando que o Lançamento cubra o furo automaticamente.</p>
                         </div>
                         <button 
                           onClick={handleFixStocks}
                           disabled={fixingStocks}
-                          className="ml-auto bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-bold shadow-lg shadow-red-500/20 flex items-center gap-2 shrink-0 transition-colors"
+                          className="ml-auto bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-bold shadow-lg shadow-orange-500/20 flex items-center gap-2 shrink-0 transition-colors"
                         >
                           <CheckCircle2 size={18} />
-                          {fixingStocks ? 'Ajustando no Omie...' : 'Zerar Estoques Negativos'}
+                          {fixingStocks ? 'Ajustando no Omie...' : 'Zerar Estoques Manuais'}
                         </button>
                       </div>
                       
@@ -1148,14 +1148,14 @@ function OperationTab({ token, onTaskStart, refreshCounter }) {
                           if (stock >= 0 && status === "OK") return null;
                           
                           return (
-                            <div key={i.product_id} className={`p-3 rounded-lg text-sm flex flex-col gap-1 shadow-sm border ${status === "NO_OMIE_ID" ? "bg-orange-900/80 border-orange-500/30" : status === "ERROR" ? "bg-red-900/80 border-red-500/30" : "bg-slate-900/80 border-red-500/30"}`}>
+                            <div key={i.product_id} className={`p-3 rounded-lg text-sm flex flex-col gap-1 shadow-sm border ${status === "NO_OMIE_ID" ? "bg-orange-900/80 border-orange-500/30" : status === "ERROR" ? "bg-red-900/80 border-red-500/30" : "bg-slate-900/80 border-orange-500/30"}`}>
                               <span className="truncate text-slate-300 font-medium" title={i.product_name}>{i.product_name}</span>
                               {status === "NO_OMIE_ID" ? (
                                 <span className="font-mono text-orange-400 font-bold text-xs">Sem integração Omie</span>
                               ) : status === "ERROR" ? (
                                 <span className="font-mono text-red-400 font-bold text-xs truncate" title={stockData.error}>Erro: {stockData.error}</span>
                               ) : (
-                                <span className="font-mono text-red-400 font-bold text-lg">{formatWeight(stock)} Kg</span>
+                                <span className="font-mono text-orange-400 font-bold text-lg">{formatWeight(stock)} Kg</span>
                               )}
                             </div>
                           );
@@ -1180,10 +1180,10 @@ function OperationTab({ token, onTaskStart, refreshCounter }) {
             <div className="mt-8 flex justify-end">
               <button 
                 onClick={handleExport}
-                disabled={exporting || !stocksVerified || hasNegativeStocks}
+                disabled={exporting || !stocksVerified}
                 className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-10 py-4 rounded-xl font-bold flex items-center gap-3 shadow-xl shadow-emerald-600/20 transition-all text-lg"
               >
-                {exporting ? 'Comunicando Omie...' : 'Lançar Rateio e Custeio'}
+                {exporting ? 'Comunicando Omie...' : (hasNegativeStocks ? 'Lançar Rateio Mesmo Assim' : 'Lançar Rateio e Custeio')}
               </button>
             </div>
           </div>

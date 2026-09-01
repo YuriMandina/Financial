@@ -403,13 +403,17 @@ async def check_stocks(
     db: Session = Depends(get_db)
 ):
     import asyncio
+    from datetime import datetime, timedelta
     results = {}
     try:
+        data_d0 = datetime.strptime(req.date, "%Y-%m-%d")
+        data_d1 = (data_d0 - timedelta(days=1)).strftime("%Y-%m-%d")
+        
         for pid in req.product_ids:
             product = db.query(models.BoningProduct).filter_by(id=pid, organization_id=current_org.get().id).first()
             if product and product.omie_id:
                 try:
-                    saldo, local_id = await asyncio.to_thread(omie_products.consultar_posicao_estoque, product.omie_id, req.date)
+                    saldo, local_id = await asyncio.to_thread(omie_products.consultar_posicao_estoque, product.omie_id, data_d1)
                     results[pid] = {"saldo": saldo, "local_id": local_id, "status": "OK"}
                 except Exception as e:
                     results[pid] = {"saldo": 0, "local_id": 0, "status": "ERROR", "error": str(e)}
