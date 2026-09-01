@@ -1399,7 +1399,9 @@ function SimulatorTab({ token, onTaskStart, calculationResult }) {
           >
             <option value="current">-- Rateio Atual (Em Memória) --</option>
             {processes.map(p => {
-              const dt = p.created_at ? new Date(p.created_at).toLocaleString('pt-BR') : 'Data desconhecida';
+              const dt = p.data_referencia 
+                ? p.data_referencia.split('-').reverse().join('/') 
+                : (p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : 'Data desconhecida');
               return (
                 <option key={p.id} value={p.id.toString()}>
                   Lote #{p.id} - {dt} - R$ {formatMoney(p.total_carcass_cost)}

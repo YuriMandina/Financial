@@ -504,11 +504,11 @@ async def get_recent_processes(
         models.SyncSnapshot.tipo_relatorio == "RATEIO_CUSTEIO"
     ).order_by(models.SyncSnapshot.created_at.desc()).limit(20).all()
     
-    process_ids = []
+    process_id_map = {} # Maps process_id to snapshot data_referencia
     for snap in snapshots:
         pid = snap.dados.get("process_id") if isinstance(snap.dados, dict) else None
         if pid:
-            process_ids.append(pid)
+            process_id_map[pid] = snap.data_referencia
         else:
             # Fallback para snapshots antigos sem process_id: pegar o último processo antes do snapshot
             closest_process = db.query(models.BoningProcess).filter(
@@ -516,13 +516,13 @@ async def get_recent_processes(
                 models.BoningProcess.created_at <= snap.created_at
             ).order_by(models.BoningProcess.created_at.desc()).first()
             if closest_process:
-                process_ids.append(closest_process.id)
+                process_id_map[closest_process.id] = snap.data_referencia
                 
-    if not process_ids:
+    if not process_id_map:
         return {"processes": []}
         
     processes = db.query(models.BoningProcess).filter(
-        models.BoningProcess.id.in_(process_ids)
+        models.BoningProcess.id.in_(list(process_id_map.keys()))
     ).order_by(models.BoningProcess.created_at.desc()).all()
     
     res = []
@@ -543,6 +543,7 @@ async def get_recent_processes(
         res.append({
             "id": p.id,
             "created_at": p.created_at.isoformat() if p.created_at else None,
+            "data_referencia": process_id_map.get(p.id) or (p.created_at.strftime("%Y-%m-%d") if p.created_at else None),
             "mode": p.mode,
             "total_carcass_weight": p.carcass_weight,
             "total_carcass_cost": p.total_cost,

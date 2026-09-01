@@ -146,20 +146,26 @@ async def process_next_job():
                         
                         detalhes = []
                         process_id = None
+                        data_referencia = None
                         for s in sucessos:
                             if not process_id and s.payload.get("process_id"):
                                 process_id = s.payload.get("process_id")
+                            if not data_referencia:
+                                data_referencia = s.payload.get("data_processo") or s.payload.get("data")
                             if s.error_msg and s.error_msg.isdigit():
                                 detalhes.append({
                                     "id_ajuste": int(s.error_msg),
                                     "nome_produto": s.payload.get("nome_produto")
                                 })
 
+                        final_date = data_referencia if data_referencia else datetime.now().strftime("%Y-%m-%d")
+
                         snap = SyncSnapshot(
                             cache_key=f"{tipo}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{len(ajustes_ids)}",
                             tipo_relatorio=tipo,
-                            data_referencia=datetime.now().strftime("%Y-%m-%d"),
+                            data_referencia=final_date,
                             dados={"ajustes_ids": ajustes_ids, "detalhes": detalhes, "process_id": process_id},
+
                             organization_id=job.organization_id
                         )
                         db.add(snap)
