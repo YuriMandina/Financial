@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Loader2, CheckCircle2, XCircle, ChevronDown, Check, X } from 'lucide-react';
 
-export default function ProgressModal({ taskId, onClose, manualState, onSuccess, title }) {
+export default function ProgressModal({ taskId, onClose, manualState, onSuccess, title, onReprocess }) {
   const [task, setTask] = useState(null);
   const [error, setError] = useState(null);
   const [minimized, setMinimized] = useState(true);
+  const [countdown, setCountdown] = useState(0);
   const logsEndRef = useRef(null);
 
   useEffect(() => {
@@ -54,12 +55,31 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
     }
   }, [task?.logs, manualState?.text]);
 
-  if (!taskId && !manualState?.active) return null;
+  useEffect(() => {
+    if (task?.result?.retry_after_seconds && task.status === 'error' && countdown === 0) {
+      setCountdown(task.result.retry_after_seconds);
+    }
+  }, [task?.result?.retry_after_seconds, task?.status]);
 
   const isCompleted = taskId ? task?.status === 'completed' : manualState?.status === 'completed';
   const isError = taskId ? (task?.status === 'error' || error) : (manualState?.status === 'error' || error);
   const progress = taskId ? (task?.progress || 0) : (isCompleted ? 100 : (isError ? 0 : 50));
   
+  useEffect(() => {
+    if (isCompleted) {
+      window.dispatchEvent(new CustomEvent('taskCompleted', { detail: task?.id || manualState?.id }));
+    }
+  }, [isCompleted, task?.id, manualState?.id]);
+
+  useEffect(() => {
+    if (countdown > 0) {
+      const timerId = setInterval(() => setCountdown(c => c - 1), 1000);
+      return () => clearInterval(timerId);
+    }
+  }, [countdown]);
+
+  if (!taskId && !manualState?.active) return null;
+
   const displayLogs = taskId 
     ? task?.logs 
     : (manualState?.text ? [{ text: manualState.text, done: isCompleted }] : []);
@@ -213,22 +233,64 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
         {/* FOOTER (BUTTONS) */}
         <div className="px-6 pb-6 pt-2 flex-shrink-0">
           {(isCompleted || isError) ? (
-            <button
-              onClick={() => {
-                if (isCompleted && onSuccess) {
-                  onSuccess(task?.result);
-                }
-                setMinimized(true);
-                onClose();
-              }}
-              className={`w-full py-3 px-4 rounded-xl font-medium text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-95 ${
-                isCompleted 
-                  ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-green-500/30' 
-                  : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-800 hover:to-gray-900 shadow-gray-500/30'
-              }`}
-            >
-              {isCompleted ? 'Continuar' : 'Fechar'}
-            </button>
+            <div className="flex flex-col gap-2">
+              {isError && task?.result?.pendencias?.length > 0 ? (
+                <>
+                  <button
+                    disabled={countdown > 0}
+                    onClick={() => {
+                       if (onReprocess) onReprocess(task.result.pendencias);
+                       setMinimized(true);
+                       onClose();
+                    }}
+                    className={`w-full py-3 px-4 rounded-xl font-medium text-white shadow-lg transition-transform ${
+                      countdown > 0 
+                        ? 'bg-indigo-400 cursor-not-allowed opacity-70' 
+                        : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 hover:scale-[1.02] active:scale-95 shadow-indigo-500/30'
+                    }`}
+                  >
+                    {countdown > 0 ? `Aguarde (${countdown}s) para Tentar Novamente...` : `Tentar Novamente (${task.result.pendencias.length} pendentes)`}
+                  </button>
+                  
+                  {task?.result?.snapshot_id && (
+                     <button
+                        disabled={countdown > 0}
+                        onClick={async () => {
+                           try {
+                             await fetch(`http://localhost:8000/api/boning/revert-snapshot/${task.result.snapshot_id}`, { method: 'DELETE' });
+                           } catch(e) {}
+                           setMinimized(true);
+                           onClose();
+                        }}
+                        className={`w-full py-3 px-4 rounded-xl font-medium shadow-lg transition-transform ${
+                          countdown > 0 
+                            ? 'bg-red-400/50 text-white cursor-not-allowed'
+                            : 'text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:scale-[1.02] active:scale-95'
+                        }`}
+                     >
+                        {countdown > 0 ? `Aguarde (${countdown}s) para Reverter` : `Desistir e Reverter Sucessos`}
+                     </button>
+                  )}
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (isCompleted && onSuccess) {
+                      onSuccess(task?.result);
+                    }
+                    setMinimized(true);
+                    onClose();
+                  }}
+                  className={`w-full py-3 px-4 rounded-xl font-medium text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-95 ${
+                    isCompleted 
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-green-500/30' 
+                      : 'bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-800 hover:to-gray-900 shadow-gray-500/30'
+                  }`}
+                >
+                  {isCompleted ? 'Continuar' : 'Fechar'}
+                </button>
+              )}
+            </div>
           ) : (
             <button
               onClick={handleCancel}

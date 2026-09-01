@@ -777,6 +777,16 @@ function OperationTab({ token, onTaskStart, refreshCounter }) {
     }
   };
 
+  useEffect(() => {
+    const handleTaskCompleted = (e) => {
+      if (exportDate && calculationResult) {
+        handleCheckStocks();
+      }
+    };
+    window.addEventListener('taskCompleted', handleTaskCompleted);
+    return () => window.removeEventListener('taskCompleted', handleTaskCompleted);
+  }, [exportDate, calculationResult, handleCheckStocks]);
+
   const handleFixStocks = async () => {
     if (!exportDate || !stocksData) return;
     setFixingStocks(true);
@@ -1131,12 +1141,22 @@ function OperationTab({ token, onTaskStart, refreshCounter }) {
                       
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-4 pt-4 border-t border-red-500/20">
                         {calculationResult.items.map(i => {
-                          const stock = stocksData[i.product_id]?.saldo || 0;
-                          if (stock >= 0) return null;
+                          const stockData = stocksData[i.product_id] || {};
+                          const stock = stockData.saldo || 0;
+                          const status = stockData.status || "OK";
+                          
+                          if (stock >= 0 && status === "OK") return null;
+                          
                           return (
-                            <div key={i.product_id} className="bg-slate-900/80 border border-red-500/30 p-3 rounded-lg text-sm flex flex-col gap-1 shadow-sm">
+                            <div key={i.product_id} className={`p-3 rounded-lg text-sm flex flex-col gap-1 shadow-sm border ${status === "NO_OMIE_ID" ? "bg-orange-900/80 border-orange-500/30" : status === "ERROR" ? "bg-red-900/80 border-red-500/30" : "bg-slate-900/80 border-red-500/30"}`}>
                               <span className="truncate text-slate-300 font-medium" title={i.product_name}>{i.product_name}</span>
-                              <span className="font-mono text-red-400 font-bold text-lg">{formatWeight(stock)} Kg</span>
+                              {status === "NO_OMIE_ID" ? (
+                                <span className="font-mono text-orange-400 font-bold text-xs">Sem integração Omie</span>
+                              ) : status === "ERROR" ? (
+                                <span className="font-mono text-red-400 font-bold text-xs truncate" title={stockData.error}>Erro: {stockData.error}</span>
+                              ) : (
+                                <span className="font-mono text-red-400 font-bold text-lg">{formatWeight(stock)} Kg</span>
+                              )}
                             </div>
                           );
                         })}
