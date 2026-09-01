@@ -167,3 +167,16 @@ class BoningTemplateSampleItem(Base):
     
     sample = relationship("BoningTemplateSample", back_populates="items")
     product = relationship("BoningProduct")
+
+class OmieJobQueue(Base):
+    __tablename__ = "omie_jobs_queue"
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    task_id = Column(String, index=True, nullable=False)
+    action_type = Column(String, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    status = Column(String, default="PENDING")
+    error_msg = Column(String, nullable=True)
+    retry_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)

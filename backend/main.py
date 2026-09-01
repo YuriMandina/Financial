@@ -4,6 +4,10 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+from core.database import engine
+from models.models import Base
+from services.omie_worker import start_omie_queue_worker
 
 # Import dos routers
 from api.auth import router as auth_router
@@ -19,6 +23,11 @@ from api.tasks import router as tasks_router
 
 # --- SETUP DA APLICAÇÃO ---
 app = FastAPI(title="API GabaritoBI", version="5.0")
+
+@app.on_event("startup")
+async def startup_event():
+    Base.metadata.create_all(bind=engine)
+    asyncio.create_task(start_omie_queue_worker())
 
 app.add_middleware(
     CORSMiddleware,
