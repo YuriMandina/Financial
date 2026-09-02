@@ -407,15 +407,30 @@ async def check_stocks(
     from datetime import datetime, timedelta
     results = {}
     try:
-        data_d0 = datetime.strptime(req.date, "%Y-%m-%d")
-        data_d1 = (data_d0 - timedelta(days=1)).strftime("%Y-%m-%d")
+        data_d0 = req.date
         
         for pid in req.product_ids:
             product = db.query(models.BoningProduct).filter_by(id=pid, organization_id=current_org.get().id).first()
             if product and product.omie_id:
                 try:
-                    saldo, local_id = await asyncio.to_thread(omie_products.consultar_posicao_estoque, product.omie_id, data_d1)
-                    results[pid] = {"saldo": saldo, "local_id": local_id, "status": "OK"}
+                    saldo, local_id, valor_estoque = await asyncio.to_thread(omie_products.consultar_posicao_estoque, product.omie_id, data_d0)
+                    
+                    tipo_ajuste = None
+                    if saldo < 0:
+                        tipo_ajuste = "ENT"
+                    elif saldo > 0:
+                        tipo_ajuste = "SAI"
+                        
+                    cmc_efetivo = abs(valor_estoque) / abs(saldo) if saldo != 0 else 0.0
+                    
+                    results[pid] = {
+                        "saldo": saldo, 
+                        "local_id": local_id, 
+                        "valor_estoque": valor_estoque,
+                        "cmc_efetivo": cmc_efetivo,
+                        "tipo_ajuste": tipo_ajuste,
+                        "status": "OK"
+                    }
                 except Exception as e:
                     results[pid] = {"saldo": 0, "local_id": 0, "status": "ERROR", "error": str(e)}
             else:
@@ -425,11 +440,11 @@ async def check_stocks(
         raise HTTPException(status_code=500, detail=str(e))
     return {"stocks": results}
 
-def bg_fix_negative_stocks(task_id: str, req_items: list, req_date: str, org_id: int):
+def bg_fix_stocks(task_id: str, req_items: list, req_date: str, org_id: int):
     db = SessionLocal()
     try:
         total_items = len(req_items)
-        TaskManager.update_task(task_id, progress=5.0, log=f"Enfileirando correção de {total_items} estoques negativos...")
+        TaskManager.update_task(task_id, progress=5.0, log=f"Enfileirando correção/limpeza de {total_items} estoques...")
         
         for item in req_items:
             product = db.query(models.BoningProduct).filter_by(id=item.product_id, organization_id=org_id).first()
@@ -441,8 +456,9 @@ def bg_fix_negative_stocks(task_id: str, req_items: list, req_date: str, org_id:
                 "nome_produto": product.name,
                 "local_id": item.local_id,
                 "data": req_date,
-                "saldo_negativo": item.saldo_negativo,
-                "unit_cost": max(getattr(item, 'unit_cost', 0) or 0.0, 0.01)
+                "quantidade": abs(item.saldo_negativo), # Manteve o nome antigo do modelo Pydantic por segurança
+                "valor_efetivo": max(getattr(item, 'unit_cost', 0) or 0.0, 0.01),
+                "tipo_ajuste": getattr(item, 'tipo_ajuste', 'ENT')
             }
             job = models.OmieJobQueue(
                 organization_id=org_id,
@@ -461,12 +477,12 @@ def bg_fix_negative_stocks(task_id: str, req_items: list, req_date: str, org_id:
     finally:
         db.close()
 
-@router.post("/fix-negative-stocks")
-async def fix_negative_stocks(
+@router.post("/fix-stocks")
+async def fix_stocks(
     req: FixStocksRequest,
     user: models.User = Depends(get_current_user_and_set_org)
 ):
-    action_id = "fix_negative_stocks"
+    action_id = "fix_stocks"
     active_id = TaskManager.get_active_task_id(action_id)
     if active_id:
         from fastapi.responses import JSONResponse
@@ -474,7 +490,7 @@ async def fix_negative_stocks(
         
     org_id = current_org.get().id
     task_id = TaskManager.create_task(action_id)
-    await TaskQueue.enqueue(bg_fix_negative_stocks, task_id, req.items, req.date, org_id)
+    await TaskQueue.enqueue(bg_fix_stocks, task_id, req.items, req.date, org_id)
     return {"task_id": task_id, "message": "Correção de estoques iniciada na fila."}
 
 @router.post("/reprocess-fix-negative-stocks")

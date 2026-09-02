@@ -70,10 +70,11 @@ async def process_next_job():
                 prod_id = payload.get("produto_id")
                 local_id = payload.get("local_id")
                 dt = payload.get("data")
-                saldo = payload.get("saldo_negativo")
-                cost = payload.get("unit_cost")
+                qtd = payload.get("quantidade")
+                cost = payload.get("valor_efetivo")
+                tipo = payload.get("tipo_ajuste", "ENT")
                 
-                res = await asyncio.to_thread(omie_products.zerar_estoque_negativo, prod_id, local_id, dt, saldo, cost)
+                res = await asyncio.to_thread(omie_products.zerar_estoque_perfeito, prod_id, local_id, dt, qtd, cost, tipo)
                 if isinstance(res, dict) and "id_ajuste" in res:
                     job.error_msg = str(res["id_ajuste"])
                 sucesso = True

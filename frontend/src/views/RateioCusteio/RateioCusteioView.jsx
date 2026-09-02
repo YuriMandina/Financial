@@ -770,8 +770,8 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
       if (res.ok) {
         const data = await res.json();
         setStocksData(data.stocks);
-        const hasNeg = Object.values(data.stocks).some(s => s.saldo < 0);
-        setHasNegativeStocks(hasNeg);
+        const hasToClear = Object.values(data.stocks).some(s => s.saldo !== 0);
+        setHasNegativeStocks(hasToClear);
         setStocksVerified(true);
       } else {
         const err = await res.json();
@@ -798,22 +798,23 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
     if (!exportDate || !stocksData) return;
     setFixingStocks(true);
     const itemsToFix = Object.entries(stocksData)
-      .filter(([_, info]) => info.saldo < 0)
+      .filter(([_, info]) => info.saldo !== 0)
       .map(([pid, info]) => ({
         product_id: parseInt(pid),
         local_id: info.local_id,
         saldo_negativo: Math.abs(info.saldo),
-        unit_cost: calculationResult?.items?.find(i => i.product_id == pid)?.unit_cost || 0
+        unit_cost: info.cmc_efetivo || 0,
+        tipo_ajuste: info.tipo_ajuste || "ENT"
       }));
 
     if (itemsToFix.length === 0) {
-      alert("Não há estoques negativos para ajustar.");
+      alert("Não há estoques para ajustar.");
       setFixingStocks(false);
       return;
     }
 
     try {
-      const res = await fetch('http://localhost:8000/api/boning/fix-negative-stocks', {
+      const res = await fetch('http://localhost:8000/api/boning/fix-stocks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ date: exportDate, items: itemsToFix })
@@ -1133,8 +1134,8 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
                       <div className="flex items-start gap-4 mb-4">
                         <AlertTriangle size={24} className="text-orange-400 shrink-0 mt-0.5" />
                         <div>
-                          <h5 className="font-bold text-orange-400 text-base">Aviso: Furo de Estoque Encontrado!</h5>
-                          <p className="text-sm text-orange-300/80 mt-1">O sistema identificou saldo inicial negativo. Você pode zerar os estoques abaixo ou prosseguir diretamente (By-pass) deixando que o Lançamento cubra o furo automaticamente.</p>
+                          <h5 className="font-bold text-orange-400 text-base">Aviso: Limpeza de Estoque Necessária!</h5>
+                          <p className="text-sm text-orange-300/80 mt-1">O sistema identificou saldos (positivos ou negativos). É necessário limpar o terreno zerando os saldos financeiros pelo Custo Efetivo antes de aplicar o rateio.</p>
                         </div>
                         <button 
                           onClick={handleFixStocks}
@@ -1142,7 +1143,7 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
                           className="ml-auto bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-bold shadow-lg shadow-orange-500/20 flex items-center gap-2 shrink-0 transition-colors"
                         >
                           <CheckCircle2 size={18} />
-                          {fixingStocks ? 'Ajustando no Omie...' : 'Zerar Estoques Manuais'}
+                          {fixingStocks ? 'Limpando no Omie...' : 'Limpar Estoques no Omie'}
                         </button>
                       </div>
                       
@@ -1152,7 +1153,7 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
                           const stock = stockData.saldo || 0;
                           const status = stockData.status || "OK";
                           
-                          if (stock >= 0 && status === "OK") return null;
+                          if (stock === 0 && status === "OK") return null;
                           
                           return (
                             <div key={i.product_id} className={`p-3 rounded-lg text-sm flex flex-col gap-1 shadow-sm border ${status === "NO_OMIE_ID" ? "bg-orange-900/80 border-orange-500/30" : status === "ERROR" ? "bg-red-900/80 border-red-500/30" : "bg-slate-900/80 border-orange-500/30"}`}>
@@ -1162,7 +1163,7 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
                               ) : status === "ERROR" ? (
                                 <span className="font-mono text-red-400 font-bold text-xs truncate" title={stockData.error}>Erro: {stockData.error}</span>
                               ) : (
-                                <span className="font-mono text-orange-400 font-bold text-lg">{formatWeight(stock)} Kg</span>
+                                <span className="font-mono text-orange-400 font-bold text-lg">{stock > 0 ? '+' : ''}{formatWeight(stock)} Kg</span>
                               )}
                             </div>
                           );

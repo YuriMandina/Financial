@@ -159,18 +159,32 @@ def consultar_posicao_estoque(produto_id, data_formatada):
         
     if "produtos" in res and res["produtos"]:
         prod = res["produtos"][0]
+        
+        # Extrair CMC
+        cmc = prod.get("cmc") or prod.get("nCMC") or prod.get("custo_medio_contabil") or 0.0
+        cmc = float(cmc)
+        
         if "saldo" in prod:
-            return float(prod["saldo"]), prod.get("codigo_local_estoque", 0)
+            saldo = float(prod["saldo"])
+            valor_estoque = float(prod.get("nValEstoque") or prod.get("valor_estoque") or (saldo * cmc))
+            return saldo, prod.get("codigo_local_estoque", 0), valor_estoque
+            
         if "locais" in prod and prod["locais"]:
             local = prod["locais"][0]
             if "saldo" in local:
-                return float(local["saldo"]), local.get("codigo_local_estoque", 0)
+                saldo = float(local["saldo"])
+                cmc_local = local.get("cmc") or local.get("nCMC") or local.get("custo_medio_contabil") or cmc
+                valor_estoque = float(local.get("nValEstoque") or local.get("valor_estoque") or (saldo * float(cmc_local)))
+                return saldo, local.get("codigo_local_estoque", 0), valor_estoque
     
     if "saldo" in res:
-        return float(res["saldo"]), res.get("codigo_local_estoque", 0)
+        saldo = float(res["saldo"])
+        cmc = res.get("cmc") or res.get("nCMC") or res.get("custo_medio_contabil") or 0.0
+        valor_estoque = float(res.get("nValEstoque") or res.get("valor_estoque") or (saldo * float(cmc)))
+        return saldo, res.get("codigo_local_estoque", 0), valor_estoque
         
     print(f"Aviso: formato desconhecido na resposta (posicao estoque): {res}")
-    return 0.0, 0
+    return 0.0, 0, 0.0
 
 def obter_cmc_produto_na_data(produto_id, data_formatada):
     if isinstance(data_formatada, str) and "-" in data_formatada:
@@ -213,7 +227,7 @@ def obter_cmc_produto_na_data(produto_id, data_formatada):
         
     return 0.0
 
-def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo, unit_cost=0.0):
+def zerar_estoque_perfeito(produto_id, local_id, data_formatada, quantidade, valor_efetivo, tipo_ajuste):
     if isinstance(data_formatada, str) and "-" in data_formatada:
         try:
             from datetime import datetime
@@ -230,12 +244,12 @@ def zerar_estoque_negativo(produto_id, local_id, data_formatada, saldo_negativo,
         "param": [{
             "id_prod": produto_id,
             "data": data_formatada,
-            "quan": abs(saldo_negativo),
-            "valor": unit_cost, 
+            "quan": abs(quantidade),
+            "valor": abs(valor_efetivo), 
             "motivo": "OPE",
             "origem": "AJU",
             "codigo_local_estoque": local_id,
-            "tipo": "ENT"
+            "tipo": tipo_ajuste
         }]
     }
     try:
