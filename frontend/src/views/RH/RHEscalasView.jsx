@@ -2,9 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, Bus, Utensils, AlertTriangle, Calendar, Printer, 
   Save, RefreshCw, Plus, Trash2, Edit2, CheckCircle2, Clock, 
-  ChevronLeft, ChevronRight, ShieldAlert, Sparkles, FileSpreadsheet
+  ChevronLeft, ChevronRight, ShieldAlert, Sparkles, FileSpreadsheet,
+  UserPlus, AlertCircle
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
+
+const API_BASE = 'http://localhost:8000';
 
 // ==============================================================================
 // --- [BLOCO: CONSTANTES & CONFIGURAÇÕES DE STATUS] ---
@@ -71,6 +74,7 @@ export default function RHEscalasView({ token }) {
   const [activeTab, setActiveTab] = useState('transporte'); // 'transporte', 'alimentacao', 'resumo', 'mural', 'equipe'
   
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [scheduleData, setScheduleData] = useState(null);
   const [localGrid, setLocalGrid] = useState({});
@@ -101,16 +105,19 @@ export default function RHEscalasView({ token }) {
   });
 
   // ==============================================================================
-  // --- [BLOCO: CARREGAMENTO DE DADOS (FETCH)] ---
+  // --- [BLOCO: CARREGAMENTO DE DADOS (FETCH SEGURO)] ---
   // ==============================================================================
 
   const fetchSchedule = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/rh/schedules?year=${selectedYear}&month=${selectedMonth}`, {
+      setFetchError(null);
+      const res = await fetch(`${API_BASE}/api/rh/schedules?year=${selectedYear}&month=${selectedMonth}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error('Erro ao carregar escala mensal de RH');
+      if (!res.ok) {
+        throw new Error(`Erro na API de RH (Status: ${res.status})`);
+      }
       const data = await res.json();
       setScheduleData(data);
       setLocalGrid(data.grid || {});
@@ -119,7 +126,8 @@ export default function RHEscalasView({ token }) {
         setSettingsFormData(data.settings);
       }
     } catch (err) {
-      console.error(err);
+      console.error('Falha ao carregar escala de RH:', err);
+      setFetchError(err.message || 'Falha de comunicação com o servidor');
     } finally {
       setLoading(false);
     }
@@ -212,7 +220,7 @@ export default function RHEscalasView({ token }) {
         });
       });
 
-      const res = await fetch('/api/rh/schedules/batch-save', {
+      const res = await fetch(`${API_BASE}/api/rh/schedules/batch-save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -242,7 +250,7 @@ export default function RHEscalasView({ token }) {
     if (!window.confirm('Preencher automaticamente a escala padrão (Seg-Sáb = X, Dom = Folga) para o mês atual?')) return;
     try {
       setSaving(true);
-      const res = await fetch(`/api/rh/schedules/auto-fill-standard?year=${selectedYear}&month=${selectedMonth}`, {
+      const res = await fetch(`${API_BASE}/api/rh/schedules/auto-fill-standard?year=${selectedYear}&month=${selectedMonth}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -266,8 +274,8 @@ export default function RHEscalasView({ token }) {
     e.preventDefault();
     try {
       const url = editingEmployee 
-        ? `/api/rh/employees/${editingEmployee.id}` 
-        : '/api/rh/employees';
+        ? `${API_BASE}/api/rh/employees/${editingEmployee.id}` 
+        : `${API_BASE}/api/rh/employees`;
       const method = editingEmployee ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
@@ -292,7 +300,7 @@ export default function RHEscalasView({ token }) {
   const handleDeleteEmployee = async (empId) => {
     if (!window.confirm('Excluir este colaborador e suas escalas?')) return;
     try {
-      const res = await fetch(`/api/rh/employees/${empId}`, {
+      const res = await fetch(`${API_BASE}/api/rh/employees/${empId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -307,7 +315,7 @@ export default function RHEscalasView({ token }) {
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/rh/settings', {
+      const res = await fetch(`${API_BASE}/api/rh/settings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -332,20 +340,24 @@ export default function RHEscalasView({ token }) {
     if (!scheduleData?.summaries) return { vt: 0, va: 0, total: 0 };
     return scheduleData.summaries.reduce(
       (acc, curr) => ({
-        vt: acc.vt + curr.total_vt_amount,
-        va: acc.va + curr.total_va_amount,
-        total: acc.total + curr.total_benefits_amount
+        vt: acc.vt + (curr.total_vt_amount || 0),
+        va: acc.va + (curr.total_va_amount || 0),
+        total: acc.total + (curr.total_benefits_amount || 0)
       }),
       { vt: 0, va: 0, total: 0 }
     );
   }, [scheduleData]);
 
   const daysList = useMemo(() => {
-    if (!scheduleData?.num_days) return [];
-    return Array.from({ length: scheduleData.num_days }, (_, i) => i + 1);
+    const numDays = scheduleData?.num_days || 31;
+    return Array.from({ length: numDays }, (_, i) => i + 1);
   }, [scheduleData]);
 
-  // Impressão nativa limpa
+  const employees = scheduleData?.employees || [];
+  const sundays = scheduleData?.sundays || [];
+  const holidays = scheduleData?.holidays || {};
+  const summaries = scheduleData?.summaries || [];
+
   const handlePrint = () => {
     window.print();
   };
@@ -357,6 +369,41 @@ export default function RHEscalasView({ token }) {
   const renderScheduleGrid = (scheduleType) => {
     const isTransport = scheduleType === 'TRANSPORTE';
     const typeLabel = isTransport ? 'Vale Transporte (VT)' : 'Vale Alimentação (VA)';
+
+    if (employees.length === 0) {
+      return (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-indigo-600/20 text-indigo-400 mx-auto flex items-center justify-center">
+            <Users size={24} />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-white">Nenhum colaborador cadastrado</h3>
+            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              Para montar a grade de {typeLabel}, cadastre os membros da equipe informando seus valores unitários diários de benefício.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setEditingEmployee(null);
+              setEmployeeFormData({
+                name: '',
+                role: '',
+                daily_transport_cost: settingsFormData.default_transport_cost,
+                daily_meal_cost: settingsFormData.default_meal_cost,
+                weekly_contract_hours: 44.0,
+                weekly_actual_hours: 48.0,
+                active: true
+              });
+              setEmployeeModalOpen(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+          >
+            <UserPlus size={15} />
+            Cadastrar Primeiro Colaborador
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
@@ -381,7 +428,7 @@ export default function RHEscalasView({ token }) {
           </div>
         </div>
 
-        {/* Tabela de Matriz com Rolagem Horizontal Suave */}
+        {/* Tabela de Matriz com Rolagem Horizontal */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse print:text-[10px]">
             <thead>
@@ -390,8 +437,8 @@ export default function RHEscalasView({ token }) {
                   Colaborador
                 </th>
                 {daysList.map((day) => {
-                  const isSunday = scheduleData.sundays.includes(day);
-                  const isHoliday = !!scheduleData.holidays[day];
+                  const isSunday = sundays.includes(day);
+                  const isHoliday = !!holidays[day];
                   return (
                     <th 
                       key={day} 
@@ -402,7 +449,7 @@ export default function RHEscalasView({ token }) {
                             ? 'bg-sky-950/30 text-sky-400 font-bold print:bg-sky-50 print:text-sky-700' 
                             : 'text-slate-300'
                       }`}
-                      title={isHoliday ? scheduleData.holidays[day] : isSunday ? 'Domingo' : `Dia ${day}`}
+                      title={isHoliday ? holidays[day] : isSunday ? 'Domingo' : `Dia ${day}`}
                     >
                       <div>{day}</div>
                       <div className="text-[9px] font-normal lowercase opacity-70">
@@ -420,9 +467,9 @@ export default function RHEscalasView({ token }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 print:divide-slate-300">
-              {scheduleData.employees.map((emp) => {
+              {employees.map((emp) => {
                 const empGrid = localGrid[emp.id]?.[scheduleType] || {};
-                const summary = scheduleData.summaries.find((s) => s.employee_id === emp.id) || {};
+                const summary = summaries.find((s) => s.employee_id === emp.id) || {};
                 const workedDays = isTransport ? (summary.vt_worked_days || 0) : (summary.va_worked_days || 0);
                 const totalAmount = isTransport ? (summary.total_vt_amount || 0) : (summary.total_va_amount || 0);
 
@@ -439,7 +486,7 @@ export default function RHEscalasView({ token }) {
                       const entry = empGrid[day] || { status: 'OFF' };
                       const status = entry.status || 'OFF';
                       const conf = STATUS_CONFIG[status] || STATUS_CONFIG.OFF;
-                      const isSunday = scheduleData.sundays.includes(day);
+                      const isSunday = sundays.includes(day);
 
                       return (
                         <td
@@ -481,7 +528,6 @@ export default function RHEscalasView({ token }) {
 
   const renderFinancialSummary = () => (
     <div className="space-y-6">
-      {/* Cards de Resumo */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between text-slate-400 mb-2">
@@ -517,7 +563,6 @@ export default function RHEscalasView({ token }) {
         </div>
       </div>
 
-      {/* Tabela de Depósitos por Colaborador */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
@@ -548,26 +593,34 @@ export default function RHEscalasView({ token }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {scheduleData.summaries.map((s) => (
-                <tr key={s.employee_id} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="py-3 px-4 font-semibold text-slate-200">{s.employee_name}</td>
-                  <td className="py-3 px-4 text-slate-400">{s.employee_role || 'Geral'}</td>
-                  <td className="py-3 px-4 text-center text-slate-300">{s.vt_worked_days} dias</td>
-                  <td className="py-3 px-4 text-right text-indigo-400 font-medium">R$ {s.total_vt_amount.toFixed(2)}</td>
-                  <td className="py-3 px-4 text-center text-slate-300">{s.va_worked_days} dias</td>
-                  <td className="py-3 px-4 text-right text-emerald-400 font-medium">R$ {s.total_va_amount.toFixed(2)}</td>
-                  <td className="py-3 px-4 text-right font-bold text-white">R$ {s.total_benefits_amount.toFixed(2)}</td>
-                  <td className="py-3 px-4 text-center">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${
-                      s.bh_days_used >= s.bh_days_target
-                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                    }`}>
-                      {s.bh_days_used} de {s.bh_days_target} folgas
-                    </span>
+              {summaries.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-6 text-center text-slate-500 italic">
+                    Nenhum colaborador com dados calculados para este mês.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                summaries.map((s) => (
+                  <tr key={s.employee_id} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="py-3 px-4 font-semibold text-slate-200">{s.employee_name}</td>
+                    <td className="py-3 px-4 text-slate-400">{s.employee_role || 'Geral'}</td>
+                    <td className="py-3 px-4 text-center text-slate-300">{s.vt_worked_days || 0} dias</td>
+                    <td className="py-3 px-4 text-right text-indigo-400 font-medium">R$ {(s.total_vt_amount || 0).toFixed(2)}</td>
+                    <td className="py-3 px-4 text-center text-slate-300">{s.va_worked_days || 0} dias</td>
+                    <td className="py-3 px-4 text-right text-emerald-400 font-medium">R$ {(s.total_va_amount || 0).toFixed(2)}</td>
+                    <td className="py-3 px-4 text-right font-bold text-white">R$ {(s.total_benefits_amount || 0).toFixed(2)}</td>
+                    <td className="py-3 px-4 text-center">
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                        (s.bh_days_used || 0) >= (s.bh_days_target || 2)
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                          : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      }`}>
+                        {s.bh_days_used || 0} de {s.bh_days_target || 2} folgas
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -579,32 +632,34 @@ export default function RHEscalasView({ token }) {
   // --- [BLOCO: RENDERIZAÇÃO DA ABA MURAL DE DOMINGOS & HORÁRIOS] ---
   // ==============================================================================
 
-  const renderSundayScheduleWall = () => {
-    return (
-      <div className="space-y-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                <Clock className="text-indigo-400" size={20} />
-                Escala de Domingos e Turnos (Abertura 07h-16h / Fechamento 09h-19h)
-              </h3>
-              <p className="text-xs text-slate-400">
-                Programação para mural interno. Defina os horários de quem abre e quem fecha nos domingos e feriados.
-              </p>
-            </div>
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors print:hidden"
-            >
-              <Printer size={15} />
-              Imprimir Mural
-            </button>
+  const renderSundayScheduleWall = () => (
+    <div className="space-y-6">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <Clock className="text-indigo-400" size={20} />
+              Escala de Domingos e Turnos (Abertura 07h-16h / Fechamento 09h-19h)
+            </h3>
+            <p className="text-xs text-slate-400">
+              Programação para mural interno. Defina os horários de quem abre e quem fecha nos domingos e feriados.
+            </p>
           </div>
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors print:hidden"
+          >
+            <Printer size={15} />
+            Imprimir Mural
+          </button>
+        </div>
 
+        {sundays.length === 0 ? (
+          <div className="text-center py-6 text-slate-500 italic">Nenhum domingo neste mês.</div>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {scheduleData.sundays.map((sunDay) => {
-              const holidayName = scheduleData.holidays[sunDay];
+            {sundays.map((sunDay) => {
+              const holidayName = holidays[sunDay];
               return (
                 <div key={sunDay} className="bg-slate-950 border border-slate-800 rounded-lg p-4 shadow-sm">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
@@ -617,41 +672,45 @@ export default function RHEscalasView({ token }) {
                   </div>
 
                   <div className="space-y-2">
-                    {scheduleData.employees.map((emp) => {
-                      const empDayInfo = localGrid[emp.id]?.TRANSPORTE?.[sunDay] || { status: 'OFF', shift: null };
-                      const isWorking = empDayInfo.status === 'X';
+                    {employees.length === 0 ? (
+                      <div className="text-[11px] text-slate-600 italic">Sem colaboradores</div>
+                    ) : (
+                      employees.map((emp) => {
+                        const empDayInfo = localGrid[emp.id]?.TRANSPORTE?.[sunDay] || { status: 'OFF', shift: null };
+                        const isWorking = empDayInfo.status === 'X';
 
-                      return (
-                        <div key={emp.id} className="flex items-center justify-between text-xs py-1 px-1.5 rounded hover:bg-slate-900/60">
-                          <span className={`font-medium ${isWorking ? 'text-white' : 'text-slate-500'}`}>
-                            {emp.name}
-                          </span>
+                        return (
+                          <div key={emp.id} className="flex items-center justify-between text-xs py-1 px-1.5 rounded hover:bg-slate-900/60">
+                            <span className={`font-medium ${isWorking ? 'text-white' : 'text-slate-500'}`}>
+                              {emp.name}
+                            </span>
 
-                          {isWorking ? (
-                            <select
-                              value={empDayInfo.shift || 'ABRE'}
-                              onChange={(e) => handleShiftChange(emp.id, sunDay, 'TRANSPORTE', e.target.value)}
-                              className="bg-slate-800 border border-slate-700 rounded text-[11px] text-slate-200 px-1.5 py-0.5 focus:outline-none focus:border-indigo-500"
-                            >
-                              <option value="ABRE">Abre (07h-16h)</option>
-                              <option value="FECHA">Fecha (09h-19h)</option>
-                              <option value="OUTRO">Outro Turno</option>
-                            </select>
-                          ) : (
-                            <span className="text-[11px] text-slate-600 italic">Folga</span>
-                          )}
-                        </div>
-                      );
-                    })}
+                            {isWorking ? (
+                              <select
+                                value={empDayInfo.shift || 'ABRE'}
+                                onChange={(e) => handleShiftChange(emp.id, sunDay, 'TRANSPORTE', e.target.value)}
+                                className="bg-slate-800 border border-slate-700 rounded text-[11px] text-slate-200 px-1.5 py-0.5 focus:outline-none focus:border-indigo-500"
+                              >
+                                <option value="ABRE">Abre (07h-16h)</option>
+                                <option value="FECHA">Fecha (09h-19h)</option>
+                                <option value="OUTRO">Outro Turno</option>
+                              </select>
+                            ) : (
+                              <span className="text-[11px] text-slate-600 italic">Folga</span>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
+        )}
       </div>
-    );
-  };
+    </div>
+  );
 
   // ==============================================================================
   // --- [BLOCO: RENDERIZAÇÃO DA ABA EQUIPE & CONFIGURAÇÕES] ---
@@ -707,48 +766,56 @@ export default function RHEscalasView({ token }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">
-            {scheduleData.employees.map((emp) => (
-              <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
-                <td className="py-3 px-4 font-semibold text-slate-200">{emp.name}</td>
-                <td className="py-3 px-4 text-slate-400">{emp.role || 'Não informado'}</td>
-                <td className="py-3 px-4 text-indigo-400 font-medium">R$ {(emp.daily_transport_cost || 0).toFixed(2)}</td>
-                <td className="py-3 px-4 text-emerald-400 font-medium">R$ {(emp.daily_meal_cost || 0).toFixed(2)}</td>
-                <td className="py-3 px-4 text-slate-400">44h contratual / 48h praticado (6x1)</td>
-                <td className="py-3 px-4 text-center">
-                  <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    Ativo
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-right space-x-2">
-                  <button
-                    onClick={() => {
-                      setEditingEmployee(emp);
-                      setEmployeeFormData({
-                        name: emp.name,
-                        role: emp.role || '',
-                        daily_transport_cost: emp.daily_transport_cost || 9.40,
-                        daily_meal_cost: emp.daily_meal_cost || 25.00,
-                        weekly_contract_hours: 44.0,
-                        weekly_actual_hours: 48.0,
-                        active: true
-                      });
-                      setEmployeeModalOpen(true);
-                    }}
-                    className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
-                    title="Editar Colaborador"
-                  >
-                    <Edit2 size={15} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteEmployee(emp.id)}
-                    className="p-1.5 text-slate-400 hover:text-red-400 rounded hover:bg-slate-800 transition-colors"
-                    title="Excluir Colaborador"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+            {employees.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-8 text-center text-slate-500">
+                  Nenhum colaborador cadastrado. Clique no botão acima para adicionar.
                 </td>
               </tr>
-            ))}
+            ) : (
+              employees.map((emp) => (
+                <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
+                  <td className="py-3 px-4 font-semibold text-slate-200">{emp.name}</td>
+                  <td className="py-3 px-4 text-slate-400">{emp.role || 'Não informado'}</td>
+                  <td className="py-3 px-4 text-indigo-400 font-medium">R$ {(emp.daily_transport_cost || 0).toFixed(2)}</td>
+                  <td className="py-3 px-4 text-emerald-400 font-medium">R$ {(emp.daily_meal_cost || 0).toFixed(2)}</td>
+                  <td className="py-3 px-4 text-slate-400">44h contratual / 48h praticado (6x1)</td>
+                  <td className="py-3 px-4 text-center">
+                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      Ativo
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-right space-x-2">
+                    <button
+                      onClick={() => {
+                        setEditingEmployee(emp);
+                        setEmployeeFormData({
+                          name: emp.name,
+                          role: emp.role || '',
+                          daily_transport_cost: emp.daily_transport_cost || 9.40,
+                          daily_meal_cost: emp.daily_meal_cost || 25.00,
+                          weekly_contract_hours: 44.0,
+                          weekly_actual_hours: 48.0,
+                          active: true
+                        });
+                        setEmployeeModalOpen(true);
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
+                      title="Editar Colaborador"
+                    >
+                      <Edit2 size={15} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteEmployee(emp.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-400 rounded hover:bg-slate-800 transition-colors"
+                      title="Excluir Colaborador"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -777,8 +844,35 @@ export default function RHEscalasView({ token }) {
   }
 
   // ==============================================================================
+  // --- [BLOCO: ESTADO DE ERRO DEFENSIVO] ---
+  // ==============================================================================
+
+  if (fetchError || !scheduleData) {
+    return (
+      <div className="p-6 max-w-lg mx-auto my-12 text-center bg-slate-900 border border-slate-800 rounded-xl p-8 space-y-4">
+        <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-400 mx-auto flex items-center justify-center">
+          <AlertCircle size={24} />
+        </div>
+        <h3 className="text-base font-bold text-white">Falha ao Conectar com a API de RH</h3>
+        <p className="text-xs text-slate-400">
+          {fetchError || 'Não foi possível carregar as informações da escala no momento.'}
+        </p>
+        <button
+          onClick={fetchSchedule}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+        >
+          <RefreshCw size={14} />
+          Tentar Novamente
+        </button>
+      </div>
+    );
+  }
+
+  // ==============================================================================
   // --- [BLOCO: INTERFACE PRINCIPAL] ---
   // ==============================================================================
+
+  const warnings = scheduleData?.warnings || [];
 
   return (
     <div className="p-6 space-y-6">
@@ -835,8 +929,8 @@ export default function RHEscalasView({ token }) {
 
           <button
             onClick={handleAutoFillStandard}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+            disabled={saving || employees.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors disabled:opacity-50"
             title="Preenche Seg-Sáb como Trabalho e Domingo como Folga"
           >
             <RefreshCw size={14} className={saving ? 'animate-spin' : ''} />
@@ -867,9 +961,9 @@ export default function RHEscalasView({ token }) {
       </div>
 
       {/* Alertas Visuais de Domingos Consecutivos (Sem Bloqueio, Apenas Aviso) */}
-      {scheduleData?.warnings && scheduleData.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <div className="space-y-2 print:hidden">
-          {scheduleData.warnings.map((warn, idx) => (
+          {warnings.map((warn, idx) => (
             <div 
               key={idx}
               className={`flex items-start gap-3 p-3.5 rounded-lg border text-xs ${

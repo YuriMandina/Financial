@@ -21,7 +21,8 @@ export type MenuModulo =
   | 'curva-abc' 
   | 'dre-gerencial' 
   | 'desossa' 
-  | 'configuracoes';
+  | 'configuracoes'
+  | 'rh-escalas';
 
 export interface TaskSyncItem {
   taskId: string;
