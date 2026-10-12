@@ -45,7 +45,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             raise credentials_exception
     except jwt.PyJWTError:
         raise credentials_exception
-    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
+    user = None
+    if isinstance(user_id, int) or (isinstance(user_id, str) and user_id.isdigit()):
+        user = db.query(models.User).filter(models.User.id == int(user_id)).first()
+    if not user and isinstance(user_id, str):
+        user = db.query(models.User).filter(models.User.email == user_id).first()
+
     if user is None:
         raise credentials_exception
     if not getattr(user, 'is_active', True):
