@@ -104,8 +104,8 @@ export default function RHEscalasView({ token }) {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsFormData, setSettingsFormData] = useState({
     max_consecutive_sundays: 2,
-    transport_ticket_unit_price: 4.70,
-    default_meal_cost: 25.00,
+    transport_ticket_unit_price: '4,70',
+    default_meal_cost: '25,00',
     min_daily_hours_for_meal: 6.0,
     weekly_bank_overtime_hours: 4.0,
     compensatory_days_per_month: 2
@@ -146,9 +146,9 @@ export default function RHEscalasView({ token }) {
       if (data.settings) {
         setSettingsFormData({
           ...data.settings,
-          transport_ticket_unit_price: Number(data.settings.transport_ticket_unit_price || 4.70).toFixed(2),
-          default_meal_cost: Number(data.settings.default_meal_cost || 25.00).toFixed(2),
-          default_transport_cost: Number(data.settings.default_transport_cost || 9.40).toFixed(2)
+          transport_ticket_unit_price: Number(data.settings.transport_ticket_unit_price || 4.70).toFixed(2).replace('.', ','),
+          default_meal_cost: Number(data.settings.default_meal_cost || 25.00).toFixed(2).replace('.', ','),
+          default_transport_cost: Number(data.settings.default_transport_cost || 9.40).toFixed(2).replace('.', ',')
         });
       }
     } catch (err) {
@@ -352,7 +352,7 @@ export default function RHEscalasView({ token }) {
         role_id: employeeFormData.role_id ? parseInt(employeeFormData.role_id, 10) : null,
         default_shift_id: employeeFormData.default_shift_id ? parseInt(employeeFormData.default_shift_id, 10) : null,
         default_daily_transport_tickets: parseInt(employeeFormData.default_daily_transport_tickets, 10) || 2,
-        daily_meal_cost: parseFloat(Number(employeeFormData.daily_meal_cost).toFixed(2)) || 25.00,
+        daily_meal_cost: parseFloat(String(employeeFormData.daily_meal_cost).replace(',', '.')) || 25.00,
         weekly_contract_hours: parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         weekly_actual_hours: 48.0,
         active: employeeFormData.active
@@ -455,8 +455,8 @@ export default function RHEscalasView({ token }) {
       const payload = {
         ...settingsFormData,
         max_consecutive_sundays: parseInt(settingsFormData.max_consecutive_sundays, 10) || 2,
-        transport_ticket_unit_price: parseFloat(Number(settingsFormData.transport_ticket_unit_price).toFixed(2)) || 4.70,
-        default_meal_cost: parseFloat(Number(settingsFormData.default_meal_cost).toFixed(2)) || 25.00,
+        transport_ticket_unit_price: parseFloat(String(settingsFormData.transport_ticket_unit_price).replace(',', '.')) || 4.70,
+        default_meal_cost: parseFloat(String(settingsFormData.default_meal_cost).replace(',', '.')) || 25.00,
         min_daily_hours_for_meal: parseFloat(settingsFormData.min_daily_hours_for_meal) || 6.0,
         weekly_bank_overtime_hours: parseFloat(settingsFormData.weekly_bank_overtime_hours) || 4.0,
         compensatory_days_per_month: parseInt(settingsFormData.compensatory_days_per_month, 10) || 2
@@ -540,7 +540,7 @@ export default function RHEscalasView({ token }) {
                 role_id: '',
                 default_shift_id: '',
                 default_daily_transport_tickets: 2,
-                daily_meal_cost: '25.00',
+                daily_meal_cost: '25,00',
                 weekly_contract_hours: 44.0,
                 weekly_actual_hours: 48.0,
                 active: true
@@ -965,7 +965,7 @@ export default function RHEscalasView({ token }) {
                 role_id: roles[0]?.id || '',
                 default_shift_id: shifts[0]?.id || '',
                 default_daily_transport_tickets: 2,
-                daily_meal_cost: '25.00',
+                daily_meal_cost: '25,00',
                 weekly_contract_hours: 44.0,
                 weekly_actual_hours: 48.0,
                 active: true
@@ -1039,7 +1039,7 @@ export default function RHEscalasView({ token }) {
                             role_id: emp.role_id || '',
                             default_shift_id: emp.default_shift_id || '',
                             default_daily_transport_tickets: emp.default_daily_transport_tickets || 2,
-                            daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2),
+                            daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2).replace('.', ','),
                             weekly_contract_hours: emp.weekly_contract_hours || 44.0,
                             weekly_actual_hours: 48.0,
                             active: true
@@ -1489,20 +1489,20 @@ export default function RHEscalasView({ token }) {
                   <input
                     type="text"
                     inputMode="decimal"
-                    placeholder="0.00"
+                    placeholder="0,00"
                     required
                     value={employeeFormData.daily_meal_cost ?? ''}
                     onChange={(e) => {
-                      const val = e.target.value.replace(',', '.');
-                      if (val === '' || /^\d*(\.\d{0,2})?$/.test(val)) {
+                      const val = e.target.value.replace('.', ',');
+                      if (val === '' || /^\d*(,\d{0,2})?$/.test(val)) {
                         setEmployeeFormData({ ...employeeFormData, daily_meal_cost: val });
                       }
                     }}
                     onBlur={(e) => {
-                      const val = parseFloat(e.target.value);
+                      const val = parseFloat(e.target.value.replace(',', '.'));
                       setEmployeeFormData({
                         ...employeeFormData,
-                        daily_meal_cost: isNaN(val) ? '0.00' : val.toFixed(2)
+                        daily_meal_cost: isNaN(val) ? '0,00' : val.toFixed(2).replace('.', ',')
                       });
                     }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
@@ -1606,20 +1606,20 @@ export default function RHEscalasView({ token }) {
                   <input
                     type="text"
                     inputMode="decimal"
-                    placeholder="0.00"
+                    placeholder="0,00"
                     required
                     value={settingsFormData.transport_ticket_unit_price ?? ''}
                     onChange={(e) => {
-                      const val = e.target.value.replace(',', '.');
-                      if (val === '' || /^\d*(\.\d{0,2})?$/.test(val)) {
+                      const val = e.target.value.replace('.', ',');
+                      if (val === '' || /^\d*(,\d{0,2})?$/.test(val)) {
                         setSettingsFormData({ ...settingsFormData, transport_ticket_unit_price: val });
                       }
                     }}
                     onBlur={(e) => {
-                      const val = parseFloat(e.target.value);
+                      const val = parseFloat(e.target.value.replace(',', '.'));
                       setSettingsFormData({
                         ...settingsFormData,
-                        transport_ticket_unit_price: isNaN(val) ? '4.70' : val.toFixed(2)
+                        transport_ticket_unit_price: isNaN(val) ? '4,70' : val.toFixed(2).replace('.', ',')
                       });
                     }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
