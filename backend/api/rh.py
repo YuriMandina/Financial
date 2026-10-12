@@ -22,15 +22,45 @@ router = APIRouter(prefix="/api/rh", tags=["rh"])
 
 class RHSettingsSchema(BaseModel):
     max_consecutive_sundays: int = 2
+    transport_ticket_unit_price: float = 4.70
     default_transport_cost: float = 9.40
     default_meal_cost: float = 25.00
     min_daily_hours_for_meal: float = 6.0
     weekly_bank_overtime_hours: float = 4.0
     compensatory_days_per_month: int = 2
 
+class RHRoleCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class RHWorkShiftCreate(BaseModel):
+    name: str
+    code: str
+    start_time: str # "07:00"
+    lunch_start: Optional[str] = "12:00"
+    lunch_end: Optional[str] = "13:00"
+    end_time: str # "16:00"
+    net_hours: float = 8.0
+    description: Optional[str] = None
+    is_default: bool = False
+
+class RHWorkShiftUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    start_time: Optional[str] = None
+    lunch_start: Optional[str] = None
+    lunch_end: Optional[str] = None
+    end_time: Optional[str] = None
+    net_hours: Optional[float] = None
+    description: Optional[str] = None
+    is_default: Optional[bool] = None
+
 class RHEmployeeCreate(BaseModel):
     name: str
+    role_id: Optional[int] = None
     role: Optional[str] = None
+    default_shift_id: Optional[int] = None
+    default_daily_transport_tickets: int = 2
     daily_transport_cost: float = 9.40
     daily_meal_cost: float = 25.00
     weekly_contract_hours: float = 44.0
@@ -39,7 +69,10 @@ class RHEmployeeCreate(BaseModel):
 
 class RHEmployeeUpdate(BaseModel):
     name: Optional[str] = None
+    role_id: Optional[int] = None
     role: Optional[str] = None
+    default_shift_id: Optional[int] = None
+    default_daily_transport_tickets: Optional[int] = None
     daily_transport_cost: Optional[float] = None
     daily_meal_cost: Optional[float] = None
     weekly_contract_hours: Optional[float] = None
@@ -55,13 +88,170 @@ class DayEntryUpdate(BaseModel):
     schedule_type: str # 'TRANSPORTE' ou 'ALIMENTACAO'
     day: int
     status: str # 'X', 'BH', 'F', 'FE', 'OFF'
+    shift_id: Optional[int] = None
     shift: Optional[str] = None # 'ABRE', 'FECHA', etc.
+    tickets_count: Optional[int] = 2
     daily_hours: Optional[float] = 8.0
 
 class BatchSaveScheduleRequest(BaseModel):
     year: int
     month: int
     entries: List[DayEntryUpdate]
+
+# ==============================================================================
+# --- [BLOCO: CARGOS CADASTRAVEIS] ---
+# ==============================================================================
+
+@router.get("/roles")
+def list_roles(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    roles = db.query(models.RHRole).filter(
+        models.RHRole.organization_id == current_user.organization_id
+    ).order_by(models.RHRole.name.asc()).all()
+    return roles
+
+@router.post("/roles")
+def create_role(
+    payload: RHRoleCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    existing = db.query(models.RHRole).filter(
+        models.RHRole.organization_id == current_user.organization_id,
+        models.RHRole.name.ilike(payload.name.strip())
+    ).first()
+    if existing:
+        return existing
+
+    new_role = models.RHRole(
+        organization_id=current_user.organization_id,
+        name=payload.name.strip(),
+        description=payload.description.strip() if payload.description else None
+    )
+    db.add(new_role)
+    db.commit()
+    db.refresh(new_role)
+    return new_role
+
+@router.delete("/roles/{role_id}")
+def delete_role(
+    role_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    role = db.query(models.RHRole).filter(
+        models.RHRole.id == role_id,
+        models.RHRole.organization_id == current_user.organization_id
+    ).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="Cargo não encontrado")
+    db.delete(role)
+    db.commit()
+    return {"message": "Cargo removido com sucesso"}
+
+# ==============================================================================
+# --- [BLOCO: TEMPLATES DE TURNOS E ESCALAS] ---
+# ==============================================================================
+
+def ensure_default_shifts(db: Session, organization_id: int):
+    """Garante a existência dos turnos padrão de Abertura e Fechamento."""
+    count = db.query(models.RHWorkShift).filter(
+        models.RHWorkShift.organization_id == organization_id
+    ).count()
+
+    if count == 0:
+        shifts = [
+            models.RHWorkShift(
+                organization_id=organization_id,
+                name="Abertura de Loja",
+                code="ABRE",
+                start_time="07:00",
+                lunch_start="12:00",
+                lunch_end="13:00",
+                end_time="16:00",
+                net_hours=8.0,
+                description="07:00 às 12:00 (almoço 12:00 às 13:00) 13:00 às 16:00",
+                is_default=True
+            ),
+            models.RHWorkShift(
+                organization_id=organization_id,
+                name="Fechamento de Loja",
+                code="FECHA",
+                start_time="09:00",
+                lunch_start="13:00",
+                lunch_end="14:00",
+                end_time="19:00",
+                net_hours=9.0,
+                description="09:00 às 13:00 (almoço 13:00 às 14:00) 14:00 às 19:00",
+                is_default=False
+            )
+        ]
+        db.add_all(shifts)
+        db.commit()
+
+@router.get("/shifts")
+def list_shifts(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    ensure_default_shifts(db, current_user.organization_id)
+    shifts = db.query(models.RHWorkShift).filter(
+        models.RHWorkShift.organization_id == current_user.organization_id
+    ).order_by(models.RHWorkShift.name.asc()).all()
+    return shifts
+
+@router.post("/shifts")
+def create_shift(
+    payload: RHWorkShiftCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    existing = db.query(models.RHWorkShift).filter(
+        models.RHWorkShift.organization_id == current_user.organization_id,
+        models.RHWorkShift.code == payload.code.strip().upper()
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Código de turno já cadastrado")
+
+    desc = payload.description
+    if not desc:
+        lunch_part = f" (almoço {payload.lunch_start} às {payload.lunch_end}) " if payload.lunch_start else " "
+        desc = f"{payload.start_time} às {payload.end_time}{lunch_part}({payload.net_hours}h)"
+
+    shift = models.RHWorkShift(
+        organization_id=current_user.organization_id,
+        name=payload.name.strip(),
+        code=payload.code.strip().upper(),
+        start_time=payload.start_time,
+        lunch_start=payload.lunch_start,
+        lunch_end=payload.lunch_end,
+        end_time=payload.end_time,
+        net_hours=payload.net_hours,
+        description=desc,
+        is_default=payload.is_default
+    )
+    db.add(shift)
+    db.commit()
+    db.refresh(shift)
+    return shift
+
+@router.delete("/shifts/{shift_id}")
+def delete_shift(
+    shift_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    shift = db.query(models.RHWorkShift).filter(
+        models.RHWorkShift.id == shift_id,
+        models.RHWorkShift.organization_id == current_user.organization_id
+    ).first()
+    if not shift:
+        raise HTTPException(status_code=404, detail="Turno não encontrado")
+    db.delete(shift)
+    db.commit()
+    return {"message": "Turno removido com sucesso"}
 
 # ==============================================================================
 # --- [BLOCO: CONFIGURAÇÕES DE RH] ---
@@ -80,6 +270,7 @@ def get_rh_settings(
         settings = models.RHSettings(
             organization_id=current_user.organization_id,
             max_consecutive_sundays=2,
+            transport_ticket_unit_price=4.70,
             default_transport_cost=9.40,
             default_meal_cost=25.00,
             min_daily_hours_for_meal=6.0,
@@ -107,6 +298,7 @@ def update_rh_settings(
         db.add(settings)
 
     settings.max_consecutive_sundays = payload.max_consecutive_sundays
+    settings.transport_ticket_unit_price = payload.transport_ticket_unit_price
     settings.default_transport_cost = payload.default_transport_cost
     settings.default_meal_cost = payload.default_meal_cost
     settings.min_daily_hours_for_meal = payload.min_daily_hours_for_meal
@@ -129,7 +321,26 @@ def list_employees(
     employees = db.query(models.RHEmployee).filter(
         models.RHEmployee.organization_id == current_user.organization_id
     ).order_by(models.RHEmployee.name.asc()).all()
-    return employees
+
+    result = []
+    for emp in employees:
+        role_label = emp.role
+        if emp.role_obj:
+            role_label = emp.role_obj.name
+        result.append({
+            "id": emp.id,
+            "name": emp.name,
+            "role_id": emp.role_id,
+            "role": role_label,
+            "default_shift_id": emp.default_shift_id,
+            "default_daily_transport_tickets": emp.default_daily_transport_tickets or 2,
+            "daily_transport_cost": emp.daily_transport_cost,
+            "daily_meal_cost": emp.daily_meal_cost,
+            "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
+            "weekly_actual_hours": emp.weekly_actual_hours or 48.0,
+            "active": emp.active
+        })
+    return result
 
 @router.post("/employees")
 def create_employee(
@@ -137,10 +348,19 @@ def create_employee(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    role_text = payload.role
+    if payload.role_id:
+        r = db.query(models.RHRole).filter(models.RHRole.id == payload.role_id).first()
+        if r:
+            role_text = r.name
+
     emp = models.RHEmployee(
         organization_id=current_user.organization_id,
         name=payload.name.strip(),
-        role=payload.role.strip() if payload.role else None,
+        role_id=payload.role_id,
+        role=role_text,
+        default_shift_id=payload.default_shift_id,
+        default_daily_transport_tickets=payload.default_daily_transport_tickets or 2,
         daily_transport_cost=payload.daily_transport_cost,
         daily_meal_cost=payload.daily_meal_cost,
         weekly_contract_hours=payload.weekly_contract_hours,
@@ -169,10 +389,17 @@ def update_employee(
 
     if payload.name is not None:
         emp.name = payload.name.strip()
-    if payload.role is not None:
+    if payload.role_id is not None:
+        emp.role_id = payload.role_id
+        r = db.query(models.RHRole).filter(models.RHRole.id == payload.role_id).first()
+        if r:
+            emp.role = r.name
+    elif payload.role is not None:
         emp.role = payload.role.strip()
-    if payload.daily_transport_cost is not None:
-        emp.daily_transport_cost = payload.daily_transport_cost
+    if payload.default_shift_id is not None:
+        emp.default_shift_id = payload.default_shift_id
+    if payload.default_daily_transport_tickets is not None:
+        emp.default_daily_transport_tickets = payload.default_daily_transport_tickets
     if payload.daily_meal_cost is not None:
         emp.daily_meal_cost = payload.daily_meal_cost
     if payload.weekly_contract_hours is not None:
@@ -261,7 +488,7 @@ def delete_holiday(
     return {"message": "Feriado removido com sucesso"}
 
 # ==============================================================================
-# --- [BLOCO: ESCALAS MENSAIS E MATRIZ DE DIAS (VT & VA SEPARADOS - OPÇÃO B)] ---
+# --- [BLOCO: ESCALAS MENSAIS E MATRIZ DE DIAS] ---
 # ==============================================================================
 
 @router.get("/schedules")
@@ -271,14 +498,8 @@ def get_monthly_schedule(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """
-    Retorna a matriz completa da escala do mês (ano/mês) contendo:
-    - Metadados do calendário (número de dias, domingos, feriados)
-    - Lista de colaboradores ativos
-    - Dados separados para TRANSPORTE e ALIMENTACAO (Opção B)
-    - Totais de cálculo antecipado de benefícios
-    - Alertas informativos de domingos e banco de horas
-    """
+    ensure_default_shifts(db, current_user.organization_id)
+
     settings = db.query(models.RHSettings).filter(
         models.RHSettings.organization_id == current_user.organization_id
     ).first()
@@ -288,7 +509,6 @@ def get_monthly_schedule(
         db.commit()
         db.refresh(settings)
 
-    # Obter ou criar o cabeçalho da escala mensal
     schedule = db.query(models.RHMonthlySchedule).filter(
         models.RHMonthlySchedule.organization_id == current_user.organization_id,
         models.RHMonthlySchedule.year == year,
@@ -310,7 +530,6 @@ def get_monthly_schedule(
     num_days = cal_info["num_days"]
     sundays = cal_info["sundays"]
 
-    # Feriados do mês
     month_prefix = f"{year:04d}-{month:02d}-"
     holidays = db.query(models.RHHoliday).filter(
         models.RHHoliday.organization_id == current_user.organization_id,
@@ -318,18 +537,23 @@ def get_monthly_schedule(
     ).all()
     holidays_by_day = {int(h.date.split("-")[2]): h.name for h in holidays}
 
-    # Colaboradores
     employees = db.query(models.RHEmployee).filter(
         models.RHEmployee.organization_id == current_user.organization_id,
         models.RHEmployee.active == True
     ).order_by(models.RHEmployee.name.asc()).all()
 
-    # Itens existentes na escala
+    roles = db.query(models.RHRole).filter(
+        models.RHRole.organization_id == current_user.organization_id
+    ).order_by(models.RHRole.name.asc()).all()
+
+    shifts = db.query(models.RHWorkShift).filter(
+        models.RHWorkShift.organization_id == current_user.organization_id
+    ).order_by(models.RHWorkShift.name.asc()).all()
+
     schedule_days = db.query(models.RHScheduleDay).filter(
         models.RHScheduleDay.schedule_id == schedule.id
     ).all()
 
-    # Mapear por [emp_id][schedule_type][day]
     grid_data: Dict[int, Dict[str, Dict[int, Dict[str, Any]]]] = {}
     for emp in employees:
         grid_data[emp.id] = {
@@ -342,11 +566,12 @@ def get_monthly_schedule(
             if item.schedule_type in grid_data[item.employee_id]:
                 grid_data[item.employee_id][item.schedule_type][item.day] = {
                     "status": item.status,
+                    "shift_id": item.shift_id,
                     "shift": item.shift,
+                    "tickets_count": item.tickets_count or 2,
                     "daily_hours": item.daily_hours
                 }
 
-    # Calcular resumos por funcionário
     summaries = []
     all_warnings = []
     for emp in employees:
@@ -366,19 +591,39 @@ def get_monthly_schedule(
         "holidays": holidays_by_day,
         "settings": {
             "max_consecutive_sundays": settings.max_consecutive_sundays,
+            "transport_ticket_unit_price": settings.transport_ticket_unit_price or 4.70,
             "default_transport_cost": settings.default_transport_cost,
             "default_meal_cost": settings.default_meal_cost,
             "min_daily_hours_for_meal": settings.min_daily_hours_for_meal,
             "weekly_bank_overtime_hours": settings.weekly_bank_overtime_hours,
             "compensatory_days_per_month": settings.compensatory_days_per_month
         },
+        "roles": [{"id": r.id, "name": r.name, "description": r.description} for r in roles],
+        "shifts": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "code": s.code,
+                "start_time": s.start_time,
+                "lunch_start": s.lunch_start,
+                "lunch_end": s.lunch_end,
+                "end_time": s.end_time,
+                "net_hours": s.net_hours,
+                "description": s.description,
+                "is_default": s.is_default
+            }
+            for s in shifts
+        ],
         "employees": [
             {
                 "id": emp.id,
                 "name": emp.name,
-                "role": emp.role,
-                "daily_transport_cost": emp.daily_transport_cost,
-                "daily_meal_cost": emp.daily_meal_cost
+                "role_id": emp.role_id,
+                "role": emp.role_obj.name if emp.role_obj else emp.role or "Geral",
+                "default_shift_id": emp.default_shift_id,
+                "default_daily_transport_tickets": emp.default_daily_transport_tickets or 2,
+                "daily_meal_cost": emp.daily_meal_cost,
+                "weekly_contract_hours": emp.weekly_contract_hours or 44.0
             }
             for emp in employees
         ],
@@ -393,9 +638,6 @@ def batch_save_schedule_days(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """
-    Gravação em lote com upsert eficiente dos dias programados.
-    """
     schedule = db.query(models.RHMonthlySchedule).filter(
         models.RHMonthlySchedule.organization_id == current_user.organization_id,
         models.RHMonthlySchedule.year == payload.year,
@@ -413,7 +655,6 @@ def batch_save_schedule_days(
         db.flush()
 
     for item in payload.entries:
-        # Busca registro existente
         existing = db.query(models.RHScheduleDay).filter(
             models.RHScheduleDay.schedule_id == schedule.id,
             models.RHScheduleDay.employee_id == item.employee_id,
@@ -423,8 +664,12 @@ def batch_save_schedule_days(
 
         if existing:
             existing.status = item.status
+            if item.shift_id is not None:
+                existing.shift_id = item.shift_id
             if item.shift is not None:
                 existing.shift = item.shift
+            if item.tickets_count is not None:
+                existing.tickets_count = item.tickets_count
             if item.daily_hours is not None:
                 existing.daily_hours = item.daily_hours
         else:
@@ -434,7 +679,9 @@ def batch_save_schedule_days(
                 schedule_type=item.schedule_type,
                 day=item.day,
                 status=item.status,
+                shift_id=item.shift_id,
                 shift=item.shift,
+                tickets_count=item.tickets_count if item.tickets_count is not None else 2,
                 daily_hours=item.daily_hours if item.daily_hours is not None else 8.0
             )
             db.add(new_day)
@@ -449,13 +696,6 @@ def auto_fill_standard_schedule(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """
-    Inicializa rapidamente a escala padrão para todos os colaboradores ativos:
-    - Segunda a Sábado: 'X' (Trabalho, 8h)
-    - Domingos: 'OFF' (Folga semanal padrão)
-    - Feriados cadastrados: 'F' (Feriado)
-    Preenche tanto para Transporte quanto para Alimentação.
-    """
     schedule = db.query(models.RHMonthlySchedule).filter(
         models.RHMonthlySchedule.organization_id == current_user.organization_id,
         models.RHMonthlySchedule.year == year,
@@ -481,7 +721,12 @@ def auto_fill_standard_schedule(
         models.RHHoliday.organization_id == current_user.organization_id,
         models.RHHoliday.date.like(f"{month_prefix}%")
     ).all()
-    holiday_days = set([int(h.date.split("-")[2]) for h in holidays])
+    holiday_days = {int(h.date.split("-")[2]) for h in holidays}
+
+    default_shift = db.query(models.RHWorkShift).filter(
+        models.RHWorkShift.organization_id == current_user.organization_id,
+        models.RHWorkShift.is_default == True
+    ).first()
 
     employees = db.query(models.RHEmployee).filter(
         models.RHEmployee.organization_id == current_user.organization_id,
@@ -489,6 +734,13 @@ def auto_fill_standard_schedule(
     ).all()
 
     for emp in employees:
+        shift_to_use = emp.default_shift_id or (default_shift.id if default_shift else None)
+        shift_code = "ABRE"
+        if default_shift:
+            shift_code = default_shift.code
+
+        tickets_default = emp.default_daily_transport_tickets or 2
+
         for day in range(1, num_days + 1):
             if day in holiday_days:
                 status = "F"
@@ -506,6 +758,9 @@ def auto_fill_standard_schedule(
                 ).first()
                 if rec:
                     rec.status = status
+                    rec.shift_id = shift_to_use
+                    rec.shift = shift_code
+                    rec.tickets_count = tickets_default
                 else:
                     db.add(models.RHScheduleDay(
                         schedule_id=schedule.id,
@@ -513,6 +768,9 @@ def auto_fill_standard_schedule(
                         schedule_type=stype,
                         day=day,
                         status=status,
+                        shift_id=shift_to_use,
+                        shift=shift_code,
+                        tickets_count=tickets_default,
                         daily_hours=8.0
                     ))
 
