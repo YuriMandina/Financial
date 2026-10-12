@@ -182,8 +182,51 @@ class OmieJobQueue(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
 # ==============================================================================
-# --- [BLOCO: MÓDULO DE GESTÃO DE RH - ESCALAS & BENEFÍCIOS VT/VA] ---
+# --- [BLOCO: MÓDULO DE GESTÃO DE RH - CARGOS, TURNOS & ESCALAS] ---
 # ==============================================================================
+
+class RHRole(Base):
+    __tablename__ = "rh_roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'name', name='uq_org_role_name'),
+    )
+
+    organization = relationship("Organization")
+
+
+class RHWorkShift(Base):
+    """
+    Template de Escala/Turno com breakdown de horários.
+    Ex: Abertura (07:00-12:00 / 13:00-16:00 = 8h líquidas)
+    """
+    __tablename__ = "rh_work_shifts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    name = Column(String, nullable=False) # Ex: "Abertura de Loja"
+    code = Column(String, nullable=False) # Ex: "ABRE", "FECHA"
+    start_time = Column(String, nullable=False) # Ex: "07:00"
+    lunch_start = Column(String, nullable=True) # Ex: "12:00"
+    lunch_end = Column(String, nullable=True) # Ex: "13:00"
+    end_time = Column(String, nullable=False) # Ex: "16:00"
+    net_hours = Column(Float, nullable=False, default=8.0) # Horas trabalhadas líquidas
+    description = Column(String, nullable=True) # Ex: "07:00 às 12:00 (almoço) 13:00 às 16:00"
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'code', name='uq_org_shift_code'),
+    )
+
+    organization = relationship("Organization")
+
 
 class RHEmployee(Base):
     __tablename__ = "rh_employees"
@@ -191,15 +234,20 @@ class RHEmployee(Base):
     id = Column(Integer, primary_key=True, index=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     name = Column(String, nullable=False)
-    role = Column(String, nullable=True)
-    daily_transport_cost = Column(Float, default=9.40)
-    daily_meal_cost = Column(Float, default=25.00)
-    weekly_contract_hours = Column(Float, default=44.0)
-    weekly_actual_hours = Column(Float, default=48.0)
+    role_id = Column(Integer, ForeignKey("rh_roles.id"), nullable=True)
+    role = Column(String, nullable=True) # Texto de fallback para retrocompatibilidade
+    default_shift_id = Column(Integer, ForeignKey("rh_work_shifts.id"), nullable=True)
+    default_daily_transport_tickets = Column(Integer, default=2) # Quantidade padrão de passagens/dia (ex: 2 ou 4)
+    daily_transport_cost = Column(Float, default=9.40) # Mantido para compatibilidade
+    daily_meal_cost = Column(Float, default=25.00) # Valor individual de 1 refeição/dia
+    weekly_contract_hours = Column(Float, default=44.0) # Regime semanal contratual (ex: 44h, 40h)
+    weekly_actual_hours = Column(Float, default=48.0) # Regime praticado
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     organization = relationship("Organization")
+    role_obj = relationship("RHRole")
+    default_shift = relationship("RHWorkShift")
     schedule_days = relationship("RHScheduleDay", back_populates="employee", cascade="all, delete-orphan")
 
 
@@ -209,7 +257,8 @@ class RHSettings(Base):
     id = Column(Integer, primary_key=True, index=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), unique=True, nullable=False)
     max_consecutive_sundays = Column(Integer, default=2)
-    default_transport_cost = Column(Float, default=9.40)
+    transport_ticket_unit_price = Column(Float, default=4.70) # Tarifa única universal da passagem
+    default_transport_cost = Column(Float, default=9.40) # Fallback 2 passagens
     default_meal_cost = Column(Float, default=25.00)
     min_daily_hours_for_meal = Column(Float, default=6.0)
     weekly_bank_overtime_hours = Column(Float, default=4.0)
@@ -256,10 +305,12 @@ class RHScheduleDay(Base):
     id = Column(Integer, primary_key=True, index=True)
     schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id", ondelete="CASCADE"), nullable=False)
     employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False)
-    schedule_type = Column(String, nullable=False) # 'TRANSPORTE' ou 'ALIMENTACAO' (Opção B)
+    schedule_type = Column(String, nullable=False) # 'TRANSPORTE' ou 'ALIMENTACAO'
     day = Column(Integer, nullable=False) # 1 a 31
     status = Column(String, nullable=False, default="OFF") # 'X', 'BH', 'F', 'FE', 'OFF'
+    shift_id = Column(Integer, ForeignKey("rh_work_shifts.id"), nullable=True)
     shift = Column(String, nullable=True) # 'ABRE' (07h-16h), 'FECHA' (09h-19h), ou customizado
+    tickets_count = Column(Integer, default=2) # Quantidade de vales para o dia (ex: 2 ou 4)
     daily_hours = Column(Float, default=8.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -269,4 +320,6 @@ class RHScheduleDay(Base):
 
     schedule = relationship("RHMonthlySchedule", back_populates="days")
     employee = relationship("RHEmployee", back_populates="schedule_days")
+    shift_obj = relationship("RHWorkShift")
+
 
