@@ -29,6 +29,20 @@ app = FastAPI(title="API GabaritoBI", version="5.0")
 @app.on_event("startup")
 async def startup_event():
     Base.metadata.create_all(bind=engine)
+    
+    # Auto-migrações seguras e idempotentes para colunas de RH adicionadas
+    try:
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS transport_ticket_unit_price FLOAT DEFAULT 4.70;"))
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES rh_roles(id);"))
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS default_shift_id INTEGER REFERENCES rh_work_shifts(id);"))
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS default_daily_transport_tickets INTEGER DEFAULT 2;"))
+            conn.execute(text("ALTER TABLE rh_schedule_days ADD COLUMN IF NOT EXISTS shift_id INTEGER REFERENCES rh_work_shifts(id);"))
+            conn.execute(text("ALTER TABLE rh_schedule_days ADD COLUMN IF NOT EXISTS tickets_count INTEGER DEFAULT 2;"))
+    except Exception as e:
+        print(f"Warning during auto-migration: {e}")
+
     asyncio.create_task(start_omie_queue_worker())
 
 @app.on_event("shutdown")

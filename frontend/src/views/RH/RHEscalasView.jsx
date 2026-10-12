@@ -137,7 +137,17 @@ export default function RHEscalasView({ token }) {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) {
-        throw new Error(`Erro na API de RH (Status: ${res.status})`);
+        let errorDetail = `Status ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData && errData.detail) {
+            errorDetail = typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail);
+          }
+        } catch {
+          const txt = await res.text();
+          if (txt) errorDetail = txt.slice(0, 200);
+        }
+        throw new Error(`Erro na API de RH (${errorDetail})`);
       }
       const data = await res.json();
       setScheduleData(data);

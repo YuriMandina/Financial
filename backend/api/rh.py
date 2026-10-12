@@ -498,139 +498,144 @@ def get_monthly_schedule(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    ensure_default_shifts(db, current_user.organization_id)
+    try:
+        ensure_default_shifts(db, current_user.organization_id)
 
-    settings = db.query(models.RHSettings).filter(
-        models.RHSettings.organization_id == current_user.organization_id
-    ).first()
-    if not settings:
-        settings = models.RHSettings(organization_id=current_user.organization_id)
-        db.add(settings)
-        db.commit()
-        db.refresh(settings)
+        settings = db.query(models.RHSettings).filter(
+            models.RHSettings.organization_id == current_user.organization_id
+        ).first()
+        if not settings:
+            settings = models.RHSettings(organization_id=current_user.organization_id)
+            db.add(settings)
+            db.commit()
+            db.refresh(settings)
 
-    schedule = db.query(models.RHMonthlySchedule).filter(
-        models.RHMonthlySchedule.organization_id == current_user.organization_id,
-        models.RHMonthlySchedule.year == year,
-        models.RHMonthlySchedule.month == month
-    ).first()
+        schedule = db.query(models.RHMonthlySchedule).filter(
+            models.RHMonthlySchedule.organization_id == current_user.organization_id,
+            models.RHMonthlySchedule.year == year,
+            models.RHMonthlySchedule.month == month
+        ).first()
 
-    if not schedule:
-        schedule = models.RHMonthlySchedule(
-            organization_id=current_user.organization_id,
-            year=year,
-            month=month,
-            status="DRAFT"
-        )
-        db.add(schedule)
-        db.commit()
-        db.refresh(schedule)
+        if not schedule:
+            schedule = models.RHMonthlySchedule(
+                organization_id=current_user.organization_id,
+                year=year,
+                month=month,
+                status="DRAFT"
+            )
+            db.add(schedule)
+            db.commit()
+            db.refresh(schedule)
 
-    cal_info = get_month_calendar_info(year, month)
-    num_days = cal_info["num_days"]
-    sundays = cal_info["sundays"]
+        cal_info = get_month_calendar_info(year, month)
+        num_days = cal_info["num_days"]
+        sundays = cal_info["sundays"]
 
-    month_prefix = f"{year:04d}-{month:02d}-"
-    holidays = db.query(models.RHHoliday).filter(
-        models.RHHoliday.organization_id == current_user.organization_id,
-        models.RHHoliday.date.like(f"{month_prefix}%")
-    ).all()
-    holidays_by_day = {int(h.date.split("-")[2]): h.name for h in holidays}
+        month_prefix = f"{year:04d}-{month:02d}-"
+        holidays = db.query(models.RHHoliday).filter(
+            models.RHHoliday.organization_id == current_user.organization_id,
+            models.RHHoliday.date.like(f"{month_prefix}%")
+        ).all()
+        holidays_by_day = {int(h.date.split("-")[2]): h.name for h in holidays}
 
-    employees = db.query(models.RHEmployee).filter(
-        models.RHEmployee.organization_id == current_user.organization_id,
-        models.RHEmployee.active == True
-    ).order_by(models.RHEmployee.name.asc()).all()
+        employees = db.query(models.RHEmployee).filter(
+            models.RHEmployee.organization_id == current_user.organization_id,
+            models.RHEmployee.active == True
+        ).order_by(models.RHEmployee.name.asc()).all()
 
-    roles = db.query(models.RHRole).filter(
-        models.RHRole.organization_id == current_user.organization_id
-    ).order_by(models.RHRole.name.asc()).all()
+        roles = db.query(models.RHRole).filter(
+            models.RHRole.organization_id == current_user.organization_id
+        ).order_by(models.RHRole.name.asc()).all()
 
-    shifts = db.query(models.RHWorkShift).filter(
-        models.RHWorkShift.organization_id == current_user.organization_id
-    ).order_by(models.RHWorkShift.name.asc()).all()
+        shifts = db.query(models.RHWorkShift).filter(
+            models.RHWorkShift.organization_id == current_user.organization_id
+        ).order_by(models.RHWorkShift.name.asc()).all()
 
-    schedule_days = db.query(models.RHScheduleDay).filter(
-        models.RHScheduleDay.schedule_id == schedule.id
-    ).all()
+        schedule_days = db.query(models.RHScheduleDay).filter(
+            models.RHScheduleDay.schedule_id == schedule.id
+        ).all()
 
-    grid_data: Dict[int, Dict[str, Dict[int, Dict[str, Any]]]] = {}
-    for emp in employees:
-        grid_data[emp.id] = {
-            "TRANSPORTE": {},
-            "ALIMENTACAO": {}
-        }
+        grid_data: Dict[int, Dict[str, Dict[int, Dict[str, Any]]]] = {}
+        for emp in employees:
+            grid_data[emp.id] = {
+                "TRANSPORTE": {},
+                "ALIMENTACAO": {}
+            }
 
-    for item in schedule_days:
-        if item.employee_id in grid_data:
-            if item.schedule_type in grid_data[item.employee_id]:
-                grid_data[item.employee_id][item.schedule_type][item.day] = {
-                    "status": item.status,
-                    "shift_id": item.shift_id,
-                    "shift": item.shift,
-                    "tickets_count": item.tickets_count or 2,
-                    "daily_hours": item.daily_hours
+        for item in schedule_days:
+            if item.employee_id in grid_data:
+                if item.schedule_type in grid_data[item.employee_id]:
+                    grid_data[item.employee_id][item.schedule_type][item.day] = {
+                        "status": item.status,
+                        "shift_id": item.shift_id,
+                        "shift": item.shift,
+                        "tickets_count": item.tickets_count or 2,
+                        "daily_hours": item.daily_hours
+                    }
+
+        summaries = []
+        all_warnings = []
+        for emp in employees:
+            t_map = grid_data[emp.id]["TRANSPORTE"]
+            m_map = grid_data[emp.id]["ALIMENTACAO"]
+            summary = calculate_employee_month_summary(emp, t_map, m_map, year, month, settings)
+            summaries.append(summary)
+            all_warnings.extend(summary.get("warnings", []))
+
+        return {
+            "schedule_id": schedule.id,
+            "year": year,
+            "month": month,
+            "status": schedule.status,
+            "num_days": num_days,
+            "sundays": sundays,
+            "holidays": holidays_by_day,
+            "settings": {
+                "max_consecutive_sundays": settings.max_consecutive_sundays,
+                "transport_ticket_unit_price": settings.transport_ticket_unit_price or 4.70,
+                "default_transport_cost": settings.default_transport_cost,
+                "default_meal_cost": settings.default_meal_cost,
+                "min_daily_hours_for_meal": settings.min_daily_hours_for_meal,
+                "weekly_bank_overtime_hours": settings.weekly_bank_overtime_hours,
+                "compensatory_days_per_month": settings.compensatory_days_per_month
+            },
+            "roles": [{"id": r.id, "name": r.name, "description": r.description} for r in roles],
+            "shifts": [
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    "code": s.code,
+                    "start_time": s.start_time,
+                    "lunch_start": s.lunch_start,
+                    "lunch_end": s.lunch_end,
+                    "end_time": s.end_time,
+                    "net_hours": s.net_hours,
+                    "description": s.description,
+                    "is_default": s.is_default
                 }
-
-    summaries = []
-    all_warnings = []
-    for emp in employees:
-        t_map = grid_data[emp.id]["TRANSPORTE"]
-        m_map = grid_data[emp.id]["ALIMENTACAO"]
-        summary = calculate_employee_month_summary(emp, t_map, m_map, year, month, settings)
-        summaries.append(summary)
-        all_warnings.extend(summary.get("warnings", []))
-
-    return {
-        "schedule_id": schedule.id,
-        "year": year,
-        "month": month,
-        "status": schedule.status,
-        "num_days": num_days,
-        "sundays": sundays,
-        "holidays": holidays_by_day,
-        "settings": {
-            "max_consecutive_sundays": settings.max_consecutive_sundays,
-            "transport_ticket_unit_price": settings.transport_ticket_unit_price or 4.70,
-            "default_transport_cost": settings.default_transport_cost,
-            "default_meal_cost": settings.default_meal_cost,
-            "min_daily_hours_for_meal": settings.min_daily_hours_for_meal,
-            "weekly_bank_overtime_hours": settings.weekly_bank_overtime_hours,
-            "compensatory_days_per_month": settings.compensatory_days_per_month
-        },
-        "roles": [{"id": r.id, "name": r.name, "description": r.description} for r in roles],
-        "shifts": [
-            {
-                "id": s.id,
-                "name": s.name,
-                "code": s.code,
-                "start_time": s.start_time,
-                "lunch_start": s.lunch_start,
-                "lunch_end": s.lunch_end,
-                "end_time": s.end_time,
-                "net_hours": s.net_hours,
-                "description": s.description,
-                "is_default": s.is_default
-            }
-            for s in shifts
-        ],
-        "employees": [
-            {
-                "id": emp.id,
-                "name": emp.name,
-                "role_id": emp.role_id,
-                "role": emp.role_obj.name if emp.role_obj else emp.role or "Geral",
-                "default_shift_id": emp.default_shift_id,
-                "default_daily_transport_tickets": emp.default_daily_transport_tickets or 2,
-                "daily_meal_cost": emp.daily_meal_cost,
-                "weekly_contract_hours": emp.weekly_contract_hours or 44.0
-            }
-            for emp in employees
-        ],
-        "grid": grid_data,
-        "summaries": summaries,
-        "warnings": all_warnings
-    }
+                for s in shifts
+            ],
+            "employees": [
+                {
+                    "id": emp.id,
+                    "name": emp.name,
+                    "role_id": emp.role_id,
+                    "role": emp.role_obj.name if emp.role_obj else emp.role or "Geral",
+                    "default_shift_id": emp.default_shift_id,
+                    "default_daily_transport_tickets": emp.default_daily_transport_tickets or 2,
+                    "daily_meal_cost": emp.daily_meal_cost,
+                    "weekly_contract_hours": emp.weekly_contract_hours or 44.0
+                }
+                for emp in employees
+            ],
+            "grid": grid_data,
+            "summaries": summaries,
+            "warnings": all_warnings
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro interno RH: {str(e)}")
 
 @router.post("/schedules/batch-save")
 def batch_save_schedule_days(
