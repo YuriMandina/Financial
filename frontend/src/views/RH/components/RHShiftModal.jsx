@@ -153,7 +153,7 @@ export default function RHShiftModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto overflow-x-hidden">
         
         {/* Topo do Modal */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">

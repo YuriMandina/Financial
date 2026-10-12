@@ -17,15 +17,47 @@ export default function TimePicker({
   onChange,
   disabled = false,
   placeholder = '00:00',
-  className = ''
+  className = '',
+  align = 'auto' // 'auto' | 'left' | 'right'
 }) {
   const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState('left');
   const containerRef = useRef(null);
 
   // Decompor o valor atual em hora e minuto
   const [currentH, currentM] = (value && value.includes(':'))
     ? value.split(':')
     : ['', ''];
+
+  // --- [BLOCO: CÁLCULO DINÂMICO DE POSICIONAMENTO E BORDA] ---
+  useEffect(() => {
+    if (!open) return;
+
+    if (align === 'right') {
+      setPlacement('right');
+      return;
+    }
+    if (align === 'left') {
+      setPlacement('left');
+      return;
+    }
+
+    // Auto-detecção de colisão com a borda direita (modal ou viewport)
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const modal = containerRef.current.closest('.overflow-y-auto, .overflow-auto, dialog, [role="dialog"]');
+      const boundaryRight = modal
+        ? modal.getBoundingClientRect().right
+        : window.innerWidth;
+
+      // Popover tem 256px de largura (w-64) + margem de folga
+      if (boundaryRight - rect.left < 275) {
+        setPlacement('right');
+      } else {
+        setPlacement('left');
+      }
+    }
+  }, [open, align]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -86,7 +118,7 @@ export default function TimePicker({
 
       {/* Popover Dropdown de Seleção */}
       {open && (
-        <div className="absolute z-50 top-full mt-1.5 left-0 w-64 bg-slate-900 border border-slate-700/90 rounded-xl shadow-2xl p-3 text-xs space-y-3 backdrop-blur-none animate-in fade-in zoom-in-95 duration-100">
+        <div className={`absolute z-50 top-full mt-1.5 ${placement === 'right' ? 'right-0' : 'left-0'} w-64 bg-slate-900 border border-slate-700/90 rounded-xl shadow-2xl p-3 text-xs space-y-3 backdrop-blur-none animate-in fade-in zoom-in-95 duration-100`}>
           
           {/* Campo de digitação rápida */}
           <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
