@@ -647,7 +647,7 @@ class UpdatePricesRequest(BaseModel):
 async def bg_update_prices(task_id: str, items: List[dict], org_id: int):
     try:
         from services import omie_products
-        from database import SessionLocal
+        from core.database import SessionLocal
         
         db = SessionLocal()
         total = len(items)
