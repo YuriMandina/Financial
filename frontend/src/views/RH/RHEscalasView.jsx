@@ -1487,12 +1487,17 @@ export default function RHEscalasView({ token }) {
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
                     required
                     value={employeeFormData.daily_meal_cost ?? ''}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, daily_meal_cost: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*(\.\d{0,2})?$/.test(val)) {
+                        setEmployeeFormData({ ...employeeFormData, daily_meal_cost: val });
+                      }
+                    }}
                     onBlur={(e) => {
                       const val = parseFloat(e.target.value);
                       setEmployeeFormData({
@@ -1599,12 +1604,17 @@ export default function RHEscalasView({ token }) {
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
                     required
                     value={settingsFormData.transport_ticket_unit_price ?? ''}
-                    onChange={(e) => setSettingsFormData({ ...settingsFormData, transport_ticket_unit_price: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*(\.\d{0,2})?$/.test(val)) {
+                        setSettingsFormData({ ...settingsFormData, transport_ticket_unit_price: val });
+                      }
+                    }}
                     onBlur={(e) => {
                       const val = parseFloat(e.target.value);
                       setSettingsFormData({
