@@ -2,7 +2,14 @@ import React from 'react';
 import { TrendingUp, LayoutDashboard, FileText, Database, CreditCard, Target, PieChart } from 'lucide-react';
 
 const SidebarItem = ({ id, icone: Icon, texto, menuAtivo, setMenuAtivo, setContasBrutas, setSelecionados, setClienteFiltro, setContaFiltro, setPaginaAtual }) => (
-  <button onClick={() => { setMenuAtivo(id); setContasBrutas([]); setSelecionados([]); setClienteFiltro(''); setContaFiltro('TODAS'); setPaginaAtual(1); }}
+  <button onClick={() => { 
+    setMenuAtivo(id); 
+    setContasBrutas?.([]); 
+    setSelecionados?.([]); 
+    setClienteFiltro?.(''); 
+    setContaFiltro?.('TODAS'); 
+    setPaginaAtual?.(1); 
+  }}
     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 print:hidden ${menuAtivo === id ? 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-400 border border-indigo-500/30 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
       }`}>
     <Icon size={20} className={menuAtivo === id ? 'text-indigo-400' : ''} />
