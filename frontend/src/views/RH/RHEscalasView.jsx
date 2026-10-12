@@ -3,7 +3,7 @@ import {
   Users, Bus, Utensils, AlertTriangle, Calendar, Printer, 
   Save, RefreshCw, Plus, Trash2, Edit2, CheckCircle2, Clock, 
   ChevronLeft, ChevronRight, ShieldAlert, Sparkles, FileSpreadsheet,
-  UserPlus, AlertCircle
+  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
 
@@ -28,7 +28,7 @@ const STATUS_CONFIG = {
     bg: 'bg-amber-500/25 text-amber-300 border-amber-500/50 hover:bg-amber-500/35',
     printClass: 'bg-yellow-200 text-amber-900 font-bold',
     badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-    desc: 'Folga compensatória de banco de horas (48h/semana)'
+    desc: 'Folga compensatória de banco de horas'
   },
   F: {
     label: 'Feriado',
@@ -36,7 +36,7 @@ const STATUS_CONFIG = {
     bg: 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30',
     printClass: 'bg-blue-100 text-blue-800 font-bold',
     badge: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
-    desc: 'Feriado municipal ou nacional'
+    desc: 'Feriado'
   },
   FE: {
     label: 'Férias',
@@ -44,7 +44,7 @@ const STATUS_CONFIG = {
     bg: 'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30',
     printClass: 'bg-purple-100 text-purple-800 font-bold',
     badge: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-    desc: 'Período de férias regulamentares'
+    desc: 'Período de férias'
   },
   OFF: {
     label: 'Folga',
@@ -71,7 +71,7 @@ export default function RHEscalasView({ token }) {
   const today = new Date();
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
-  const [activeTab, setActiveTab] = useState('transporte'); // 'transporte', 'alimentacao', 'resumo', 'mural', 'equipe'
+  const [activeTab, setActiveTab] = useState('transporte'); // 'transporte', 'alimentacao', 'resumo', 'mural', 'equipe', 'turnos'
   
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
@@ -81,28 +81,49 @@ export default function RHEscalasView({ token }) {
   const [dirty, setDirty] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
 
-  // Modais de Gestão de Equipe & Configurações
+  // Modais de Cadastro
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [employeeFormData, setEmployeeFormData] = useState({
     name: '',
-    role: '',
-    daily_transport_cost: 9.40,
+    role_id: '',
+    default_shift_id: '',
+    default_daily_transport_tickets: 2,
     daily_meal_cost: 25.00,
     weekly_contract_hours: 44.0,
     weekly_actual_hours: 48.0,
     active: true
   });
 
+  const [roleModalOpen, setRoleModalOpen] = useState(false);
+  const [roleFormData, setRoleFormData] = useState({ name: '', description: '' });
+
+  const [shiftModalOpen, setShiftModalOpen] = useState(false);
+  const [shiftFormData, setShiftFormData] = useState({
+    name: '',
+    code: '',
+    start_time: '07:00',
+    lunch_start: '12:00',
+    lunch_end: '13:00',
+    end_time: '16:00',
+    net_hours: 8.0,
+    description: '',
+    is_default: false
+  });
+
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsFormData, setSettingsFormData] = useState({
     max_consecutive_sundays: 2,
-    default_transport_cost: 9.40,
+    transport_ticket_unit_price: 4.70,
     default_meal_cost: 25.00,
     min_daily_hours_for_meal: 6.0,
     weekly_bank_overtime_hours: 4.0,
     compensatory_days_per_month: 2
   });
+
+  // Modal para Ajuste Rápido de Célula (Turno do Dia e Quantidade de Vales)
+  const [cellEditModalOpen, setCellEditModalOpen] = useState(false);
+  const [editingCellTarget, setEditingCellTarget] = useState(null); // { empId, empName, day, type }
 
   // ==============================================================================
   // --- [BLOCO: CARREGAMENTO DE DADOS (FETCH SEGURO)] ---
@@ -138,13 +159,19 @@ export default function RHEscalasView({ token }) {
   }, [selectedYear, selectedMonth]);
 
   // ==============================================================================
-  // --- [BLOCO: ALTERAÇÃO RÁPIDA DE DIAS NA MATRIZ] ---
+  // --- [BLOCO: MANIPULAÇÃO DA MATRIZ DE DIAS & TICKETS] ---
   // ==============================================================================
 
   const handleCellClick = (empId, day, type) => {
     setLocalGrid((prev) => {
       const empData = prev[empId] || { TRANSPORTE: {}, ALIMENTACAO: {} };
-      const currentEntry = empData[type]?.[day] || { status: 'OFF', shift: null, daily_hours: 8.0 };
+      const currentEntry = empData[type]?.[day] || { 
+        status: 'OFF', 
+        shift: 'ABRE', 
+        shift_id: null,
+        tickets_count: 2, 
+        daily_hours: 8.0 
+      };
       const currentStatus = currentEntry.status || 'OFF';
 
       const currentIndex = STATUS_KEYS.indexOf(currentStatus);
@@ -170,10 +197,40 @@ export default function RHEscalasView({ token }) {
     });
   };
 
-  const handleShiftChange = (empId, day, type, newShift) => {
+  // Alterna rapidamente a quantidade de passagens (2 vs 4) com clique duplo ou botão secundário
+  const handleToggleTickets = (e, empId, day) => {
+    e.preventDefault();
+    e.stopPropagation();
     setLocalGrid((prev) => {
       const empData = prev[empId] || { TRANSPORTE: {}, ALIMENTACAO: {} };
-      const currentEntry = empData[type]?.[day] || { status: 'X', shift: null, daily_hours: 8.0 };
+      const currentEntry = empData.TRANSPORTE?.[day] || { status: 'X', tickets_count: 2 };
+      const currentTickets = currentEntry.tickets_count || 2;
+      const nextTickets = currentTickets === 2 ? 4 : 2;
+
+      const updatedEmpData = {
+        ...empData,
+        TRANSPORTE: {
+          ...(empData.TRANSPORTE || {}),
+          [day]: {
+            ...currentEntry,
+            status: 'X',
+            tickets_count: nextTickets
+          }
+        }
+      };
+
+      setDirty(true);
+      return {
+        ...prev,
+        [empId]: updatedEmpData
+      };
+    });
+  };
+
+  const handleShiftChange = (empId, day, type, newShiftCode, newShiftId) => {
+    setLocalGrid((prev) => {
+      const empData = prev[empId] || { TRANSPORTE: {}, ALIMENTACAO: {} };
+      const currentEntry = empData[type]?.[day] || { status: 'X', shift: newShiftCode, daily_hours: 8.0 };
 
       const updatedEmpData = {
         ...empData,
@@ -181,7 +238,8 @@ export default function RHEscalasView({ token }) {
           ...(empData[type] || {}),
           [day]: {
             ...currentEntry,
-            shift: newShift
+            shift: newShiftCode,
+            shift_id: newShiftId
           }
         }
       };
@@ -213,7 +271,9 @@ export default function RHEscalasView({ token }) {
               schedule_type: stype,
               day: parseInt(dayStr, 10),
               status: dayVal.status,
+              shift_id: dayVal.shift_id,
               shift: dayVal.shift,
+              tickets_count: dayVal.tickets_count || 2,
               daily_hours: dayVal.daily_hours || 8.0
             });
           });
@@ -267,7 +327,7 @@ export default function RHEscalasView({ token }) {
   };
 
   // ==============================================================================
-  // --- [BLOCO: GESTÃO DE COLABORADORES & CONFIGURAÇÕES] ---
+  // --- [BLOCO: GESTÃO DE COLABORADORES, CARGOS & TURNOS] ---
   // ==============================================================================
 
   const handleSaveEmployee = async (e) => {
@@ -278,13 +338,24 @@ export default function RHEscalasView({ token }) {
         : `${API_BASE}/api/rh/employees`;
       const method = editingEmployee ? 'PUT' : 'POST';
 
+      const payload = {
+        name: employeeFormData.name,
+        role_id: employeeFormData.role_id ? parseInt(employeeFormData.role_id, 10) : null,
+        default_shift_id: employeeFormData.default_shift_id ? parseInt(employeeFormData.default_shift_id, 10) : null,
+        default_daily_transport_tickets: parseInt(employeeFormData.default_daily_transport_tickets, 10) || 2,
+        daily_meal_cost: parseFloat(employeeFormData.daily_meal_cost) || 25.00,
+        weekly_contract_hours: parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
+        weekly_actual_hours: 48.0,
+        active: employeeFormData.active
+      };
+
       const res = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(employeeFormData)
+        body: JSON.stringify(payload)
       });
 
       if (!res.ok) throw new Error('Erro ao salvar colaborador');
@@ -309,6 +380,92 @@ export default function RHEscalasView({ token }) {
     } catch (err) {
       console.error(err);
       alert('Erro ao excluir colaborador.');
+    }
+  };
+
+  const handleSaveRole = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/api/rh/roles`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(roleFormData)
+      });
+      if (!res.ok) throw new Error('Erro ao criar cargo');
+      const newRole = await res.json();
+      setRoleModalOpen(false);
+      setRoleFormData({ name: '', description: '' });
+      await fetchSchedule();
+      if (employeeModalOpen) {
+        setEmployeeFormData((prev) => ({ ...prev, role_id: newRole.id }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao criar cargo.');
+    }
+  };
+
+  const handleDeleteRole = async (roleId) => {
+    if (!window.confirm('Excluir este cargo?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/rh/roles/${roleId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Erro ao excluir cargo');
+      await fetchSchedule();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir cargo.');
+    }
+  };
+
+  const handleSaveShift = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/api/rh/shifts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(shiftFormData)
+      });
+      if (!res.ok) throw new Error('Erro ao criar turno');
+      setShiftModalOpen(false);
+      setShiftFormData({
+        name: '',
+        code: '',
+        start_time: '07:00',
+        lunch_start: '12:00',
+        lunch_end: '13:00',
+        end_time: '16:00',
+        net_hours: 8.0,
+        description: '',
+        is_default: false
+      });
+      await fetchSchedule();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao criar template de turno.');
+    }
+  };
+
+  const handleDeleteShift = async (shiftId) => {
+    if (!window.confirm('Excluir este template de turno?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/rh/shifts/${shiftId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Erro ao excluir turno');
+      await fetchSchedule();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir turno.');
     }
   };
 
@@ -337,14 +494,15 @@ export default function RHEscalasView({ token }) {
   // ==============================================================================
 
   const calculatedTotals = useMemo(() => {
-    if (!scheduleData?.summaries) return { vt: 0, va: 0, total: 0 };
+    if (!scheduleData?.summaries) return { vt: 0, va: 0, total: 0, totalTickets: 0 };
     return scheduleData.summaries.reduce(
       (acc, curr) => ({
         vt: acc.vt + (curr.total_vt_amount || 0),
         va: acc.va + (curr.total_va_amount || 0),
-        total: acc.total + (curr.total_benefits_amount || 0)
+        total: acc.total + (curr.total_benefits_amount || 0),
+        totalTickets: acc.totalTickets + (curr.total_vt_tickets || 0)
       }),
-      { vt: 0, va: 0, total: 0 }
+      { vt: 0, va: 0, total: 0, totalTickets: 0 }
     );
   }, [scheduleData]);
 
@@ -357,6 +515,9 @@ export default function RHEscalasView({ token }) {
   const sundays = scheduleData?.sundays || [];
   const holidays = scheduleData?.holidays || {};
   const summaries = scheduleData?.summaries || [];
+  const roles = scheduleData?.roles || [];
+  const shifts = scheduleData?.shifts || [];
+  const ticketUnitPrice = scheduleData?.settings?.transport_ticket_unit_price || 4.70;
 
   const handlePrint = () => {
     window.print();
@@ -379,7 +540,7 @@ export default function RHEscalasView({ token }) {
           <div>
             <h3 className="text-base font-semibold text-white">Nenhum colaborador cadastrado</h3>
             <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-              Para montar a grade de {typeLabel}, cadastre os membros da equipe informando seus valores unitários diários de benefício.
+              Para montar a grade de {typeLabel}, cadastre a equipe na aba "Equipe & Parâmetros".
             </p>
           </div>
           <button
@@ -387,9 +548,10 @@ export default function RHEscalasView({ token }) {
               setEditingEmployee(null);
               setEmployeeFormData({
                 name: '',
-                role: '',
-                daily_transport_cost: settingsFormData.default_transport_cost,
-                daily_meal_cost: settingsFormData.default_meal_cost,
+                role_id: '',
+                default_shift_id: '',
+                default_daily_transport_tickets: 2,
+                daily_meal_cost: 25.00,
                 weekly_contract_hours: 44.0,
                 weekly_actual_hours: 48.0,
                 active: true
@@ -410,12 +572,22 @@ export default function RHEscalasView({ token }) {
         {/* Cabeçalho da Grade */}
         <div className="px-5 py-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4 print:border-b-2 print:border-slate-400">
           <div>
-            <h2 className="text-base font-semibold text-white flex items-center gap-2 print:text-black">
+            <div className="flex items-center gap-2">
               {isTransport ? <Bus className="text-indigo-400 print:text-black" size={20} /> : <Utensils className="text-emerald-400 print:text-black" size={20} />}
-              Grade Mensal de {typeLabel}
-            </h2>
-            <p className="text-xs text-slate-400 print:text-slate-600">
-              Clique em qualquer dia para alternar entre as legendas (X = Trabalho, BH = Banco Horas, F = Feriado, FE = Férias, - = Folga)
+              <h2 className="text-base font-semibold text-white print:text-black">
+                Grade Mensal de {typeLabel}
+              </h2>
+              {isTransport && (
+                <span className="text-[11px] bg-indigo-950 text-indigo-300 border border-indigo-800 px-2 py-0.5 rounded-full font-medium">
+                  Tarifa Universal: R$ {ticketUnitPrice.toFixed(2)}/passagem
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 print:text-slate-600 mt-1">
+              {isTransport 
+                ? 'Clique para alternar o status. Clique direito ou duplo clique no X para alternar entre 2 e 4 passagens no dia.'
+                : 'Concedido 1 benefício por dia para jornadas acima de 6 horas.'
+              }
             </p>
           </div>
 
@@ -433,7 +605,7 @@ export default function RHEscalasView({ token }) {
           <table className="w-full text-left text-xs border-collapse print:text-[10px]">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider print:bg-slate-100 print:text-black">
-                <th className="py-2.5 px-3 min-w-[160px] sticky left-0 bg-slate-950 z-10 border-r border-slate-800 print:bg-white print:border-r print:border-slate-300">
+                <th className="py-2.5 px-3 min-w-[170px] sticky left-0 bg-slate-950 z-10 border-r border-slate-800 print:bg-white print:border-r print:border-slate-300">
                   Colaborador
                 </th>
                 {daysList.map((day) => {
@@ -459,7 +631,7 @@ export default function RHEscalasView({ token }) {
                   );
                 })}
                 <th className="py-2.5 px-3 text-center min-w-[70px] bg-slate-950 border-l border-slate-800 print:bg-slate-100 print:text-black">
-                  Dias Trab.
+                  {isTransport ? 'Vales' : 'Dias'}
                 </th>
                 <th className="py-2.5 px-3 text-right min-w-[90px] bg-slate-950 border-l border-slate-800 print:bg-slate-100 print:text-black">
                   {isTransport ? 'Total VT' : 'Total VA'}
@@ -470,21 +642,24 @@ export default function RHEscalasView({ token }) {
               {employees.map((emp) => {
                 const empGrid = localGrid[emp.id]?.[scheduleType] || {};
                 const summary = summaries.find((s) => s.employee_id === emp.id) || {};
-                const workedDays = isTransport ? (summary.vt_worked_days || 0) : (summary.va_worked_days || 0);
                 const totalAmount = isTransport ? (summary.total_vt_amount || 0) : (summary.total_va_amount || 0);
 
                 return (
                   <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors print:hover:bg-transparent">
                     <td className="py-2 px-3 font-medium text-slate-200 sticky left-0 bg-slate-900 border-r border-slate-800 z-10 print:bg-white print:text-black print:border-r print:border-slate-300">
                       <div className="truncate max-w-[150px] font-semibold">{emp.name}</div>
-                      <div className="text-[10px] text-slate-500 truncate print:text-slate-600">
-                        {isTransport ? `R$ ${(emp.daily_transport_cost || 0).toFixed(2)}/dia` : `R$ ${(emp.daily_meal_cost || 0).toFixed(2)}/dia`}
+                      <div className="text-[10px] text-slate-400 truncate">
+                        {emp.role} • {emp.weekly_contract_hours}h sem.
+                      </div>
+                      <div className="text-[10px] text-indigo-400">
+                        {isTransport ? `Padrão: ${emp.default_daily_transport_tickets} passagens/dia` : `VA: R$ ${(emp.daily_meal_cost || 25).toFixed(2)}/dia`}
                       </div>
                     </td>
 
                     {daysList.map((day) => {
-                      const entry = empGrid[day] || { status: 'OFF' };
+                      const entry = empGrid[day] || { status: 'OFF', tickets_count: emp.default_daily_transport_tickets || 2 };
                       const status = entry.status || 'OFF';
+                      const ticketsCount = entry.tickets_count || emp.default_daily_transport_tickets || 2;
                       const conf = STATUS_CONFIG[status] || STATUS_CONFIG.OFF;
                       const isSunday = sundays.includes(day);
 
@@ -492,22 +667,33 @@ export default function RHEscalasView({ token }) {
                         <td
                           key={day}
                           onClick={() => handleCellClick(emp.id, day, scheduleType)}
+                          onContextMenu={(e) => isTransport && handleToggleTickets(e, emp.id, day)}
+                          onDoubleClick={(e) => isTransport && handleToggleTickets(e, emp.id, day)}
                           className={`py-1 px-0.5 text-center cursor-pointer select-none transition-colors border-r border-slate-800/50 print:border-r print:border-slate-300 ${
                             isSunday ? 'bg-red-950/10' : ''
                           }`}
-                          title={`${emp.name} - Dia ${day}: ${conf.label}. Clique para alterar.`}
+                          title={
+                            isTransport 
+                              ? `${emp.name} - Dia ${day}: ${conf.label} (${ticketsCount} vales). Clique direito p/ alternar 2/4 passagens.` 
+                              : `${emp.name} - Dia ${day}: ${conf.label}`
+                          }
                         >
                           <div 
-                            className={`w-7 h-7 mx-auto rounded flex items-center justify-center font-bold text-[11px] border transition-transform active:scale-95 ${conf.bg} print:border-0 print:${conf.printClass}`}
+                            className={`w-7 h-7 mx-auto rounded flex flex-col items-center justify-center font-bold text-[11px] border transition-transform active:scale-95 relative ${conf.bg} print:border-0 print:${conf.printClass}`}
                           >
-                            {conf.short}
+                            <span>{conf.short}</span>
+                            {isTransport && status === 'X' && (
+                              <span className={`text-[8px] leading-none font-normal -mt-0.5 ${ticketsCount > 2 ? 'text-amber-300 font-bold' : 'opacity-80'}`}>
+                                {ticketsCount}
+                              </span>
+                            )}
                           </div>
                         </td>
                       );
                     })}
 
                     <td className="py-2 px-2 text-center font-bold text-slate-300 border-l border-slate-800 print:text-black print:border-l print:border-slate-300">
-                      {workedDays}
+                      {isTransport ? `${summary.total_vt_tickets || 0}` : `${summary.va_worked_days || 0}`}
                     </td>
                     <td className="py-2 px-3 text-right font-semibold text-emerald-400 border-l border-slate-800 print:text-black print:border-l print:border-slate-300">
                       R$ {totalAmount.toFixed(2)}
@@ -537,7 +723,9 @@ export default function RHEscalasView({ token }) {
           <div className="text-2xl font-bold text-white tracking-tight">
             R$ {calculatedTotals.vt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Depósito antecipado para deslocamento no mês</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {calculatedTotals.totalTickets} passagens $\times$ R$ {ticketUnitPrice.toFixed(2)}
+          </p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
@@ -548,7 +736,7 @@ export default function RHEscalasView({ token }) {
           <div className="text-2xl font-bold text-white tracking-tight">
             R$ {calculatedTotals.va.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Devido apenas em jornadas superiores a 6h/dia</p>
+          <p className="text-xs text-slate-500 mt-1">1 refeição/dia por colaborador com jornada &gt; 6h</p>
         </div>
 
         <div className="bg-slate-900 border border-indigo-900/50 rounded-xl p-5 shadow-sm bg-gradient-to-br from-slate-900 to-indigo-950/30">
@@ -559,7 +747,7 @@ export default function RHEscalasView({ token }) {
           <div className="text-2xl font-bold text-emerald-400 tracking-tight">
             R$ {calculatedTotals.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </div>
-          <p className="text-xs text-slate-400 mt-1">Valor consolidado antecipado da equipe</p>
+          <p className="text-xs text-slate-400 mt-1">Depósito antecipado consolidado da equipe</p>
         </div>
       </div>
 
@@ -583,8 +771,8 @@ export default function RHEscalasView({ token }) {
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
                 <th className="py-3 px-4">Colaborador</th>
-                <th className="py-3 px-4">Função</th>
-                <th className="py-3 px-4 text-center">Dias VT</th>
+                <th className="py-3 px-4">Cargo & Contrato</th>
+                <th className="py-3 px-4 text-center">Passagens VT</th>
                 <th className="py-3 px-4 text-right">Valor VT</th>
                 <th className="py-3 px-4 text-center">Dias VA</th>
                 <th className="py-3 px-4 text-right">Valor VA</th>
@@ -603,19 +791,26 @@ export default function RHEscalasView({ token }) {
                 summaries.map((s) => (
                   <tr key={s.employee_id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3 px-4 font-semibold text-slate-200">{s.employee_name}</td>
-                    <td className="py-3 px-4 text-slate-400">{s.employee_role || 'Geral'}</td>
-                    <td className="py-3 px-4 text-center text-slate-300">{s.vt_worked_days || 0} dias</td>
+                    <td className="py-3 px-4 text-slate-400">
+                      <div>{s.employee_role}</div>
+                      <div className="text-[10px] text-slate-500">{s.weekly_contract_hours}h semanais</div>
+                    </td>
+                    <td className="py-3 px-4 text-center text-slate-300">
+                      {s.total_vt_tickets || 0} vales ({s.vt_worked_days || 0} dias)
+                    </td>
                     <td className="py-3 px-4 text-right text-indigo-400 font-medium">R$ {(s.total_vt_amount || 0).toFixed(2)}</td>
-                    <td className="py-3 px-4 text-center text-slate-300">{s.va_worked_days || 0} dias</td>
+                    <td className="py-3 px-4 text-center text-slate-300">
+                      {s.va_worked_days || 0} dias (R$ {(s.va_daily_cost || 25).toFixed(2)}/dia)
+                    </td>
                     <td className="py-3 px-4 text-right text-emerald-400 font-medium">R$ {(s.total_va_amount || 0).toFixed(2)}</td>
                     <td className="py-3 px-4 text-right font-bold text-white">R$ {(s.total_benefits_amount || 0).toFixed(2)}</td>
                     <td className="py-3 px-4 text-center">
                       <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${
-                        (s.bh_days_used || 0) >= (s.bh_days_target || 2)
+                        (s.bh_days_used || 0) >= (s.bh_days_target || 0)
                           ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
                           : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                       }`}>
-                        {s.bh_days_used || 0} de {s.bh_days_target || 2} folgas
+                        {s.bh_days_used || 0} de {s.bh_days_target || 0} folgas
                       </span>
                     </td>
                   </tr>
@@ -629,7 +824,7 @@ export default function RHEscalasView({ token }) {
   );
 
   // ==============================================================================
-  // --- [BLOCO: RENDERIZAÇÃO DA ABA MURAL DE DOMINGOS & HORÁRIOS] ---
+  // --- [BLOCO: RENDERIZAÇÃO DA ABA MURAL DE HORÁRIOS & DOMINGOS] ---
   // ==============================================================================
 
   const renderSundayScheduleWall = () => (
@@ -639,10 +834,10 @@ export default function RHEscalasView({ token }) {
           <div>
             <h3 className="text-base font-semibold text-white flex items-center gap-2">
               <Clock className="text-indigo-400" size={20} />
-              Escala de Domingos e Turnos (Abertura 07h-16h / Fechamento 09h-19h)
+              Mural Operacional de Horários & Turnos
             </h3>
             <p className="text-xs text-slate-400">
-              Programação para mural interno. Defina os horários de quem abre e quem fecha nos domingos e feriados.
+              Programação com horários de entrada, almoço e saída para exibição no mural da empresa.
             </p>
           </div>
           <button
@@ -671,32 +866,49 @@ export default function RHEscalasView({ token }) {
                     )}
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     {employees.length === 0 ? (
                       <div className="text-[11px] text-slate-600 italic">Sem colaboradores</div>
                     ) : (
                       employees.map((emp) => {
-                        const empDayInfo = localGrid[emp.id]?.TRANSPORTE?.[sunDay] || { status: 'OFF', shift: null };
+                        const empDayInfo = localGrid[emp.id]?.TRANSPORTE?.[sunDay] || { status: 'OFF', shift: 'ABRE' };
                         const isWorking = empDayInfo.status === 'X';
+                        const currentShift = shifts.find((s) => s.code === (empDayInfo.shift || 'ABRE')) || shifts[0];
 
                         return (
-                          <div key={emp.id} className="flex items-center justify-between text-xs py-1 px-1.5 rounded hover:bg-slate-900/60">
-                            <span className={`font-medium ${isWorking ? 'text-white' : 'text-slate-500'}`}>
-                              {emp.name}
-                            </span>
+                          <div key={emp.id} className="p-2 rounded bg-slate-900/60 border border-slate-800/80 text-xs space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className={`font-semibold ${isWorking ? 'text-white' : 'text-slate-500'}`}>
+                                {emp.name}
+                              </span>
+                              {isWorking ? (
+                                <select
+                                  value={empDayInfo.shift || 'ABRE'}
+                                  onChange={(e) => {
+                                    const sObj = shifts.find((s) => s.code === e.target.value);
+                                    handleShiftChange(emp.id, sunDay, 'TRANSPORTE', e.target.value, sObj?.id);
+                                    handleShiftChange(emp.id, sunDay, 'ALIMENTACAO', e.target.value, sObj?.id);
+                                  }}
+                                  className="bg-slate-800 border border-slate-700 rounded text-[11px] text-slate-200 px-1.5 py-0.5 focus:outline-none focus:border-indigo-500 font-medium"
+                                >
+                                  {shifts.map((s) => (
+                                    <option key={s.id} value={s.code}>
+                                      {s.code}: {s.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="text-[11px] text-slate-500 font-medium italic">Folga</span>
+                              )}
+                            </div>
 
-                            {isWorking ? (
-                              <select
-                                value={empDayInfo.shift || 'ABRE'}
-                                onChange={(e) => handleShiftChange(emp.id, sunDay, 'TRANSPORTE', e.target.value)}
-                                className="bg-slate-800 border border-slate-700 rounded text-[11px] text-slate-200 px-1.5 py-0.5 focus:outline-none focus:border-indigo-500"
-                              >
-                                <option value="ABRE">Abre (07h-16h)</option>
-                                <option value="FECHA">Fecha (09h-19h)</option>
-                                <option value="OUTRO">Outro Turno</option>
-                              </select>
-                            ) : (
-                              <span className="text-[11px] text-slate-600 italic">Folga</span>
+                            {isWorking && currentShift && (
+                              <div className="text-[10px] text-indigo-300 font-mono bg-indigo-950/40 px-1.5 py-0.5 rounded border border-indigo-900/40">
+                                ⏰ {currentShift.start_time} às {currentShift.end_time}
+                                {currentShift.lunch_start && (
+                                  <span className="text-slate-400"> (alm: {currentShift.lunch_start}-{currentShift.lunch_end})</span>
+                                )}
+                              </div>
                             )}
                           </div>
                         );
@@ -713,31 +925,48 @@ export default function RHEscalasView({ token }) {
   );
 
   // ==============================================================================
-  // --- [BLOCO: RENDERIZAÇÃO DA ABA EQUIPE & CONFIGURAÇÕES] ---
+  // --- [BLOCO: RENDERIZAÇÃO DA ABA EQUIPE, CARGOS & PARÂMETROS] ---
   // ==============================================================================
 
   const renderTeamAndSettings = () => (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Cabeçalho da Equipe */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold text-white">Quadro de Colaboradores de RH</h3>
-          <p className="text-xs text-slate-400">Configure as jornadas contratuais e os custos unitários de VT e VA</p>
+          <p className="text-xs text-slate-400">Gerenciamento de contratos, turnos padrão, VT e VA individual</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setRoleModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+          >
+            <Briefcase size={14} />
+            + Cargo
+          </button>
+          <button
+            onClick={() => setShiftModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+          >
+            <Clock size={14} />
+            + Turno/Horário
+          </button>
           <button
             onClick={() => setSettingsModalOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
           >
-            Regras de RH (Domingos & Horas)
+            <Settings2 size={14} />
+            Regras de RH & VT Universal
           </button>
           <button
             onClick={() => {
               setEditingEmployee(null);
               setEmployeeFormData({
                 name: '',
-                role: '',
-                daily_transport_cost: settingsFormData.default_transport_cost,
-                daily_meal_cost: settingsFormData.default_meal_cost,
+                role_id: roles[0]?.id || '',
+                default_shift_id: shifts[0]?.id || '',
+                default_daily_transport_tickets: 2,
+                daily_meal_cost: 25.00,
                 weekly_contract_hours: 44.0,
                 weekly_actual_hours: 48.0,
                 active: true
@@ -752,15 +981,17 @@ export default function RHEscalasView({ token }) {
         </div>
       </div>
 
+      {/* Tabela de Colaboradores */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
               <th className="py-3 px-4">Nome</th>
-              <th className="py-3 px-4">Cargo / Função</th>
-              <th className="py-3 px-4">VT Diário (R$)</th>
-              <th className="py-3 px-4">VA Diário (R$)</th>
-              <th className="py-3 px-4">Regime Semanal</th>
+              <th className="py-3 px-4">Cargo</th>
+              <th className="py-3 px-4">Contrato Semanal</th>
+              <th className="py-3 px-4">Turno Padrão</th>
+              <th className="py-3 px-4 text-center">VT Diário</th>
+              <th className="py-3 px-4 text-right">VA Diário</th>
               <th className="py-3 px-4 text-center">Status</th>
               <th className="py-3 px-4 text-right">Ações</th>
             </tr>
@@ -768,62 +999,158 @@ export default function RHEscalasView({ token }) {
           <tbody className="divide-y divide-slate-800/60">
             {employees.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-slate-500">
+                <td colSpan={8} className="py-8 text-center text-slate-500">
                   Nenhum colaborador cadastrado. Clique no botão acima para adicionar.
                 </td>
               </tr>
             ) : (
-              employees.map((emp) => (
-                <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="py-3 px-4 font-semibold text-slate-200">{emp.name}</td>
-                  <td className="py-3 px-4 text-slate-400">{emp.role || 'Não informado'}</td>
-                  <td className="py-3 px-4 text-indigo-400 font-medium">R$ {(emp.daily_transport_cost || 0).toFixed(2)}</td>
-                  <td className="py-3 px-4 text-emerald-400 font-medium">R$ {(emp.daily_meal_cost || 0).toFixed(2)}</td>
-                  <td className="py-3 px-4 text-slate-400">44h contratual / 48h praticado (6x1)</td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      Ativo
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right space-x-2">
-                    <button
-                      onClick={() => {
-                        setEditingEmployee(emp);
-                        setEmployeeFormData({
-                          name: emp.name,
-                          role: emp.role || '',
-                          daily_transport_cost: emp.daily_transport_cost || 9.40,
-                          daily_meal_cost: emp.daily_meal_cost || 25.00,
-                          weekly_contract_hours: 44.0,
-                          weekly_actual_hours: 48.0,
-                          active: true
-                        });
-                        setEmployeeModalOpen(true);
-                      }}
-                      className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
-                      title="Editar Colaborador"
-                    >
-                      <Edit2 size={15} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteEmployee(emp.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-400 rounded hover:bg-slate-800 transition-colors"
-                      title="Excluir Colaborador"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </td>
-                </tr>
-              ))
+              employees.map((emp) => {
+                const shiftObj = shifts.find((s) => s.id === emp.default_shift_id);
+                return (
+                  <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="py-3 px-4 font-semibold text-slate-200">{emp.name}</td>
+                    <td className="py-3 px-4 text-slate-300">
+                      <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-medium text-[11px]">
+                        {emp.role || 'Geral'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-slate-400">
+                      {emp.weekly_contract_hours}h semanais
+                    </td>
+                    <td className="py-3 px-4 text-slate-300">
+                      {shiftObj ? `${shiftObj.code} (${shiftObj.net_hours}h)` : 'Padrão (8h)'}
+                    </td>
+                    <td className="py-3 px-4 text-center text-indigo-400 font-medium">
+                      {emp.default_daily_transport_tickets} passagens (R$ {(emp.default_daily_transport_tickets * ticketUnitPrice).toFixed(2)})
+                    </td>
+                    <td className="py-3 px-4 text-right text-emerald-400 font-medium">
+                      R$ {(emp.daily_meal_cost || 25).toFixed(2)}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        Ativo
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right space-x-2">
+                      <button
+                        onClick={() => {
+                          setEditingEmployee(emp);
+                          setEmployeeFormData({
+                            name: emp.name,
+                            role_id: emp.role_id || '',
+                            default_shift_id: emp.default_shift_id || '',
+                            default_daily_transport_tickets: emp.default_daily_transport_tickets || 2,
+                            daily_meal_cost: emp.daily_meal_cost || 25.00,
+                            weekly_contract_hours: emp.weekly_contract_hours || 44.0,
+                            weekly_actual_hours: 48.0,
+                            active: true
+                          });
+                          setEmployeeModalOpen(true);
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
+                        title="Editar Colaborador"
+                      >
+                        <Edit2 size={15} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteEmployee(emp.id)}
+                        className="p-1.5 text-slate-400 hover:text-red-400 rounded hover:bg-slate-800 transition-colors"
+                        title="Excluir Colaborador"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Grid com Cargos e Turnos Cadastrados */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Card de Cargos */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Briefcase size={16} className="text-indigo-400" />
+              Cargos Cadastrados ({roles.length})
+            </h4>
+            <button
+              onClick={() => setRoleModalOpen(true)}
+              className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold"
+            >
+              + Novo Cargo
+            </button>
+          </div>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {roles.length === 0 ? (
+              <p className="text-xs text-slate-500 italic py-2">Nenhum cargo cadastrado ainda.</p>
+            ) : (
+              roles.map((r) => (
+                <div key={r.id} className="flex items-center justify-between py-1.5 px-2 rounded bg-slate-950 text-xs">
+                  <div>
+                    <span className="font-semibold text-slate-200">{r.name}</span>
+                    {r.description && <span className="text-slate-500 text-[11px] block">{r.description}</span>}
+                  </div>
+                  <button
+                    onClick={() => handleDeleteRole(r.id)}
+                    className="text-slate-500 hover:text-red-400 p-1"
+                    title="Remover cargo"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Card de Turnos */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Clock size={16} className="text-emerald-400" />
+              Templates de Turnos e Horários ({shifts.length})
+            </h4>
+            <button
+              onClick={() => setShiftModalOpen(true)}
+              className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold"
+            >
+              + Novo Turno
+            </button>
+          </div>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {shifts.map((s) => (
+              <div key={s.id} className="flex items-center justify-between py-1.5 px-2 rounded bg-slate-950 text-xs">
+                <div>
+                  <span className="font-semibold text-slate-200">
+                    [{s.code}] {s.name} ({s.net_hours}h)
+                  </span>
+                  <span className="text-slate-500 text-[11px] block">
+                    {s.start_time} às {s.end_time} {s.lunch_start && `(almoço: ${s.lunch_start}-${s.lunch_end})`}
+                  </span>
+                </div>
+                {!s.is_default && (
+                  <button
+                    onClick={() => handleDeleteShift(s.id)}
+                    className="text-slate-500 hover:text-red-400 p-1"
+                    title="Remover turno"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
 
   // ==============================================================================
-  // --- [BLOCO: ESTADO DE CARREGAMENTO (SKELETON COMPLIANT COM AGENTS.MD)] ---
+  // --- [BLOCO: ESTADO DE CARREGAMENTO & ERRO] ---
   // ==============================================================================
 
   if (loading) {
@@ -842,10 +1169,6 @@ export default function RHEscalasView({ token }) {
       </div>
     );
   }
-
-  // ==============================================================================
-  // --- [BLOCO: ESTADO DE ERRO DEFENSIVO] ---
-  // ==============================================================================
 
   if (fetchError || !scheduleData) {
     return (
@@ -1007,7 +1330,7 @@ export default function RHEscalasView({ token }) {
           }`}
         >
           <Utensils size={16} />
-          Alimentação (VA - Jornada &gt; 6h)
+          Alimentação (VA)
         </button>
 
         <button
@@ -1019,7 +1342,7 @@ export default function RHEscalasView({ token }) {
           }`}
         >
           <FileSpreadsheet size={16} />
-          Resumo de Depósitos & Banco de Horas
+          Resumo Financeiro & Banco de Horas
         </button>
 
         <button
@@ -1031,7 +1354,7 @@ export default function RHEscalasView({ token }) {
           }`}
         >
           <Clock size={16} />
-          Mural de Horários & Domingos
+          Mural de Horários & Turnos
         </button>
 
         <button
@@ -1043,7 +1366,7 @@ export default function RHEscalasView({ token }) {
           }`}
         >
           <Users size={16} />
-          Equipe & Parâmetros
+          Equipe, Cargos & Parâmetros
         </button>
       </div>
 
@@ -1061,11 +1384,11 @@ export default function RHEscalasView({ token }) {
       {/* Modal de Colaborador */}
       {employeeModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 shadow-xl space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 shadow-xl space-y-4">
             <h3 className="text-base font-bold text-white">
               {editingEmployee ? 'Editar Colaborador' : 'Novo Colaborador'}
             </h3>
-            <form onSubmit={handleSaveEmployee} className="space-y-3 text-xs">
+            <form onSubmit={handleSaveEmployee} className="space-y-3.5 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1">Nome Completo</label>
                 <input
@@ -1077,39 +1400,89 @@ export default function RHEscalasView({ token }) {
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1">Cargo / Função</label>
-                <input
-                  type="text"
-                  value={employeeFormData.role}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, role: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400">Cargo</label>
+                    <button
+                      type="button"
+                      onClick={() => setRoleModalOpen(true)}
+                      className="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold"
+                    >
+                      + Novo Cargo
+                    </button>
+                  </div>
+                  <select
+                    value={employeeFormData.role_id}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, role_id: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Selecione um cargo...</option>
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1">Turno Padrão Contratual</label>
+                  <select
+                    value={employeeFormData.default_shift_id}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, default_shift_id: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Padrão (8h)</option>
+                    {shifts.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.code}: {s.name} ({s.net_hours}h)
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Custo Diário VT (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={employeeFormData.daily_transport_cost}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, daily_transport_cost: parseFloat(e.target.value) || 0 })}
+                  <label className="block text-slate-400 mb-1">Jornada Semanal Contratual</label>
+                  <select
+                    value={employeeFormData.weekly_contract_hours}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, weekly_contract_hours: parseFloat(e.target.value) })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  />
+                  >
+                    <option value={44}>44 horas semanais</option>
+                    <option value={40}>40 horas semanais</option>
+                    <option value={36}>36 horas semanais</option>
+                    <option value={30}>30 horas semanais</option>
+                    <option value={20}>20 horas semanais</option>
+                  </select>
+                  <span className="text-[10px] text-slate-500">Praticado: 48h (gera banco de horas)</span>
                 </div>
+
                 <div>
-                  <label className="block text-slate-400 mb-1">Custo Diário VA (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={employeeFormData.daily_meal_cost}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, daily_meal_cost: parseFloat(e.target.value) || 0 })}
+                  <label className="block text-slate-400 mb-1">Passagens Padrão de VT por Dia</label>
+                  <select
+                    value={employeeFormData.default_daily_transport_tickets}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, default_daily_transport_tickets: parseInt(e.target.value, 10) })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  />
+                  >
+                    <option value={2}>2 passagens por dia (Ida e Volta)</option>
+                    <option value={4}>4 passagens por dia (Dupla Jornada/Integração)</option>
+                  </select>
+                  <span className="text-[10px] text-slate-500">Tarifa: R$ {ticketUnitPrice.toFixed(2)} cada</span>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Valor do Vale Alimentação Individual (R$/refeição)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={employeeFormData.daily_meal_cost}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, daily_meal_cost: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                />
+                <span className="text-[10px] text-slate-500">1 benefício pago por dia quando a jornada for superior a 6h.</span>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
@@ -1124,7 +1497,169 @@ export default function RHEscalasView({ token }) {
                   type="submit"
                   className="px-4 py-2 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
-                  Salvar
+                  Salvar Colaborador
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Criação de Cargo */}
+      {roleModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-sm w-full p-6 shadow-xl space-y-4">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Briefcase size={18} className="text-indigo-400" />
+              Cadastrar Cargo
+            </h3>
+            <form onSubmit={handleSaveRole} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Nome do Cargo</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Operador de Caixa, Repositor, Gerente"
+                  value={roleFormData.name}
+                  onChange={(e) => setRoleFormData({ ...roleFormData, name: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Descrição / CBO (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Atendimento ao cliente e recebimento"
+                  value={roleFormData.description}
+                  onChange={(e) => setRoleFormData({ ...roleFormData, description: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setRoleModalOpen(false)}
+                  className="px-3.5 py-2 rounded-lg text-slate-400 hover:text-white bg-slate-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-500 text-white"
+                >
+                  Salvar Cargo
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Criação de Turno */}
+      {shiftModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Clock size={18} className="text-emerald-400" />
+              Cadastrar Template de Turno
+            </h3>
+            <form onSubmit={handleSaveShift} className="space-y-3 text-xs">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2">
+                  <label className="block text-slate-400 mb-1">Nome do Turno</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Abertura Loja"
+                    value={shiftFormData.name}
+                    onChange={(e) => setShiftFormData({ ...shiftFormData, name: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Sigla</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ABRE"
+                    value={shiftFormData.code}
+                    onChange={(e) => setShiftFormData({ ...shiftFormData, code: e.target.value.toUpperCase() })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 uppercase"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Entrada</label>
+                  <input
+                    type="time"
+                    required
+                    value={shiftFormData.start_time}
+                    onChange={(e) => setShiftFormData({ ...shiftFormData, start_time: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Saída</label>
+                  <input
+                    type="time"
+                    required
+                    value={shiftFormData.end_time}
+                    onChange={(e) => setShiftFormData({ ...shiftFormData, end_time: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Início Almoço</label>
+                  <input
+                    type="time"
+                    value={shiftFormData.lunch_start}
+                    onChange={(e) => setShiftFormData({ ...shiftFormData, lunch_start: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Retorno Almoço</label>
+                  <input
+                    type="time"
+                    value={shiftFormData.lunch_end}
+                    onChange={(e) => setShiftFormData({ ...shiftFormData, lunch_end: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Horas Líquidas Trabalhadas</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  required
+                  value={shiftFormData.net_hours}
+                  onChange={(e) => setShiftFormData({ ...shiftFormData, net_hours: parseFloat(e.target.value) || 8.0 })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShiftModalOpen(false)}
+                  className="px-3.5 py-2 rounded-lg text-slate-400 hover:text-white bg-slate-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
+                >
+                  Salvar Turno
                 </button>
               </div>
             </form>
@@ -1136,8 +1671,21 @@ export default function RHEscalasView({ token }) {
       {settingsModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-white">Parâmetros e Regras de RH</h3>
-            <form onSubmit={handleSaveSettings} className="space-y-3 text-xs">
+            <h3 className="text-base font-bold text-white">Regras de RH & Parâmetros da Empresa</h3>
+            <form onSubmit={handleSaveSettings} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Valor Unitário Universal da Passagem (VT)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={settingsFormData.transport_ticket_unit_price}
+                  onChange={(e) => setSettingsFormData({ ...settingsFormData, transport_ticket_unit_price: parseFloat(e.target.value) || 4.70 })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                />
+                <span className="text-[10px] text-slate-500">Tarifa única universal aplicada a todas as passagens da empresa.</span>
+              </div>
+
               <div>
                 <label className="block text-slate-400 mb-1">Máximo de Domingos Consecutivos (Aviso)</label>
                 <input
@@ -1160,20 +1708,7 @@ export default function RHEscalasView({ token }) {
                   onChange={(e) => setSettingsFormData({ ...settingsFormData, min_daily_hours_for_meal: parseFloat(e.target.value) || 6.0 })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
-                <span className="text-[10px] text-slate-500">Pela CLT, refeição é devida para jornadas acima de 6 horas no dia.</span>
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1">Folgas Compensatórias de Banco de Horas por Mês</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="10"
-                  value={settingsFormData.compensatory_days_per_month}
-                  onChange={(e) => setSettingsFormData({ ...settingsFormData, compensatory_days_per_month: parseInt(e.target.value, 10) || 2 })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                />
-                <span className="text-[10px] text-slate-500">Meta mensal de dias 'BH' (Compensação 48h vs 44h contratuais = 16h/mês).</span>
+                <span className="text-[10px] text-slate-500">CLT: refeição devida apenas em jornadas acima de 6 horas no dia.</span>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
