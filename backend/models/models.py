@@ -180,3 +180,93 @@ class OmieJobQueue(Base):
     retry_count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
+
+# ==============================================================================
+# --- [BLOCO: MÓDULO DE GESTÃO DE RH - ESCALAS & BENEFÍCIOS VT/VA] ---
+# ==============================================================================
+
+class RHEmployee(Base):
+    __tablename__ = "rh_employees"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    name = Column(String, nullable=False)
+    role = Column(String, nullable=True)
+    daily_transport_cost = Column(Float, default=9.40)
+    daily_meal_cost = Column(Float, default=25.00)
+    weekly_contract_hours = Column(Float, default=44.0)
+    weekly_actual_hours = Column(Float, default=48.0)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    organization = relationship("Organization")
+    schedule_days = relationship("RHScheduleDay", back_populates="employee", cascade="all, delete-orphan")
+
+
+class RHSettings(Base):
+    __tablename__ = "rh_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), unique=True, nullable=False)
+    max_consecutive_sundays = Column(Integer, default=2)
+    default_transport_cost = Column(Float, default=9.40)
+    default_meal_cost = Column(Float, default=25.00)
+    min_daily_hours_for_meal = Column(Float, default=6.0)
+    weekly_bank_overtime_hours = Column(Float, default=4.0)
+    compensatory_days_per_month = Column(Integer, default=2)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    organization = relationship("Organization")
+
+
+class RHHoliday(Base):
+    __tablename__ = "rh_holidays"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    date = Column(String, nullable=False) # Formato YYYY-MM-DD
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'date', name='uq_org_holiday_date'),
+    )
+
+
+class RHMonthlySchedule(Base):
+    __tablename__ = "rh_monthly_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False) # 1 a 12
+    status = Column(String, default="DRAFT") # DRAFT, PUBLISHED, CLOSED
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'year', 'month', name='uq_org_schedule_month'),
+    )
+
+    days = relationship("RHScheduleDay", back_populates="schedule", cascade="all, delete-orphan")
+
+
+class RHScheduleDay(Base):
+    __tablename__ = "rh_schedule_days"
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id", ondelete="CASCADE"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False)
+    schedule_type = Column(String, nullable=False) # 'TRANSPORTE' ou 'ALIMENTACAO' (Opção B)
+    day = Column(Integer, nullable=False) # 1 a 31
+    status = Column(String, nullable=False, default="OFF") # 'X', 'BH', 'F', 'FE', 'OFF'
+    shift = Column(String, nullable=True) # 'ABRE' (07h-16h), 'FECHA' (09h-19h), ou customizado
+    daily_hours = Column(Float, default=8.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('schedule_id', 'employee_id', 'schedule_type', 'day', name='uq_schedule_emp_type_day'),
+    )
+
+    schedule = relationship("RHMonthlySchedule", back_populates="days")
+    employee = relationship("RHEmployee", back_populates="schedule_days")
+
