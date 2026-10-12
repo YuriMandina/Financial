@@ -30,4 +30,4 @@ Sua operação deve seguir rigorosamente o ciclo abaixo:
 
 ## Pós-Desenvolvimento e Versionamento
 * Ao concluir a execução com sucesso, revise silenciosamente se todas as tarefas do checklist foram cumpridas.
-* Envie no final da resposta sugestões de **Commits Atômicos** (usando *Conventional Commits*). Se a tarefa for complexa ou envolver múltiplos arquivos, sugira commits separados para cada etapa ou arquivo modularizado, mantendo o histórico rastreável e limpo.
+* Envie no final da resposta sugestões de **Commits Atômicos** (usando *Conventional Commits*). Se a tarefa for complexa ou envolver múltiplos arquivos, sugira commits em português separados para cada etapa ou arquivo modularizado, mantendo o histórico rastreável e limpo.
