@@ -183,6 +183,11 @@ def create_shift(
         lunch_part = f" (almoço {payload.lunch_start} às {payload.lunch_end}) " if payload.lunch_start else " "
         desc = f"{payload.start_time} às {payload.end_time}{lunch_part}({payload.net_hours}h)"
 
+    if payload.is_default:
+        db.query(models.RHWorkShift).filter(
+            models.RHWorkShift.organization_id == current_user.organization_id
+        ).update({"is_default": False})
+
     shift = models.RHWorkShift(
         organization_id=current_user.organization_id,
         name=payload.name.strip(),
@@ -200,6 +205,62 @@ def create_shift(
     db.refresh(shift)
     return shift
 
+@router.put("/shifts/{shift_id}")
+def update_shift(
+    shift_id: int,
+    payload: RHWorkShiftUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    shift = db.query(models.RHWorkShift).filter(
+        models.RHWorkShift.id == shift_id,
+        models.RHWorkShift.organization_id == current_user.organization_id
+    ).first()
+    if not shift:
+        raise HTTPException(status_code=404, detail="Turno não encontrado")
+
+    if payload.code is not None:
+        new_code = payload.code.strip().upper()
+        if new_code != shift.code:
+            existing = db.query(models.RHWorkShift).filter(
+                models.RHWorkShift.organization_id == current_user.organization_id,
+                models.RHWorkShift.code == new_code,
+                models.RHWorkShift.id != shift_id
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Código de turno já cadastrado")
+            shift.code = new_code
+
+    if payload.name is not None:
+        shift.name = payload.name.strip()
+    if payload.start_time is not None:
+        shift.start_time = payload.start_time
+    if payload.lunch_start is not None:
+        shift.lunch_start = payload.lunch_start
+    if payload.lunch_end is not None:
+        shift.lunch_end = payload.lunch_end
+    if payload.end_time is not None:
+        shift.end_time = payload.end_time
+    if payload.net_hours is not None:
+        shift.net_hours = payload.net_hours
+    if payload.description is not None:
+        shift.description = payload.description
+    else:
+        lunch_part = f" (almoço {shift.lunch_start} às {shift.lunch_end}) " if shift.lunch_start else " "
+        shift.description = f"{shift.start_time} às {shift.end_time}{lunch_part}({shift.net_hours}h)"
+
+    if payload.is_default is not None:
+        if payload.is_default:
+            db.query(models.RHWorkShift).filter(
+                models.RHWorkShift.organization_id == current_user.organization_id,
+                models.RHWorkShift.id != shift_id
+            ).update({"is_default": False})
+        shift.is_default = payload.is_default
+
+    db.commit()
+    db.refresh(shift)
+    return shift
+
 @router.delete("/shifts/{shift_id}")
 def delete_shift(
     shift_id: int,
@@ -212,6 +273,15 @@ def delete_shift(
     ).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Turno não encontrado")
+
+    # Desvincular de colaboradores e escalas para não violar integridade referencial
+    db.query(models.RHEmployee).filter(
+        models.RHEmployee.default_shift_id == shift_id
+    ).update({"default_shift_id": None})
+    db.query(models.RHScheduleDay).filter(
+        models.RHScheduleDay.shift_id == shift_id
+    ).update({"shift_id": None, "shift": None})
+
     db.delete(shift)
     db.commit()
     return {"message": "Turno removido com sucesso"}
