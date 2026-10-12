@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import date
 import calendar
@@ -28,6 +28,18 @@ class RHSettingsSchema(BaseModel):
     min_daily_hours_for_meal: float = 6.0
     weekly_bank_overtime_hours: float = 4.0
     compensatory_days_per_month: int = 2
+
+    @field_validator(
+        "transport_ticket_unit_price",
+        "default_transport_cost",
+        "default_meal_cost",
+        "min_daily_hours_for_meal",
+        "weekly_bank_overtime_hours",
+        mode="after"
+    )
+    @classmethod
+    def round_floats(cls, v: float) -> float:
+        return round(float(v), 2) if v is not None else v
 
 class RHRoleCreate(BaseModel):
     name: str
@@ -331,11 +343,11 @@ def update_rh_settings(
         db.add(settings)
 
     settings.max_consecutive_sundays = payload.max_consecutive_sundays
-    settings.transport_ticket_unit_price = payload.transport_ticket_unit_price
-    settings.default_transport_cost = payload.default_transport_cost
-    settings.default_meal_cost = payload.default_meal_cost
-    settings.min_daily_hours_for_meal = payload.min_daily_hours_for_meal
-    settings.weekly_bank_overtime_hours = payload.weekly_bank_overtime_hours
+    settings.transport_ticket_unit_price = round(float(payload.transport_ticket_unit_price), 2)
+    settings.default_transport_cost = round(float(payload.default_transport_cost), 2)
+    settings.default_meal_cost = round(float(payload.default_meal_cost), 2)
+    settings.min_daily_hours_for_meal = round(float(payload.min_daily_hours_for_meal), 2)
+    settings.weekly_bank_overtime_hours = round(float(payload.weekly_bank_overtime_hours), 2)
     settings.compensatory_days_per_month = payload.compensatory_days_per_month
 
     db.commit()
@@ -623,11 +635,11 @@ def get_monthly_schedule(
             "holidays": holidays_by_day,
             "settings": {
                 "max_consecutive_sundays": settings.max_consecutive_sundays,
-                "transport_ticket_unit_price": settings.transport_ticket_unit_price or 4.70,
-                "default_transport_cost": settings.default_transport_cost,
-                "default_meal_cost": settings.default_meal_cost,
-                "min_daily_hours_for_meal": settings.min_daily_hours_for_meal,
-                "weekly_bank_overtime_hours": settings.weekly_bank_overtime_hours,
+                "transport_ticket_unit_price": round(float(settings.transport_ticket_unit_price), 2) if settings.transport_ticket_unit_price is not None else 4.70,
+                "default_transport_cost": round(float(settings.default_transport_cost), 2) if settings.default_transport_cost is not None else 9.40,
+                "default_meal_cost": round(float(settings.default_meal_cost), 2) if settings.default_meal_cost is not None else 25.00,
+                "min_daily_hours_for_meal": round(float(settings.min_daily_hours_for_meal), 2) if settings.min_daily_hours_for_meal is not None else 6.0,
+                "weekly_bank_overtime_hours": round(float(settings.weekly_bank_overtime_hours), 2) if settings.weekly_bank_overtime_hours is not None else 4.0,
                 "compensatory_days_per_month": settings.compensatory_days_per_month
             },
             "roles": [{"id": r.id, "name": r.name, "description": r.description} for r in roles],
