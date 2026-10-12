@@ -992,11 +992,11 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
         {/* Cabeçalho de Ações e Filtro de Período */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 mb-8 print:hidden">
           <div>
-            <h2 className="text-3xl font-bold text-white mb-2">{tituloModulo}</h2>
-            <p className="text-slate-400">{descModulo}</p>
+            <h2 className="text-2xl font-bold text-white tracking-tight mb-1">{tituloModulo}</h2>
+            <p className="text-sm text-slate-400">{descModulo}</p>
           </div>
 
-          <div className="bg-slate-900/80 border border-white/[0.05] rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-3 shadow-sm">
             {menuAtivo !== 'recebimentos' && (
               <DateRangePicker
                 startValue={dataInicial}
@@ -1010,7 +1010,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
             <button
               onClick={() => handleBuscarDados(true)}
               disabled={carregandoTela}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold transition-all disabled:opacity-50"
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 shadow-sm"
             >
               {carregandoTela ? <Loader2 className="animate-spin" size={16} /> : <Database size={16} />}
               SINCRONIZAR DADOS
@@ -1019,15 +1019,15 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
             {menuAtivo !== 'recebimentos' ? (
               <button
                 onClick={handleAbrirSnapshots}
-                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-lg font-bold transition-all"
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/70 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
               >
                 <Database size={16} />
                 BASE DE DADOS
               </button>
             ) : (
               ultimaSincronizacaoRecebimentos && (
-                <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-300 font-medium text-sm">
-                  <Database size={16} className="text-slate-500" />
+                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800/80 border border-slate-700/70 text-slate-300 font-medium text-xs">
+                  <Database size={14} className="text-slate-400" />
                   Última sincronização: {ultimaSincronizacaoRecebimentos}
                 </div>
               )
@@ -1036,7 +1036,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
             {menuAtivo === 'recebimentos' && (
               <button
                 onClick={() => { handleCarregarHistoricoRecibos(); setModalHistoricoRecibosAberto(true); }}
-                className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-lg font-bold transition-all"
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
               >
                 <Receipt size={16} />
                 HISTÓRICO DE RECIBOS
@@ -1048,7 +1048,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
         {/* Cabeçalho de Impressão */}
         <div className={`hidden ${menuAtivo !== 'curva-abc' ? 'print:flex' : ''} items-center justify-between border-b-2 border-slate-800 pb-4 mb-6 mt-4 print:px-2`}>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 print:!bg-indigo-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 print:!bg-indigo-600 flex items-center justify-center">
               <TrendingUp size={18} className="text-white" />
             </div>
             <div>

@@ -13,7 +13,7 @@ export default function ModalRecebimento({ modalBaixa, setModalBaixa, calcularTo
     <>
 {/* MODAL 1: INFORMADOR DE PAGAMENTO */}
         {modalBaixa.aberto && (
-          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center print:hidden p-4">
+          <div className="fixed inset-0 z-[60] bg-black/75 flex items-center justify-center print:hidden p-4">
             <div className="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-5xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
               <h3 className="text-2xl font-bold text-white mb-1">Confirmação de Recebimento</h3>
               <p className="text-slate-400 mb-6">Ajuste os valores pagos para o cliente <span className="text-indigo-400 font-bold">{modalBaixa.cliente}</span></p>

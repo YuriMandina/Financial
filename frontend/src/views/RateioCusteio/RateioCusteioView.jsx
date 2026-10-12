@@ -571,30 +571,26 @@ function TemplatesTab({ token }) {
 
           <div className="flex justify-end items-end border-t border-slate-700 pt-5 mt-6">
              <div className="flex gap-4 text-left flex-wrap justify-end">
-                <div className={`bg-slate-900/80 border rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44 ${totalAllocatedPerc > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
-                  <div className={`absolute top-0 right-0 w-24 h-24 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2 ${totalAllocatedPerc > 100 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}></div>
-                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Alocado (%)</p>
+                <div className={`bg-slate-900 border rounded-xl p-4 flex flex-col justify-center w-44 ${totalAllocatedPerc > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Alocado (%)</p>
                   <p className={`text-2xl font-mono font-bold truncate ${totalAllocatedPerc > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
                      {formatPerc(totalAllocatedPerc)}%
                   </p>
                 </div>
-                <div className={`bg-slate-900/80 border rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44 ${totalAllocatedPerc > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
-                  <div className={`absolute top-0 right-0 w-24 h-24 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2 ${totalAllocatedPerc > 100 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}></div>
-                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Alocado (Kg)</p>
+                <div className={`bg-slate-900 border rounded-xl p-4 flex flex-col justify-center w-44 ${totalAllocatedPerc > 100 ? 'border-red-500/40' : 'border-emerald-500/40'}`}>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Alocado (Kg)</p>
                   <p className={`text-2xl font-mono font-bold truncate ${totalAllocatedPerc > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
                      {formatWeight(totalAllocatedKg)}kg
                   </p>
                 </div>
-                <div className="bg-slate-900/80 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/20 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Perda (%)</p>
+                <div className="bg-slate-900 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center w-44">
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Perda (%)</p>
                   <p className="text-2xl font-mono font-bold text-red-400 truncate">
                      {formatPerc(expectedLossPerc)}%
                   </p>
                 </div>
-                <div className="bg-slate-900/80 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center relative overflow-hidden w-44">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/20 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-                  <p className="text-xs text-slate-400 font-bold z-10 uppercase tracking-wider mb-1">Perda (Kg)</p>
+                <div className="bg-slate-900 border border-red-500/40 rounded-xl p-4 flex flex-col justify-center w-44">
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Perda (Kg)</p>
                   <p className="text-2xl font-mono font-bold text-red-400 truncate">
                      {formatWeight(expectedLossKg)}kg
                   </p>
@@ -626,17 +622,15 @@ function TemplatesTab({ token }) {
               ))}
             </div>
             <div className="mt-4 pt-3 border-t border-slate-700 grid grid-cols-2 gap-4">
-              <div className={`bg-slate-900/80 border rounded-lg p-3 flex flex-col justify-center relative overflow-hidden ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'border-red-500/30' : 'border-emerald-500/30'}`}>
-                <div className={`absolute top-0 right-0 w-16 h-16 blur-xl rounded-full translate-x-1/2 -translate-y-1/2 ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}></div>
-                <p className="text-xs text-slate-400 font-medium z-10">Total Alocado</p>
-                <p className={`text-xl font-mono font-bold z-10 truncate ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+              <div className={`bg-slate-900 border rounded-lg p-3 flex flex-col justify-center ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'border-red-500/30' : 'border-emerald-500/30'}`}>
+                <p className="text-xs text-slate-400 font-medium">Total Alocado</p>
+                <p className={`text-xl font-mono font-bold truncate ${t.items.reduce((a,c) => a + c.expected_yield_percentage, 0) > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
                   {formatPerc(t.items.reduce((a,c) => a + c.expected_yield_percentage, 0))}%
                 </p>
               </div>
-              <div className="bg-slate-900/80 border border-red-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-                <p className="text-xs text-slate-400 font-medium z-10">Perda Estimada</p>
-                <p className="text-xl font-mono font-bold text-red-400 z-10 truncate">
+              <div className="bg-slate-900 border border-red-500/30 rounded-lg p-3 flex flex-col justify-center">
+                <p className="text-xs text-slate-400 font-medium">Perda Estimada</p>
+                <p className="text-xl font-mono font-bold text-red-400 truncate">
                   {formatPerc(100 - t.items.reduce((a,c) => a + c.expected_yield_percentage, 0))}%
                 </p>
               </div>
@@ -882,59 +876,55 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
             </div>
 
             {mode === 'TEMPLATE' ? (
-              <div className="bg-slate-900/80 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden focus-within:border-indigo-500/60 transition-colors">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-                <label className="text-xs text-slate-400 font-medium z-10 mb-1">Template Base</label>
-                <select value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)} className="w-full bg-transparent border-none p-0 text-indigo-300 font-bold text-lg focus:ring-0 outline-none z-10">
+              <div className="bg-slate-900 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center focus-within:border-indigo-500/60 transition-colors">
+                <label className="text-xs text-slate-400 font-medium mb-1">Template Base</label>
+                <select value={selectedTemplate} onChange={e => setSelectedTemplate(e.target.value)} className="w-full bg-transparent border-none p-0 text-indigo-300 font-bold text-lg focus:ring-0 outline-none">
                   <option value="" className="bg-slate-900 text-slate-300">Selecione...</option>
                   {templates.map(t => <option key={t.id} value={t.id} className="bg-slate-900 text-slate-300">{t.name}</option>)}
                 </select>
               </div>
             ) : (
-              <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden">
-                <label className="text-xs text-slate-400 font-medium z-10 mb-1">Copiar de Template</label>
-                <div className="flex gap-2 z-10">
+              <div className="bg-slate-900 border border-slate-700/50 rounded-lg p-3 flex flex-col justify-center">
+                <label className="text-xs text-slate-400 font-medium mb-1">Copiar de Template</label>
+                <div className="flex gap-2">
                   <select value={copyTemplateId} onChange={e => setCopyTemplateId(e.target.value)} className="flex-1 bg-transparent border-b border-slate-700 p-0 text-sm text-slate-300 outline-none focus:border-indigo-500 transition-colors">
                     <option value="" className="bg-slate-900 text-slate-300">Selecione...</option>
                     {templates.map(t => <option key={t.id} value={t.id} className="bg-slate-900 text-slate-300">{t.name}</option>)}
                   </select>
-                  <button onClick={copyFromTemplate} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 rounded-md text-xs font-bold transition-colors shadow-lg">Ir</button>
+                  <button onClick={copyFromTemplate} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 rounded-md text-xs font-bold transition-colors shadow-sm">Ir</button>
                 </div>
               </div>
             )}
             
-            <div className="bg-slate-900/80 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden focus-within:border-indigo-500/60 transition-colors">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-              <label className="text-xs text-slate-400 font-medium z-10 mb-1">Peso Total (Kg)</label>
+            <div className="bg-slate-900 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center focus-within:border-indigo-500/60 transition-colors">
+              <label className="text-xs text-slate-400 font-medium mb-1">Peso Total (Kg)</label>
               <NumericFormat
                 thousandSeparator="."
                 decimalSeparator=","
                 decimalScale={3}
                 value={carcassWeight}
                 onValueChange={(values) => setCarcassWeight(values.floatValue)}
-                className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600"
+                className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none placeholder-slate-600"
                 placeholder="Ex: 300,00"
               />
             </div>
             
-            <div className="bg-slate-900/80 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden focus-within:border-indigo-500/60 transition-colors">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-              <label className="text-xs text-slate-400 font-medium z-10 mb-1">Preço / Kg (R$)</label>
+            <div className="bg-slate-900 border border-indigo-500/30 rounded-lg p-3 flex flex-col justify-center focus-within:border-indigo-500/60 transition-colors">
+              <label className="text-xs text-slate-400 font-medium mb-1">Preço / Kg (R$)</label>
               <NumericFormat
                 thousandSeparator="."
                 decimalSeparator=","
                 decimalScale={2}
                 value={carcassCost}
                 onValueChange={(values) => setCarcassCost(values.floatValue)}
-                className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none z-10 placeholder-slate-600"
+                className="w-full bg-transparent border-none p-0 text-white font-mono text-xl focus:ring-0 outline-none placeholder-slate-600"
                 placeholder="Ex: 10,00"
               />
             </div>
 
-            <div className="bg-slate-900/80 border border-emerald-500/30 rounded-lg p-3 flex flex-col justify-center relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/10 blur-xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
-              <p className="text-xs text-slate-400 font-medium z-10">Custo Total</p>
-              <p className="text-2xl font-mono font-bold text-emerald-400 z-10 truncate">
+            <div className="bg-slate-900 border border-emerald-500/30 rounded-lg p-3 flex flex-col justify-center">
+              <p className="text-xs text-slate-400 font-medium">Custo Total</p>
+              <p className="text-2xl font-mono font-bold text-emerald-400 truncate">
                 {(carcassWeight && carcassCost) ? `R$ ${formatMoney(Number(carcassWeight)*Number(carcassCost))}` : '---'}
               </p>
             </div>
@@ -1095,10 +1085,7 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
               </table>
             </div>
             
-            <div className="mt-8 bg-slate-900 border border-slate-700/50 rounded-xl p-6 shadow-lg relative z-20">
-              <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 blur-3xl rounded-full"></div>
-              </div>
+            <div className="mt-8 bg-slate-900 border border-slate-700 rounded-xl p-6 shadow-sm relative z-20">
               
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-2 relative z-10">
                 <div>
@@ -1421,22 +1408,20 @@ function SimulatorTab({ token, onTaskStart, calculationResult }) {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-lg">
+            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-sm">
               <p className="text-sm text-slate-400 font-bold mb-1">Custo Total (Rateado do Lote)</p>
               <p className="text-3xl font-mono text-red-400">R$ {formatMoney(totalCost)}</p>
             </div>
-            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-lg relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full"></div>
-              <p className="text-sm text-slate-400 font-bold mb-1 relative z-10">Faturamento Projetado (VPL)</p>
-              <p className="text-3xl font-mono text-indigo-400 relative z-10">R$ {formatMoney(expectedVPL)}</p>
+            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-sm">
+              <p className="text-sm text-slate-400 font-bold mb-1">Faturamento Projetado (VPL)</p>
+              <p className="text-3xl font-mono text-indigo-400">R$ {formatMoney(expectedVPL)}</p>
             </div>
-            <div className={`bg-slate-900 border p-6 rounded-xl shadow-lg relative overflow-hidden ${expectedMargin >= 0 ? 'border-emerald-500/30' : 'border-red-500/30'}`}>
-              <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl rounded-full ${expectedMargin >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}></div>
-              <p className="text-sm text-slate-400 font-bold mb-1 relative z-10">Margem Global Projetada</p>
-              <p className={`text-3xl font-mono font-bold relative z-10 ${expectedMargin >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            <div className={`bg-slate-900 border p-6 rounded-xl shadow-sm ${expectedMargin >= 0 ? 'border-emerald-500/30' : 'border-red-500/30'}`}>
+              <p className="text-sm text-slate-400 font-bold mb-1">Margem Global Projetada</p>
+              <p className={`text-3xl font-mono font-bold ${expectedMargin >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {formatPerc(expectedMargin)}%
               </p>
-              <p className="text-xs text-slate-500 mt-1 relative z-10">Lucro R$: {formatMoney(expectedProfit)}</p>
+              <p className="text-xs text-slate-500 mt-1">Lucro R$: {formatMoney(expectedProfit)}</p>
             </div>
           </div>
 

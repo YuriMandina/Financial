@@ -1,36 +1,45 @@
 import React from 'react';
 import { TrendingUp, LayoutDashboard, FileText, Database, CreditCard, Target, PieChart } from 'lucide-react';
 
-const SidebarItem = ({ id, icone: Icon, texto, menuAtivo, setMenuAtivo, setContasBrutas, setSelecionados, setClienteFiltro, setContaFiltro, setPaginaAtual }) => (
-  <button onClick={() => { 
-    setMenuAtivo(id); 
-    setContasBrutas?.([]); 
-    setSelecionados?.([]); 
-    setClienteFiltro?.(''); 
-    setContaFiltro?.('TODAS'); 
-    setPaginaAtual?.(1); 
-  }}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 print:hidden ${menuAtivo === id ? 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-400 border border-indigo-500/30 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
-      }`}>
-    <Icon size={20} className={menuAtivo === id ? 'text-indigo-400' : ''} />
-    <span className="font-medium text-left text-sm">{texto}</span>
-  </button>
-);
+const SidebarItem = ({ id, icone: Icon, texto, menuAtivo, setMenuAtivo, setContasBrutas, setSelecionados, setClienteFiltro, setContaFiltro, setPaginaAtual }) => {
+  const isActive = menuAtivo === id;
+  return (
+    <button
+      onClick={() => { 
+        setMenuAtivo(id); 
+        setContasBrutas?.([]); 
+        setSelecionados?.([]); 
+        setClienteFiltro?.(''); 
+        setContaFiltro?.('TODAS'); 
+        setPaginaAtual?.(1); 
+      }}
+      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors print:hidden ${
+        isActive 
+          ? 'bg-slate-800 text-white border border-slate-700/70 shadow-sm' 
+          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+      }`}
+    >
+      <Icon size={18} className={isActive ? 'text-indigo-400' : 'text-slate-400'} />
+      <span className="text-left">{texto}</span>
+    </button>
+  );
+};
 
 export default function Sidebar({ menuAtivo, setMenuAtivo, setContasBrutas, setSelecionados, setClienteFiltro, setContaFiltro, setPaginaAtual }) {
-
-
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20 print:hidden">
-      <div className="h-20 shrink-0 flex items-center px-6 border-b border-slate-800">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <TrendingUp size={18} className="text-white" />
+    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20 print:hidden shrink-0">
+      <div className="h-16 shrink-0 flex items-center px-5 border-b border-slate-800">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-sm">
+            <TrendingUp size={18} />
           </div>
-          <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">Financial</h1>
+          <div>
+            <h1 className="text-base font-bold text-white tracking-tight leading-none">Financial</h1>
+            <span className="text-[10px] text-slate-400 font-medium tracking-wider uppercase">Enterprise BI</span>
+          </div>
         </div>
       </div>
-      <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="dashboard" icone={LayoutDashboard} texto="Visão Geral" />
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="contas-pagar" icone={FileText} texto="Contas a Pagar" />
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="contas-pagas" icone={Database} texto="Contas Pagas" />

@@ -57,8 +57,6 @@ export const VerifyEmail = ({ onVerified }) => {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-8 shadow-2xl text-center relative overflow-hidden">
-        <div className="absolute top-[-50px] left-[-50px] w-40 h-40 bg-indigo-500/20 rounded-full blur-[50px] pointer-events-none z-0"></div>
-        
         <div className="relative z-10 flex flex-col items-center">
           {status === 'loading' && (
             <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-6">

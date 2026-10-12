@@ -135,11 +135,11 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
         
         {/* HEADER */}
-        <div className="relative bg-gradient-to-r from-blue-600 to-indigo-700 p-6 text-white text-center flex-shrink-0">
+        <div className="relative bg-slate-800 p-6 text-white text-center flex-shrink-0 border-b border-slate-700">
           {!isCompleted && !isError && (
              <button 
                onClick={() => setMinimized(true)} 

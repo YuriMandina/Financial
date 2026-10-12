@@ -52,10 +52,7 @@ export default function AppLayout() {
       <Sidebar menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} />
 
       {/* Área de Conteúdo Principal */}
-      <main className="flex-1 flex flex-col relative overflow-y-auto overflow-x-hidden print:!block print:!h-auto print:!overflow-visible">
-        {/* Glow Effects Decorativos */}
-        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden" />
-        <div className="absolute bottom-[-10%] right-[-5%] w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] transform-gpu pointer-events-none z-0 print:hidden" />
+      <main className="flex-1 flex flex-col relative overflow-y-auto overflow-x-hidden bg-slate-950 print:!block print:!h-auto print:!overflow-visible">
 
         {/* Barra Superior */}
         <Topbar
