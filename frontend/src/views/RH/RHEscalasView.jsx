@@ -144,7 +144,12 @@ export default function RHEscalasView({ token }) {
       setLocalGrid(data.grid || {});
       setDirty(false);
       if (data.settings) {
-        setSettingsFormData(data.settings);
+        setSettingsFormData({
+          ...data.settings,
+          transport_ticket_unit_price: Number(data.settings.transport_ticket_unit_price || 4.70).toFixed(2),
+          default_meal_cost: Number(data.settings.default_meal_cost || 25.00).toFixed(2),
+          default_transport_cost: Number(data.settings.default_transport_cost || 9.40).toFixed(2)
+        });
       }
     } catch (err) {
       console.error('Falha ao carregar escala de RH:', err);
@@ -347,7 +352,7 @@ export default function RHEscalasView({ token }) {
         role_id: employeeFormData.role_id ? parseInt(employeeFormData.role_id, 10) : null,
         default_shift_id: employeeFormData.default_shift_id ? parseInt(employeeFormData.default_shift_id, 10) : null,
         default_daily_transport_tickets: parseInt(employeeFormData.default_daily_transport_tickets, 10) || 2,
-        daily_meal_cost: parseFloat(employeeFormData.daily_meal_cost) || 25.00,
+        daily_meal_cost: parseFloat(Number(employeeFormData.daily_meal_cost).toFixed(2)) || 25.00,
         weekly_contract_hours: parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         weekly_actual_hours: 48.0,
         active: employeeFormData.active
@@ -447,13 +452,22 @@ export default function RHEscalasView({ token }) {
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     try {
+      const payload = {
+        ...settingsFormData,
+        max_consecutive_sundays: parseInt(settingsFormData.max_consecutive_sundays, 10) || 2,
+        transport_ticket_unit_price: parseFloat(Number(settingsFormData.transport_ticket_unit_price).toFixed(2)) || 4.70,
+        default_meal_cost: parseFloat(Number(settingsFormData.default_meal_cost).toFixed(2)) || 25.00,
+        min_daily_hours_for_meal: parseFloat(settingsFormData.min_daily_hours_for_meal) || 6.0,
+        weekly_bank_overtime_hours: parseFloat(settingsFormData.weekly_bank_overtime_hours) || 4.0,
+        compensatory_days_per_month: parseInt(settingsFormData.compensatory_days_per_month, 10) || 2
+      };
       const res = await fetch(`${API_BASE}/api/rh/settings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(settingsFormData)
+        body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error('Erro ao atualizar configurações');
       setSettingsModalOpen(false);
@@ -526,7 +540,7 @@ export default function RHEscalasView({ token }) {
                 role_id: '',
                 default_shift_id: '',
                 default_daily_transport_tickets: 2,
-                daily_meal_cost: 25.00,
+                daily_meal_cost: '25.00',
                 weekly_contract_hours: 44.0,
                 weekly_actual_hours: 48.0,
                 active: true
@@ -951,7 +965,7 @@ export default function RHEscalasView({ token }) {
                 role_id: roles[0]?.id || '',
                 default_shift_id: shifts[0]?.id || '',
                 default_daily_transport_tickets: 2,
-                daily_meal_cost: 25.00,
+                daily_meal_cost: '25.00',
                 weekly_contract_hours: 44.0,
                 weekly_actual_hours: 48.0,
                 active: true
@@ -1025,7 +1039,7 @@ export default function RHEscalasView({ token }) {
                             role_id: emp.role_id || '',
                             default_shift_id: emp.default_shift_id || '',
                             default_daily_transport_tickets: emp.default_daily_transport_tickets || 2,
-                            daily_meal_cost: emp.daily_meal_cost || 25.00,
+                            daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2),
                             weekly_contract_hours: emp.weekly_contract_hours || 44.0,
                             weekly_actual_hours: 48.0,
                             active: true
@@ -1470,14 +1484,25 @@ export default function RHEscalasView({ token }) {
 
               <div>
                 <label className="block text-slate-400 mb-1">Valor do Vale Alimentação Individual (R$/refeição)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={employeeFormData.daily_meal_cost}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, daily_meal_cost: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                />
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={employeeFormData.daily_meal_cost ?? ''}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, daily_meal_cost: e.target.value })}
+                    onBlur={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setEmployeeFormData({
+                        ...employeeFormData,
+                        daily_meal_cost: isNaN(val) ? '0.00' : val.toFixed(2)
+                      });
+                    }}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
                 <span className="text-[10px] text-slate-500">1 benefício pago por dia quando a jornada for superior a 6h.</span>
               </div>
 
@@ -1571,14 +1596,25 @@ export default function RHEscalasView({ token }) {
             <form onSubmit={handleSaveSettings} className="space-y-3.5 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1">Valor Unitário Universal da Passagem (VT)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={settingsFormData.transport_ticket_unit_price}
-                  onChange={(e) => setSettingsFormData({ ...settingsFormData, transport_ticket_unit_price: parseFloat(e.target.value) || 4.70 })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                />
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={settingsFormData.transport_ticket_unit_price ?? ''}
+                    onChange={(e) => setSettingsFormData({ ...settingsFormData, transport_ticket_unit_price: e.target.value })}
+                    onBlur={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setSettingsFormData({
+                        ...settingsFormData,
+                        transport_ticket_unit_price: isNaN(val) ? '4.70' : val.toFixed(2)
+                      });
+                    }}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
                 <span className="text-[10px] text-slate-500">Tarifa única universal aplicada a todas as passagens da empresa.</span>
               </div>
 
