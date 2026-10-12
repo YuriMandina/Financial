@@ -21,6 +21,7 @@ from api.snapshots import router as snapshots_router
 from api.relatorios import router as relatorios_router
 from api.recebimentos import router as recebimentos_router
 from api.tasks import router as tasks_router
+from api.rh import router as rh_router
 
 # --- SETUP DA APLICAÇÃO ---
 app = FastAPI(title="API GabaritoBI", version="5.0")
@@ -53,3 +54,5 @@ app.include_router(snapshots_router)
 app.include_router(recebimentos_router)
 app.include_router(relatorios_router)
 app.include_router(tasks_router)
+app.include_router(rh_router)
+
