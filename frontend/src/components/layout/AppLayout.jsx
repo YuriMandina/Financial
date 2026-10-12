@@ -8,6 +8,7 @@ import { Settings } from '../../views/Settings/Settings';
 import RateioECusteio from '../../views/RateioCusteio/RateioCusteioView';
 import { DreGerencial } from '../../views/DreGerencial/DreGerencialView';
 import FinancialReportsView from '../../views/Relatorios/FinancialReportsView';
+import RHEscalasView from '../../views/RH/RHEscalasView';
 
 export default function AppLayout() {
   // --- [BLOCO: Estado de Navegação e Layout Base] ---
@@ -36,6 +37,8 @@ export default function AppLayout() {
             refreshCounter={globalRefreshCounter}
           />
         );
+      case 'rh-escalas':
+        return <RHEscalasView token={token} />;
       default:
         return (
           <FinancialReportsView
