@@ -6,6 +6,7 @@ import {
   UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
+import RHShiftModal from './components/RHShiftModal';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -99,17 +100,6 @@ export default function RHEscalasView({ token }) {
   const [roleFormData, setRoleFormData] = useState({ name: '', description: '' });
 
   const [shiftModalOpen, setShiftModalOpen] = useState(false);
-  const [shiftFormData, setShiftFormData] = useState({
-    name: '',
-    code: '',
-    start_time: '07:00',
-    lunch_start: '12:00',
-    lunch_end: '13:00',
-    end_time: '16:00',
-    net_hours: 8.0,
-    description: '',
-    is_default: false
-  });
 
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsFormData, setSettingsFormData] = useState({
@@ -175,12 +165,14 @@ export default function RHEscalasView({ token }) {
   const handleCellClick = (empId, day, type) => {
     setLocalGrid((prev) => {
       const empData = prev[empId] || { TRANSPORTE: {}, ALIMENTACAO: {} };
+      const defaultShift = shifts.find((s) => s.is_default) || shifts[0];
+      const empObj = employees.find((e) => e.id === empId);
       const currentEntry = empData[type]?.[day] || { 
         status: 'OFF', 
-        shift: 'ABRE', 
-        shift_id: null,
-        tickets_count: 2, 
-        daily_hours: 8.0 
+        shift: defaultShift?.code || null, 
+        shift_id: defaultShift?.id || null,
+        tickets_count: empObj?.default_daily_transport_tickets || 2, 
+        daily_hours: defaultShift?.net_hours || 8.0 
       };
       const currentStatus = currentEntry.status || 'OFF';
 
@@ -241,6 +233,7 @@ export default function RHEscalasView({ token }) {
     setLocalGrid((prev) => {
       const empData = prev[empId] || { TRANSPORTE: {}, ALIMENTACAO: {} };
       const currentEntry = empData[type]?.[day] || { status: 'X', shift: newShiftCode, daily_hours: 8.0 };
+      const shiftObj = shifts.find((s) => s.id === newShiftId || s.code === newShiftCode);
 
       const updatedEmpData = {
         ...empData,
@@ -248,8 +241,9 @@ export default function RHEscalasView({ token }) {
           ...(empData[type] || {}),
           [day]: {
             ...currentEntry,
-            shift: newShiftCode,
-            shift_id: newShiftId
+            shift: newShiftCode || null,
+            shift_id: newShiftId || null,
+            daily_hours: shiftObj?.net_hours || currentEntry.daily_hours || 8.0
           }
         }
       };
@@ -433,36 +427,7 @@ export default function RHEscalasView({ token }) {
     }
   };
 
-  const handleSaveShift = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${API_BASE}/api/rh/shifts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(shiftFormData)
-      });
-      if (!res.ok) throw new Error('Erro ao criar turno');
-      setShiftModalOpen(false);
-      setShiftFormData({
-        name: '',
-        code: '',
-        start_time: '07:00',
-        lunch_start: '12:00',
-        lunch_end: '13:00',
-        end_time: '16:00',
-        net_hours: 8.0,
-        description: '',
-        is_default: false
-      });
-      await fetchSchedule();
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao criar template de turno.');
-    }
-  };
+
 
   const handleDeleteShift = async (shiftId) => {
     if (!window.confirm('Excluir este template de turno?')) return;
@@ -881,9 +846,9 @@ export default function RHEscalasView({ token }) {
                       <div className="text-[11px] text-slate-600 italic">Sem colaboradores</div>
                     ) : (
                       employees.map((emp) => {
-                        const empDayInfo = localGrid[emp.id]?.TRANSPORTE?.[sunDay] || { status: 'OFF', shift: 'ABRE' };
+                        const empDayInfo = localGrid[emp.id]?.TRANSPORTE?.[sunDay] || { status: 'OFF', shift: null };
                         const isWorking = empDayInfo.status === 'X';
-                        const currentShift = shifts.find((s) => s.code === (empDayInfo.shift || 'ABRE')) || shifts[0];
+                        const currentShift = shifts.find((s) => s.code === empDayInfo.shift) || shifts.find((s) => s.is_default) || shifts[0];
 
                         return (
                           <div key={emp.id} className="p-2 rounded bg-slate-900/60 border border-slate-800/80 text-xs space-y-1">
@@ -892,21 +857,31 @@ export default function RHEscalasView({ token }) {
                                 {emp.name}
                               </span>
                               {isWorking ? (
-                                <select
-                                  value={empDayInfo.shift || 'ABRE'}
-                                  onChange={(e) => {
-                                    const sObj = shifts.find((s) => s.code === e.target.value);
-                                    handleShiftChange(emp.id, sunDay, 'TRANSPORTE', e.target.value, sObj?.id);
-                                    handleShiftChange(emp.id, sunDay, 'ALIMENTACAO', e.target.value, sObj?.id);
-                                  }}
-                                  className="bg-slate-800 border border-slate-700 rounded text-[11px] text-slate-200 px-1.5 py-0.5 focus:outline-none focus:border-indigo-500 font-medium"
-                                >
-                                  {shifts.map((s) => (
-                                    <option key={s.id} value={s.code}>
-                                      {s.code}: {s.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                shifts.length === 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShiftModalOpen(true)}
+                                    className="text-[10px] text-amber-400 hover:text-amber-300 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded font-medium transition"
+                                  >
+                                    + Cadastrar Turno
+                                  </button>
+                                ) : (
+                                  <select
+                                    value={empDayInfo.shift || currentShift?.code || ''}
+                                    onChange={(e) => {
+                                      const sObj = shifts.find((s) => s.code === e.target.value);
+                                      handleShiftChange(emp.id, sunDay, 'TRANSPORTE', e.target.value, sObj?.id);
+                                      handleShiftChange(emp.id, sunDay, 'ALIMENTACAO', e.target.value, sObj?.id);
+                                    }}
+                                    className="bg-slate-800 border border-slate-700 rounded text-[11px] text-slate-200 px-1.5 py-0.5 focus:outline-none focus:border-indigo-500 font-medium"
+                                  >
+                                    {shifts.map((s) => (
+                                      <option key={s.id} value={s.code}>
+                                        {s.code}: {s.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )
                               ) : (
                                 <span className="text-[11px] text-slate-500 font-medium italic">Folga</span>
                               )}
@@ -1132,17 +1107,28 @@ export default function RHEscalasView({ token }) {
             </button>
           </div>
           <div className="space-y-1.5 max-h-48 overflow-y-auto">
-            {shifts.map((s) => (
-              <div key={s.id} className="flex items-center justify-between py-1.5 px-2 rounded bg-slate-950 text-xs">
-                <div>
-                  <span className="font-semibold text-slate-200">
-                    [{s.code}] {s.name} ({s.net_hours}h)
-                  </span>
-                  <span className="text-slate-500 text-[11px] block">
-                    {s.start_time} às {s.end_time} {s.lunch_start && `(almoço: ${s.lunch_start}-${s.lunch_end})`}
-                  </span>
-                </div>
-                {!s.is_default && (
+            {shifts.length === 0 ? (
+              <div className="text-center py-4 text-xs text-slate-500">
+                Nenhum turno cadastrado.{' '}
+                <button
+                  type="button"
+                  onClick={() => setShiftModalOpen(true)}
+                  className="text-emerald-400 hover:underline font-medium"
+                >
+                  Cadastrar agora
+                </button>
+              </div>
+            ) : (
+              shifts.map((s) => (
+                <div key={s.id} className="flex items-center justify-between py-1.5 px-2 rounded bg-slate-950 text-xs">
+                  <div>
+                    <span className="font-semibold text-slate-200">
+                      [{s.code}] {s.name} ({s.net_hours}h)
+                    </span>
+                    <span className="text-slate-500 text-[11px] block">
+                      {s.start_time} às {s.end_time} {s.lunch_start && `(almoço: ${s.lunch_start}-${s.lunch_end})`}
+                    </span>
+                  </div>
                   <button
                     onClick={() => handleDeleteShift(s.id)}
                     className="text-slate-500 hover:text-red-400 p-1"
@@ -1150,9 +1136,9 @@ export default function RHEscalasView({ token }) {
                   >
                     <Trash2 size={13} />
                   </button>
-                )}
-              </div>
-            ))}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -1567,115 +1553,15 @@ export default function RHEscalasView({ token }) {
         </div>
       )}
 
-      {/* Modal de Criação de Turno */}
-      {shiftModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Clock size={18} className="text-emerald-400" />
-              Cadastrar Template de Turno
-            </h3>
-            <form onSubmit={handleSaveShift} className="space-y-3 text-xs">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2">
-                  <label className="block text-slate-400 mb-1">Nome do Turno</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Abertura Loja"
-                    value={shiftFormData.name}
-                    onChange={(e) => setShiftFormData({ ...shiftFormData, name: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Sigla</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="ABRE"
-                    value={shiftFormData.code}
-                    onChange={(e) => setShiftFormData({ ...shiftFormData, code: e.target.value.toUpperCase() })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 uppercase"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">Entrada</label>
-                  <input
-                    type="time"
-                    required
-                    value={shiftFormData.start_time}
-                    onChange={(e) => setShiftFormData({ ...shiftFormData, start_time: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Saída</label>
-                  <input
-                    type="time"
-                    required
-                    value={shiftFormData.end_time}
-                    onChange={(e) => setShiftFormData({ ...shiftFormData, end_time: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">Início Almoço</label>
-                  <input
-                    type="time"
-                    value={shiftFormData.lunch_start}
-                    onChange={(e) => setShiftFormData({ ...shiftFormData, lunch_start: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Retorno Almoço</label>
-                  <input
-                    type="time"
-                    value={shiftFormData.lunch_end}
-                    onChange={(e) => setShiftFormData({ ...shiftFormData, lunch_end: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1">Horas Líquidas Trabalhadas</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  required
-                  value={shiftFormData.net_hours}
-                  onChange={(e) => setShiftFormData({ ...shiftFormData, net_hours: parseFloat(e.target.value) || 8.0 })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShiftModalOpen(false)}
-                  className="px-3.5 py-2 rounded-lg text-slate-400 hover:text-white bg-slate-800"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
-                >
-                  Salvar Turno
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Modal de Gestão e Criação de Turnos */}
+      <RHShiftModal
+        isOpen={shiftModalOpen}
+        onClose={() => setShiftModalOpen(false)}
+        shifts={shifts}
+        token={token}
+        onShiftCreated={fetchSchedule}
+        onShiftDeleted={fetchSchedule}
+      />
 
       {/* Modal de Configurações de RH */}
       {settingsModalOpen && (
