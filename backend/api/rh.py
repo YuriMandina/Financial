@@ -155,48 +155,11 @@ def delete_role(
 # --- [BLOCO: TEMPLATES DE TURNOS E ESCALAS] ---
 # ==============================================================================
 
-def ensure_default_shifts(db: Session, organization_id: int):
-    """Garante a existência dos turnos padrão de Abertura e Fechamento."""
-    count = db.query(models.RHWorkShift).filter(
-        models.RHWorkShift.organization_id == organization_id
-    ).count()
-
-    if count == 0:
-        shifts = [
-            models.RHWorkShift(
-                organization_id=organization_id,
-                name="Abertura de Loja",
-                code="ABRE",
-                start_time="07:00",
-                lunch_start="12:00",
-                lunch_end="13:00",
-                end_time="16:00",
-                net_hours=8.0,
-                description="07:00 às 12:00 (almoço 12:00 às 13:00) 13:00 às 16:00",
-                is_default=True
-            ),
-            models.RHWorkShift(
-                organization_id=organization_id,
-                name="Fechamento de Loja",
-                code="FECHA",
-                start_time="09:00",
-                lunch_start="13:00",
-                lunch_end="14:00",
-                end_time="19:00",
-                net_hours=9.0,
-                description="09:00 às 13:00 (almoço 13:00 às 14:00) 14:00 às 19:00",
-                is_default=False
-            )
-        ]
-        db.add_all(shifts)
-        db.commit()
-
 @router.get("/shifts")
 def list_shifts(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    ensure_default_shifts(db, current_user.organization_id)
     shifts = db.query(models.RHWorkShift).filter(
         models.RHWorkShift.organization_id == current_user.organization_id
     ).order_by(models.RHWorkShift.name.asc()).all()
@@ -499,8 +462,6 @@ def get_monthly_schedule(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     try:
-        ensure_default_shifts(db, current_user.organization_id)
-
         settings = db.query(models.RHSettings).filter(
             models.RHSettings.organization_id == current_user.organization_id
         ).first()
@@ -739,10 +700,17 @@ def auto_fill_standard_schedule(
     ).all()
 
     for emp in employees:
-        shift_to_use = emp.default_shift_id or (default_shift.id if default_shift else None)
-        shift_code = "ABRE"
-        if default_shift:
-            shift_code = default_shift.code
+        emp_shift = None
+        if emp.default_shift_id:
+            emp_shift = db.query(models.RHWorkShift).filter(
+                models.RHWorkShift.id == emp.default_shift_id,
+                models.RHWorkShift.organization_id == current_user.organization_id
+            ).first()
+
+        target_shift = emp_shift or default_shift
+        shift_to_use = target_shift.id if target_shift else None
+        shift_code = target_shift.code if target_shift else None
+        shift_net_hours = target_shift.net_hours if target_shift else 8.0
 
         tickets_default = emp.default_daily_transport_tickets or 2
 
@@ -776,7 +744,7 @@ def auto_fill_standard_schedule(
                         shift_id=shift_to_use,
                         shift=shift_code,
                         tickets_count=tickets_default,
-                        daily_hours=8.0
+                        daily_hours=shift_net_hours
                     ))
 
     db.commit()
