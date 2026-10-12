@@ -8,6 +8,7 @@ import asyncio
 from core.database import engine
 from models.models import Base
 from services.omie_worker import start_omie_queue_worker
+from core.http_client import close_async_client
 
 # Import dos routers
 from api.auth import router as auth_router
@@ -28,6 +29,10 @@ app = FastAPI(title="API GabaritoBI", version="5.0")
 async def startup_event():
     Base.metadata.create_all(bind=engine)
     asyncio.create_task(start_omie_queue_worker())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await close_async_client()
 
 app.add_middleware(
     CORSMiddleware,
