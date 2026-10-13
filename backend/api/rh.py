@@ -76,7 +76,7 @@ class RHEmployeeCreate(BaseModel):
     daily_transport_cost: float = 9.40
     daily_meal_cost: float = 25.00
     weekly_contract_hours: float = 44.0
-    weekly_actual_hours: float = 48.0
+    weekly_actual_hours: Optional[float] = None
     active: bool = True
 
 class RHEmployeeUpdate(BaseModel):
@@ -382,7 +382,7 @@ def list_employees(
             "daily_transport_cost": emp.daily_transport_cost,
             "daily_meal_cost": emp.daily_meal_cost,
             "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
-            "weekly_actual_hours": emp.weekly_actual_hours or 48.0,
+            "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0),
             "active": emp.active
         })
     return result
@@ -409,7 +409,7 @@ def create_employee(
         daily_transport_cost=payload.daily_transport_cost,
         daily_meal_cost=payload.daily_meal_cost,
         weekly_contract_hours=payload.weekly_contract_hours,
-        weekly_actual_hours=payload.weekly_actual_hours,
+        weekly_actual_hours=payload.weekly_actual_hours if payload.weekly_actual_hours is not None else (payload.weekly_contract_hours or 44.0),
         active=payload.active
     )
     db.add(emp)
@@ -667,7 +667,8 @@ def get_monthly_schedule(
                     "default_shift_id": emp.default_shift_id,
                     "default_daily_transport_tickets": emp.default_daily_transport_tickets or 2,
                     "daily_meal_cost": emp.daily_meal_cost,
-                    "weekly_contract_hours": emp.weekly_contract_hours or 44.0
+                    "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
+                    "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0)
                 }
                 for emp in employees
             ],

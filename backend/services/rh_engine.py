@@ -101,7 +101,9 @@ def calculate_employee_month_summary(
     emp_meal_cost = getattr(employee, "daily_meal_cost", 25.00) or 0.0
     default_tickets = getattr(employee, "default_daily_transport_tickets", 2) or 2
     contract_hours = getattr(employee, "weekly_contract_hours", 44.0) or 44.0
-    actual_hours = getattr(employee, "weekly_actual_hours", 48.0) or 48.0
+    actual_hours = getattr(employee, "weekly_actual_hours", None)
+    if actual_hours is None:
+        actual_hours = contract_hours
 
     # Meta de folgas de banco de horas baseada na diferença semanal
     weekly_overtime = max(0.0, actual_hours - contract_hours)
