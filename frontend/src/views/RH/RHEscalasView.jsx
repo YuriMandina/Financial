@@ -1425,31 +1425,56 @@ export default function RHEscalasView({ token }) {
       {/* Renderização do Conteúdo da Aba */}
       {activeTab === 'jornada' && (
         <RHJornadaGrid
-          token={token}
+          employees={employees}
+          shifts={shifts}
+          workDays={workDays}
+          daysList={daysList}
+          sundays={sundays}
+          holidays={holidays}
           selectedYear={selectedYear}
           selectedMonth={selectedMonth}
-          scheduleData={scheduleData}
-          onDataChanged={fetchSchedule}
+          scheduleId={scheduleData?.schedule_id}
+          token={token}
+          apiBase={API_BASE}
+          onRefresh={fetchSchedule}
+          summaries={summaries}
         />
       )}
       {activeTab === 'transporte' && (
         <RHBeneficiosGrid
           type="VT"
-          token={token}
+          employees={employees}
+          workDays={workDays}
+          benefitAdjustments={benefitAdjustments}
+          daysList={daysList}
+          sundays={sundays}
+          holidays={holidays}
           selectedYear={selectedYear}
           selectedMonth={selectedMonth}
-          scheduleData={scheduleData}
-          onDataChanged={fetchSchedule}
+          scheduleId={scheduleData?.schedule_id}
+          ticketUnitPrice={ticketUnitPrice}
+          token={token}
+          apiBase={API_BASE}
+          onRefresh={fetchSchedule}
+          summaries={summaries}
         />
       )}
       {activeTab === 'alimentacao' && (
         <RHBeneficiosGrid
           type="VA"
-          token={token}
+          employees={employees}
+          workDays={workDays}
+          benefitAdjustments={benefitAdjustments}
+          daysList={daysList}
+          sundays={sundays}
+          holidays={holidays}
           selectedYear={selectedYear}
           selectedMonth={selectedMonth}
-          scheduleData={scheduleData}
-          onDataChanged={fetchSchedule}
+          scheduleId={scheduleData?.schedule_id}
+          token={token}
+          apiBase={API_BASE}
+          onRefresh={fetchSchedule}
+          summaries={summaries}
         />
       )}
       {activeTab === 'folha_ponto' && (
