@@ -79,17 +79,18 @@ def apply_shift_fill(
         end_time = target_shift.end_time if target_shift else "17:00"
         raw_min = compute_raw_minutes(start_time, lunch_start, lunch_end, end_time) if target_shift else 480
 
+        has_selected_days = selected_days is not None and len(selected_days) > 0
+
         for day in range(start_day, end_day + 1):
-            if selected_days is not None and len(selected_days) > 0:
+            if has_selected_days:
                 if day not in selected_days:
                     continue
-
-            d_obj = date(schedule.year, schedule.month, day)
-            w_day = d_obj.weekday()
-
-            if weekdays is not None and len(weekdays) > 0:
-                if w_day not in weekdays:
-                    continue
+            else:
+                d_obj = date(schedule.year, schedule.month, day)
+                w_day = d_obj.weekday()
+                if weekdays is not None and len(weekdays) > 0:
+                    if w_day not in weekdays:
+                        continue
 
             # Buscar registro existente
             rec = db.query(models.RHWorkDay).filter(
@@ -105,11 +106,15 @@ def apply_shift_fill(
             # Determinar status inteligente se status for o padrão
             effective_status = status
             if status == "TRABALHO":
-                if day in holiday_days:
-                    effective_status = "FERIADO"
-                elif day in sundays:
-                    effective_status = "DSR"
+                if not has_selected_days:
+                    if day in holiday_days:
+                        effective_status = "FERIADO"
+                    elif day in sundays:
+                        effective_status = "DSR"
+                    else:
+                        effective_status = "TRABALHO"
                 else:
+                    # Quando o operador seleciona dias explicitamente no calendário, aplica o trabalho/turno solicitado
                     effective_status = "TRABALHO"
 
             is_work = effective_status == "TRABALHO"
