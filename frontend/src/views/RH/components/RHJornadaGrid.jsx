@@ -483,7 +483,7 @@ export default function RHJornadaGrid({
                   checked={fillClearUnselected}
                   onChange={(checked) => setFillClearUnselected(checked)}
                   label="Substituir escala inteira"
-                  description="Define dias não selecionados como folga"
+                  description="Define dias não selecionados como folga semanal (sem debitar BH)"
                 />
               </div>
             </div>
@@ -935,9 +935,9 @@ export default function RHJornadaGrid({
                       className="mt-0.5 text-rose-600 focus:ring-rose-500"
                     />
                     <div>
-                      <span className="font-semibold text-rose-300 block">Zerar e Definir Folgas</span>
+                      <span className="font-semibold text-rose-300 block">Zerar e Definir Folgas Semanais</span>
                       <span className="text-[11px] text-slate-400 block mt-0.5">
-                        Remove todos os turnos de trabalho e define os dias como folga/DSR para montar a escala do zero.
+                        Remove turnos de trabalho e define dias como folga neutra (não debita banco de horas).
                       </span>
                     </div>
                   </label>
