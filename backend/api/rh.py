@@ -18,6 +18,7 @@ from services.rh_engine import (
     derive_day_benefits
 )
 from services.rh_schedule_service import apply_shift_fill, clear_or_reset_schedule
+from services.rh_holidays_service import get_effective_holidays_map, list_all_holidays_for_organization
 
 router = APIRouter(prefix="/api/rh", tags=["rh"])
 
@@ -567,13 +568,12 @@ def delete_employee(
 
 @router.get("/holidays")
 def list_holidays(
+    year: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    holidays = db.query(models.RHHoliday).filter(
-        models.RHHoliday.organization_id == current_user.organization_id
-    ).order_by(models.RHHoliday.date.asc()).all()
-    return holidays
+    target_year = year or date.today().year
+    return list_all_holidays_for_organization(db, current_user.organization_id, target_year)
 
 @router.post("/holidays")
 def add_holiday(
@@ -659,12 +659,8 @@ def get_monthly_schedule(
         num_days = cal_info["num_days"]
         sundays = cal_info["sundays"]
 
-        month_prefix = f"{year:04d}-{month:02d}-"
-        holidays = db.query(models.RHHoliday).filter(
-            models.RHHoliday.organization_id == current_user.organization_id,
-            models.RHHoliday.date.like(f"{month_prefix}%")
-        ).all()
-        holidays_by_day = {int(h.date.split("-")[2]): h.name for h in holidays}
+        effective_holidays = get_effective_holidays_map(db, current_user.organization_id, year, month)
+        holidays_by_day = {int(d_str.split("-")[2]): name for d_str, name in effective_holidays.items()}
 
         employees = db.query(models.RHEmployee).filter(
             models.RHEmployee.organization_id == current_user.organization_id,

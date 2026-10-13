@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from datetime import date
 from models import models
 from services.rh_engine import get_month_calendar_info, compute_raw_minutes
+from services.rh_holidays_service import get_effective_holidays_map
 
 def apply_shift_fill(
     db: Session,
@@ -35,12 +36,8 @@ def apply_shift_fill(
     num_days = cal_info["num_days"]
     sundays = set(cal_info["sundays"])
 
-    month_prefix = f"{schedule.year:04d}-{schedule.month:02d}-"
-    holidays = db.query(models.RHHoliday).filter(
-        models.RHHoliday.organization_id == organization_id,
-        models.RHHoliday.date.like(f"{month_prefix}%")
-    ).all()
-    holiday_days = {int(h.date.split("-")[2]) for h in holidays}
+    effective_holidays = get_effective_holidays_map(db, organization_id, schedule.year, schedule.month)
+    holiday_days = {int(d_str.split("-")[2]) for d_str in effective_holidays.keys()}
 
     end_day = min(num_days, day_to) if day_to is not None else num_days
     start_day = max(1, day_from)
@@ -236,12 +233,8 @@ def clear_or_reset_schedule(
     num_days = cal_info["num_days"]
     sundays = set(cal_info["sundays"])
 
-    month_prefix = f"{schedule.year:04d}-{schedule.month:02d}-"
-    holidays = db.query(models.RHHoliday).filter(
-        models.RHHoliday.organization_id == organization_id,
-        models.RHHoliday.date.like(f"{month_prefix}%")
-    ).all()
-    holiday_days = {int(h.date.split("-")[2]) for h in holidays}
+    effective_holidays = get_effective_holidays_map(db, organization_id, schedule.year, schedule.month)
+    holiday_days = {int(d_str.split("-")[2]) for d_str in effective_holidays.keys()}
 
     emp_query = db.query(models.RHEmployee).filter(
         models.RHEmployee.organization_id == organization_id,
