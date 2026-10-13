@@ -4,6 +4,8 @@ import {
   RefreshCw, ChevronRight, Sliders, Sparkles, Filter, Info, X
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
+import StyledCheckbox from '../../../components/common/StyledCheckbox';
+import CalendarCheckboxPicker from '../../../components/common/CalendarCheckboxPicker';
 
 const STATUS_OPTIONS = [
   { key: 'TRABALHO', label: 'Trabalho', short: 'TRAB', bg: 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30' },
@@ -55,8 +57,16 @@ export default function RHJornadaGrid({
   const [fillDayFrom, setFillDayFrom] = useState(1);
   const [fillDayTo, setFillDayTo] = useState(daysList.length || 31);
   const [fillWeekdays, setFillWeekdays] = useState([0, 1, 2, 3, 4, 5]); // Seg a Sáb por padrão
+  const [fillSelectedDays, setFillSelectedDays] = useState(daysList.length ? daysList : Array.from({ length: 31 }, (_, i) => i + 1));
   const [fillOverwriteManual, setFillOverwriteManual] = useState(false);
   const [filling, setFilling] = useState(false);
+
+  // Sincroniza fillSelectedDays caso daysList mude
+  React.useEffect(() => {
+    if (daysList.length > 0) {
+      setFillSelectedDays(daysList);
+    }
+  }, [daysList]);
 
   // Mapeamentos
   const shiftMap = useMemo(() => {
@@ -210,6 +220,7 @@ export default function RHJornadaGrid({
         day_from: parseInt(fillDayFrom, 10) || 1,
         day_to: parseInt(fillDayTo, 10) || daysList.length,
         weekdays: fillWeekdays,
+        selected_days: fillSelectedDays,
         overwrite_manual: fillOverwriteManual
       };
 
@@ -358,61 +369,45 @@ export default function RHJornadaGrid({
 
             <div>
               <label className="block text-slate-400 mb-1">Proteção de Ajustes</label>
-              <label className="flex items-center gap-2 mt-1.5 text-slate-300 cursor-pointer select-none">
-                <input
-                  type="checkbox"
+              <div className="mt-2">
+                <StyledCheckbox
                   checked={fillOverwriteManual}
-                  onChange={(e) => setFillOverwriteManual(e.target.checked)}
-                  className="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0"
+                  onChange={(checked) => setFillOverwriteManual(checked)}
+                  label="Sobrescrever edições manuais"
+                  description="Aplica novo turno mesmo em dias editados"
                 />
-                <span>Sobrescrever edições manuais</span>
-              </label>
+              </div>
             </div>
           </div>
 
-          {/* Seleção de Dias da Semana */}
+          {/* Calendário Mensal com Seleção por Checkbox nas Datas */}
+          <div className="pt-2 border-t border-slate-800/80">
+            <CalendarCheckboxPicker
+              year={selectedYear}
+              month={selectedMonth}
+              selectedDays={fillSelectedDays}
+              onChange={(days) => setFillSelectedDays(days)}
+              sundays={sundays}
+              holidays={holidays}
+              title={`Datas para Aplicação (${MONTH_NAMES[selectedMonth - 1]} / ${selectedYear})`}
+            />
+          </div>
+
+          {/* Barra de Ações Inferior */}
           <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-slate-800/60 text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-400 mr-1">Dias aplicáveis:</span>
-              {[
-                { idx: 0, label: 'Seg' },
-                { idx: 1, label: 'Ter' },
-                { idx: 2, label: 'Qua' },
-                { idx: 3, label: 'Qui' },
-                { idx: 4, label: 'Sex' },
-                { idx: 5, label: 'Sáb' },
-                { idx: 6, label: 'Dom' }
-              ].map((wd) => {
-                const checked = fillWeekdays.includes(wd.idx);
-                return (
-                  <button
-                    key={wd.idx}
-                    type="button"
-                    onClick={() => {
-                      if (checked) {
-                        setFillWeekdays(fillWeekdays.filter((d) => d !== wd.idx));
-                      } else {
-                        setFillWeekdays([...fillWeekdays, wd.idx]);
-                      }
-                    }}
-                    className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
-                      checked
-                        ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500/50'
-                        : 'bg-slate-900 text-slate-500 border-slate-800'
-                    }`}
-                  >
-                    {wd.label}
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400">Total a preencher:</span>
+              <span className="font-bold text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2.5 py-0.5 rounded-full">
+                {fillSelectedDays.length} {fillSelectedDays.length === 1 ? 'dia' : 'dias'}
+              </span>
             </div>
 
             <button
               onClick={handleExecuteFill}
-              disabled={filling}
-              className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors"
+              disabled={filling || fillSelectedDays.length === 0}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {filling ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              {filling ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
               {filling ? 'Aplicando...' : 'Aplicar na Escala'}
             </button>
           </div>

@@ -10,6 +10,8 @@ import RHShiftModal from './components/RHShiftModal';
 import RHJornadasTab from './components/RHJornadasTab';
 import RHJornadaGrid from './components/RHJornadaGrid';
 import RHBeneficiosGrid from './components/RHBeneficiosGrid';
+import StyledCheckbox from '../../components/common/StyledCheckbox';
+import SelectDropdown from '../../components/common/SelectDropdown';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -1875,17 +1877,14 @@ export default function RHEscalasView({ token }) {
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 cursor-pointer mt-1">
-                  <input
-                    type="checkbox"
+                <div className="mt-2.5">
+                  <StyledCheckbox
                     checked={settingsFormData.clt_tolerance_enabled ?? true}
-                    onChange={(e) => setSettingsFormData({ ...settingsFormData, clt_tolerance_enabled: e.target.checked })}
-                    className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-0"
+                    onChange={(checked) => setSettingsFormData({ ...settingsFormData, clt_tolerance_enabled: checked })}
+                    label="Aplicar tolerância legal da CLT"
+                    description="Variações de até 10 minutos diários não são computadas como horas extras ou faltas"
                   />
-                  <span className="text-[11px] text-slate-300">
-                    Aplicar tolerância legal da CLT (até 10 minutos diários não são computados como extra/falta)
-                  </span>
-                </label>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
