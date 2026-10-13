@@ -11,8 +11,13 @@ from core.database import get_db
 from services.rh_engine import (
     get_month_calendar_info,
     calculate_employee_month_summary,
-    check_consecutive_sundays_warnings
+    calculate_work_days_summary,
+    check_consecutive_sundays_warnings,
+    compute_raw_minutes,
+    format_minutes_to_hours,
+    derive_day_benefits
 )
+from services.rh_schedule_service import apply_shift_fill
 
 router = APIRouter(prefix="/api/rh", tags=["rh"])
 
@@ -28,6 +33,10 @@ class RHSettingsSchema(BaseModel):
     min_daily_hours_for_meal: float = 6.0
     weekly_bank_overtime_hours: float = 4.0
     compensatory_days_per_month: int = 2
+    time_rounding_minutes: int = 0
+    time_rounding_mode: str = "NEAREST"
+    clt_tolerance_enabled: bool = True
+    hours_display_format: str = "HHMM"
 
     @field_validator(
         "transport_ticket_unit_price",
@@ -77,6 +86,7 @@ class RHEmployeeCreate(BaseModel):
     daily_meal_cost: float = 25.00
     weekly_contract_hours: float = 44.0
     weekly_actual_hours: Optional[float] = None
+    work_days_per_week: int = 6
     active: bool = True
 
 class RHEmployeeUpdate(BaseModel):
@@ -89,6 +99,7 @@ class RHEmployeeUpdate(BaseModel):
     daily_meal_cost: Optional[float] = None
     weekly_contract_hours: Optional[float] = None
     weekly_actual_hours: Optional[float] = None
+    work_days_per_week: Optional[int] = None
     active: Optional[bool] = None
 
 class RHHolidayCreate(BaseModel):
@@ -109,6 +120,59 @@ class BatchSaveScheduleRequest(BaseModel):
     year: int
     month: int
     entries: List[DayEntryUpdate]
+
+# Schemas para a nova jornada diária unificada
+class RHWorkDayItemUpdate(BaseModel):
+    employee_id: int
+    day: int
+    status: Optional[str] = None
+    shift_id: Optional[int] = None
+    shift: Optional[str] = None
+    start_time: Optional[str] = None
+    lunch_start: Optional[str] = None
+    lunch_end: Optional[str] = None
+    end_time: Optional[str] = None
+    worked_minutes: Optional[int] = None
+    vt_tickets_override: Optional[int] = None
+    va_override: Optional[bool] = None
+    benefit_note: Optional[str] = None
+    notes: Optional[str] = None
+    is_manual: Optional[bool] = True
+
+class RHBatchWorkDaysUpdate(BaseModel):
+    schedule_id: int
+    entries: List[RHWorkDayItemUpdate]
+
+class RHScheduleFillRequest(BaseModel):
+    schedule_id: int
+    employee_ids: Optional[List[int]] = None
+    shift_id: Optional[int] = None
+    status: str = "TRABALHO"
+    day_from: int = 1
+    day_to: Optional[int] = None
+    weekdays: Optional[List[int]] = None
+    overwrite_manual: bool = False
+
+class RHBenefitOverrideRequest(BaseModel):
+    schedule_id: int
+    employee_id: int
+    day: int
+    vt_tickets_override: Optional[int] = None
+    va_override: Optional[bool] = None
+    benefit_note: Optional[str] = None
+
+class RHResetBenefitRequest(BaseModel):
+    schedule_id: int
+    employee_id: Optional[int] = None
+    day: Optional[int] = None
+    benefit_type: str = "ALL" # 'VT', 'VA', ou 'ALL'
+
+class RHBenefitAdjustmentCreate(BaseModel):
+    schedule_id: int
+    employee_id: int
+    benefit_type: str # 'VT' ou 'VA'
+    quantity: float
+    reason: Optional[str] = None
 
 # ==============================================================================
 # --- [BLOCO: CARGOS CADASTRAVEIS] ---
@@ -320,7 +384,11 @@ def get_rh_settings(
             default_meal_cost=25.00,
             min_daily_hours_for_meal=6.0,
             weekly_bank_overtime_hours=4.0,
-            compensatory_days_per_month=2
+            compensatory_days_per_month=2,
+            time_rounding_minutes=0,
+            time_rounding_mode="NEAREST",
+            clt_tolerance_enabled=True,
+            hours_display_format="HHMM"
         )
         db.add(settings)
         db.commit()
@@ -349,6 +417,10 @@ def update_rh_settings(
     settings.min_daily_hours_for_meal = round(float(payload.min_daily_hours_for_meal), 2)
     settings.weekly_bank_overtime_hours = round(float(payload.weekly_bank_overtime_hours), 2)
     settings.compensatory_days_per_month = payload.compensatory_days_per_month
+    settings.time_rounding_minutes = payload.time_rounding_minutes
+    settings.time_rounding_mode = payload.time_rounding_mode
+    settings.clt_tolerance_enabled = payload.clt_tolerance_enabled
+    settings.hours_display_format = payload.hours_display_format
 
     db.commit()
     db.refresh(settings)
@@ -383,6 +455,7 @@ def list_employees(
             "daily_meal_cost": emp.daily_meal_cost,
             "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
             "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0),
+            "work_days_per_week": emp.work_days_per_week or 6,
             "active": emp.active
         })
     return result
@@ -410,6 +483,7 @@ def create_employee(
         daily_meal_cost=payload.daily_meal_cost,
         weekly_contract_hours=payload.weekly_contract_hours,
         weekly_actual_hours=payload.weekly_actual_hours if payload.weekly_actual_hours is not None else (payload.weekly_contract_hours or 44.0),
+        work_days_per_week=payload.work_days_per_week or 6,
         active=payload.active
     )
     db.add(emp)
@@ -451,6 +525,8 @@ def update_employee(
         emp.weekly_contract_hours = payload.weekly_contract_hours
     if payload.weekly_actual_hours is not None:
         emp.weekly_actual_hours = payload.weekly_actual_hours
+    if payload.work_days_per_week is not None:
+        emp.work_days_per_week = payload.work_days_per_week
     if payload.active is not None:
         emp.active = payload.active
 
@@ -594,36 +670,166 @@ def get_monthly_schedule(
             models.RHWorkShift.organization_id == current_user.organization_id
         ).order_by(models.RHWorkShift.name.asc()).all()
 
-        schedule_days = db.query(models.RHScheduleDay).filter(
-            models.RHScheduleDay.schedule_id == schedule.id
+        # Buscar dias unificados da nova tabela RHWorkDay
+        work_days_db = db.query(models.RHWorkDay).filter(
+            models.RHWorkDay.schedule_id == schedule.id
         ).all()
 
+        # Se work_days estiver vazio e houver schedule_days legados, migra em runtime
+        if not work_days_db:
+            schedule_days = db.query(models.RHScheduleDay).filter(
+                models.RHScheduleDay.schedule_id == schedule.id
+            ).all()
+            if schedule_days:
+                from scripts.migrate_rh_work_days import migrate
+                migrate(dry_run=False)
+                work_days_db = db.query(models.RHWorkDay).filter(
+                    models.RHWorkDay.schedule_id == schedule.id
+                ).all()
+
+        # Se ainda estiver vazio e houver colaboradores, preenche automaticamente
+        if not work_days_db and employees:
+            apply_shift_fill(
+                db=db,
+                organization_id=current_user.organization_id,
+                schedule_id=schedule.id,
+                overwrite_manual=True
+            )
+            work_days_db = db.query(models.RHWorkDay).filter(
+                models.RHWorkDay.schedule_id == schedule.id
+            ).all()
+
+        # Buscar ajustes avulsos do mês (D7)
+        benefit_adjustments_db = db.query(models.RHBenefitAdjustment).filter(
+            models.RHBenefitAdjustment.schedule_id == schedule.id
+        ).all()
+
+        # Mapeamento indexado: work_days_by_emp[emp_id][day] = obj
+        work_days_by_emp: Dict[int, Dict[int, Any]] = {emp.id: {} for emp in employees}
+        for wd in work_days_db:
+            if wd.employee_id in work_days_by_emp:
+                work_days_by_emp[wd.employee_id][wd.day] = wd
+
+        # Montagem dos dados de resposta unificados e retrocompatíveis
+        unified_work_days: Dict[int, Dict[int, Dict[str, Any]]] = {}
         grid_data: Dict[int, Dict[str, Dict[int, Dict[str, Any]]]] = {}
+
         for emp in employees:
-            grid_data[emp.id] = {
-                "TRANSPORTE": {},
-                "ALIMENTACAO": {}
-            }
+            unified_work_days[emp.id] = {}
+            grid_data[emp.id] = {"TRANSPORTE": {}, "ALIMENTACAO": {}}
+            emp_default_tickets = emp.default_daily_transport_tickets or 2
 
-        for item in schedule_days:
-            if item.employee_id in grid_data:
-                if item.schedule_type in grid_data[item.employee_id]:
-                    grid_data[item.employee_id][item.schedule_type][item.day] = {
-                        "status": item.status,
-                        "shift_id": item.shift_id,
-                        "shift": item.shift,
-                        "tickets_count": item.tickets_count or 2,
-                        "daily_hours": item.daily_hours
+            for day in range(1, num_days + 1):
+                wd = work_days_by_emp[emp.id].get(day)
+                if wd:
+                    ben = derive_day_benefits(
+                        work_day=wd,
+                        default_tickets=emp_default_tickets,
+                        min_daily_hours_for_meal=settings.min_daily_hours_for_meal or 6.0
+                    )
+                    status = wd.status
+                    worked_min = wd.worked_minutes or 0
+                    shift_code = wd.shift
+                    shift_id = wd.shift_id
+                    start_time = wd.start_time
+                    lunch_start = wd.lunch_start
+                    lunch_end = wd.lunch_end
+                    end_time = wd.end_time
+                    is_manual = wd.is_manual
+                    vt_override = wd.vt_tickets_override
+                    va_override = wd.va_override
+                    benefit_note = wd.benefit_note
+                else:
+                    is_sun = day in sundays
+                    status = "DSR" if is_sun else "FOLGA"
+                    ben = {
+                        "vt_calc": 0, "vt_final": 0, "vt_is_overridden": False,
+                        "va_calc": False, "va_final": False, "va_is_overridden": False,
+                        "benefit_note": None
                     }
+                    worked_min = 0
+                    shift_code = None
+                    shift_id = None
+                    start_time = None
+                    lunch_start = None
+                    lunch_end = None
+                    end_time = None
+                    is_manual = False
+                    vt_override = None
+                    va_override = None
+                    benefit_note = None
 
+                # Estrutura unificada completa
+                unified_work_days[emp.id][day] = {
+                    "day": day,
+                    "status": status,
+                    "shift_id": shift_id,
+                    "shift": shift_code,
+                    "start_time": start_time,
+                    "lunch_start": lunch_start,
+                    "lunch_end": lunch_end,
+                    "end_time": end_time,
+                    "raw_minutes": worked_min,
+                    "worked_minutes": worked_min,
+                    "worked_hours_formatted": format_minutes_to_hours(worked_min, settings.hours_display_format or "HHMM"),
+                    "vt_calc": ben["vt_calc"],
+                    "vt_final": ben["vt_final"],
+                    "vt_is_overridden": ben["vt_is_overridden"],
+                    "vt_tickets_override": vt_override,
+                    "va_calc": ben["va_calc"],
+                    "va_final": ben["va_final"],
+                    "va_is_overridden": ben["va_is_overridden"],
+                    "va_override": va_override,
+                    "benefit_note": benefit_note,
+                    "is_manual": is_manual
+                }
+
+                # Compatibilidade com telas antigas de matriz
+                legacy_t_status = "X" if status == "TRABALHO" else ("BH" if status == "FOLGA_BH" else ("FE" if status == "FERIAS" else ("F" if status == "FERIADO" else "OFF")))
+                legacy_m_status = "X" if ben["va_final"] else "OFF"
+
+                grid_data[emp.id]["TRANSPORTE"][day] = {
+                    "status": legacy_t_status,
+                    "shift_id": shift_id,
+                    "shift": shift_code,
+                    "tickets_count": ben["vt_final"],
+                    "daily_hours": round(worked_min / 60.0, 2)
+                }
+                grid_data[emp.id]["ALIMENTACAO"][day] = {
+                    "status": legacy_m_status,
+                    "shift_id": shift_id,
+                    "shift": shift_code,
+                    "daily_hours": round(worked_min / 60.0, 2)
+                }
+
+        # Calcular resumos mensais com o novo motor unificado
         summaries = []
         all_warnings = []
         for emp in employees:
-            t_map = grid_data[emp.id]["TRANSPORTE"]
-            m_map = grid_data[emp.id]["ALIMENTACAO"]
-            summary = calculate_employee_month_summary(emp, t_map, m_map, year, month, settings)
+            summary = calculate_work_days_summary(
+                employee=emp,
+                work_days_map=work_days_by_emp[emp.id],
+                benefit_adjustments=benefit_adjustments_db,
+                year=year,
+                month=month,
+                settings=settings
+            )
             summaries.append(summary)
             all_warnings.extend(summary.get("warnings", []))
+
+        # Ajustes avulsos serializados
+        serialized_adjustments = [
+            {
+                "id": adj.id,
+                "schedule_id": adj.schedule_id,
+                "employee_id": adj.employee_id,
+                "benefit_type": adj.benefit_type,
+                "quantity": adj.quantity,
+                "reason": adj.reason,
+                "created_at": adj.created_at.isoformat() if adj.created_at else None
+            }
+            for adj in benefit_adjustments_db
+        ]
 
         return {
             "schedule_id": schedule.id,
@@ -640,7 +846,11 @@ def get_monthly_schedule(
                 "default_meal_cost": round(float(settings.default_meal_cost), 2) if settings.default_meal_cost is not None else 25.00,
                 "min_daily_hours_for_meal": round(float(settings.min_daily_hours_for_meal), 2) if settings.min_daily_hours_for_meal is not None else 6.0,
                 "weekly_bank_overtime_hours": round(float(settings.weekly_bank_overtime_hours), 2) if settings.weekly_bank_overtime_hours is not None else 4.0,
-                "compensatory_days_per_month": settings.compensatory_days_per_month
+                "compensatory_days_per_month": settings.compensatory_days_per_month,
+                "time_rounding_minutes": settings.time_rounding_minutes or 0,
+                "time_rounding_mode": settings.time_rounding_mode or "NEAREST",
+                "clt_tolerance_enabled": settings.clt_tolerance_enabled if settings.clt_tolerance_enabled is not None else True,
+                "hours_display_format": settings.hours_display_format or "HHMM"
             },
             "roles": [{"id": r.id, "name": r.name, "description": r.description} for r in roles],
             "shifts": [
@@ -668,10 +878,13 @@ def get_monthly_schedule(
                     "default_daily_transport_tickets": emp.default_daily_transport_tickets or 2,
                     "daily_meal_cost": emp.daily_meal_cost,
                     "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
-                    "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0)
+                    "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0),
+                    "work_days_per_week": emp.work_days_per_week or 6
                 }
                 for emp in employees
             ],
+            "work_days": unified_work_days,
+            "benefit_adjustments": serialized_adjustments,
             "grid": grid_data,
             "summaries": summaries,
             "warnings": all_warnings
@@ -681,12 +894,226 @@ def get_monthly_schedule(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erro interno RH: {str(e)}")
 
+# ==============================================================================
+# --- [BLOCO: OPERAÇÕES EM LOTE DE JORNADA E BENEFÍCIOS] ---
+# ==============================================================================
+
+@router.post("/schedules/fill")
+def fill_schedule_shifts(
+    payload: RHScheduleFillRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Preenchimento em lote por turno com escopo, dias da semana e proteção de manual."""
+    try:
+        res = apply_shift_fill(
+            db=db,
+            organization_id=current_user.organization_id,
+            schedule_id=payload.schedule_id,
+            employee_ids=payload.employee_ids,
+            shift_id=payload.shift_id,
+            status=payload.status,
+            day_from=payload.day_from,
+            day_to=payload.day_to,
+            weekdays=payload.weekdays,
+            overwrite_manual=payload.overwrite_manual
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.patch("/schedules/work-days")
+def update_work_days_batch(
+    payload: RHBatchWorkDaysUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Ajuste fino de células de jornada (marca is_manual=True)."""
+    schedule = db.query(models.RHMonthlySchedule).filter(
+        models.RHMonthlySchedule.id == payload.schedule_id,
+        models.RHMonthlySchedule.organization_id == current_user.organization_id
+    ).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Escala não encontrada")
+
+    updated = 0
+    for item in payload.entries:
+        rec = db.query(models.RHWorkDay).filter(
+            models.RHWorkDay.schedule_id == schedule.id,
+            models.RHWorkDay.employee_id == item.employee_id,
+            models.RHWorkDay.day == item.day
+        ).first()
+
+        if rec:
+            if item.status is not None:
+                rec.status = item.status
+            if item.shift_id is not None:
+                rec.shift_id = item.shift_id
+            if item.shift is not None:
+                rec.shift = item.shift
+            if item.start_time is not None:
+                rec.start_time = item.start_time
+            if item.lunch_start is not None:
+                rec.lunch_start = item.lunch_start
+            if item.lunch_end is not None:
+                rec.lunch_end = item.lunch_end
+            if item.end_time is not None:
+                rec.end_time = item.end_time
+            if item.worked_minutes is not None:
+                rec.worked_minutes = item.worked_minutes
+                rec.raw_minutes = item.worked_minutes
+            elif item.start_time and item.end_time:
+                mins = compute_raw_minutes(rec.start_time, rec.lunch_start, rec.lunch_end, rec.end_time)
+                rec.raw_minutes = mins
+                rec.worked_minutes = mins
+
+            if item.vt_tickets_override is not None:
+                rec.vt_tickets_override = item.vt_tickets_override
+            if item.va_override is not None:
+                rec.va_override = item.va_override
+            if item.benefit_note is not None:
+                rec.benefit_note = item.benefit_note
+            if item.notes is not None:
+                rec.notes = item.notes
+
+            rec.is_manual = item.is_manual if item.is_manual is not None else True
+            updated += 1
+        else:
+            new_rec = models.RHWorkDay(
+                schedule_id=schedule.id,
+                employee_id=item.employee_id,
+                day=item.day,
+                status=item.status or "TRABALHO",
+                shift_id=item.shift_id,
+                shift=item.shift,
+                start_time=item.start_time,
+                lunch_start=item.lunch_start,
+                lunch_end=item.lunch_end,
+                end_time=item.end_time,
+                raw_minutes=item.worked_minutes or 480,
+                worked_minutes=item.worked_minutes or 480,
+                vt_tickets_override=item.vt_tickets_override,
+                va_override=item.va_override,
+                benefit_note=item.benefit_note,
+                notes=item.notes,
+                is_manual=item.is_manual if item.is_manual is not None else True
+            )
+            db.add(new_rec)
+            updated += 1
+
+    db.commit()
+    return {"message": f"{updated} registros atualizados com sucesso"}
+
+@router.post("/schedules/benefits/override")
+def override_day_benefit(
+    payload: RHBenefitOverrideRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Aplica override pontual de VT ou VA em um dia (D5)."""
+    rec = db.query(models.RHWorkDay).filter(
+        models.RHWorkDay.schedule_id == payload.schedule_id,
+        models.RHWorkDay.employee_id == payload.employee_id,
+        models.RHWorkDay.day == payload.day
+    ).first()
+
+    if not rec:
+        raise HTTPException(status_code=404, detail="Dia de trabalho não encontrado")
+
+    if payload.vt_tickets_override is not None:
+        rec.vt_tickets_override = payload.vt_tickets_override
+    if payload.va_override is not None:
+        rec.va_override = payload.va_override
+    if payload.benefit_note is not None:
+        rec.benefit_note = payload.benefit_note
+
+    db.commit()
+    return {"message": "Benefício ajustado com sucesso"}
+
+@router.post("/schedules/benefits/reset")
+def reset_day_benefits(
+    payload: RHResetBenefitRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Restaura o cálculo de benefício (limpa overrides) para célula, colaborador ou mês."""
+    query = db.query(models.RHWorkDay).filter(
+        models.RHWorkDay.schedule_id == payload.schedule_id
+    )
+    if payload.employee_id:
+        query = query.filter(models.RHWorkDay.employee_id == payload.employee_id)
+    if payload.day:
+        query = query.filter(models.RHWorkDay.day == payload.day)
+
+    recs = query.all()
+    for r in recs:
+        if payload.benefit_type in ("VT", "ALL"):
+            r.vt_tickets_override = None
+        if payload.benefit_type in ("VA", "ALL"):
+            r.va_override = None
+        if payload.benefit_type == "ALL":
+            r.benefit_note = None
+
+    db.commit()
+    return {"message": f"{len(recs)} registros restaurados para o valor calculado"}
+
+@router.get("/schedules/{schedule_id}/benefit-adjustments")
+def list_benefit_adjustments(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Lista ajustes avulsos do mês (D7)."""
+    adjs = db.query(models.RHBenefitAdjustment).filter(
+        models.RHBenefitAdjustment.schedule_id == schedule_id
+    ).all()
+    return adjs
+
+@router.post("/schedules/benefit-adjustments")
+def create_benefit_adjustment(
+    payload: RHBenefitAdjustmentCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Cria ajuste avulso de benefício para o mês (D7)."""
+    adj = models.RHBenefitAdjustment(
+        schedule_id=payload.schedule_id,
+        employee_id=payload.employee_id,
+        benefit_type=payload.benefit_type.upper(),
+        quantity=payload.quantity,
+        reason=payload.reason
+    )
+    db.add(adj)
+    db.commit()
+    db.refresh(adj)
+    return adj
+
+@router.delete("/schedules/benefit-adjustments/{adj_id}")
+def delete_benefit_adjustment(
+    adj_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    adj = db.query(models.RHBenefitAdjustment).filter(
+        models.RHBenefitAdjustment.id == adj_id
+    ).first()
+    if not adj:
+        raise HTTPException(status_code=404, detail="Ajuste não encontrado")
+    db.delete(adj)
+    db.commit()
+    return {"message": "Ajuste removido com sucesso"}
+
+# ==============================================================================
+# --- [BLOCO: COMPATIBILIDADE LEGADA - BATCH SAVE E AUTO-FILL] ---
+# ==============================================================================
+
 @router.post("/schedules/batch-save")
 def batch_save_schedule_days(
     payload: BatchSaveScheduleRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    """Endpoint legado de compatibilidade que salva e também sincroniza com RHWorkDay."""
     schedule = db.query(models.RHMonthlySchedule).filter(
         models.RHMonthlySchedule.organization_id == current_user.organization_id,
         models.RHMonthlySchedule.year == payload.year,
@@ -704,6 +1131,7 @@ def batch_save_schedule_days(
         db.flush()
 
     for item in payload.entries:
+        # 1. Atualiza na tabela legada
         existing = db.query(models.RHScheduleDay).filter(
             models.RHScheduleDay.schedule_id == schedule.id,
             models.RHScheduleDay.employee_id == item.employee_id,
@@ -734,6 +1162,43 @@ def batch_save_schedule_days(
                 daily_hours=item.daily_hours if item.daily_hours is not None else 8.0
             )
             db.add(new_day)
+
+        # 2. Sincroniza na nova tabela RHWorkDay
+        wd = db.query(models.RHWorkDay).filter(
+            models.RHWorkDay.schedule_id == schedule.id,
+            models.RHWorkDay.employee_id == item.employee_id,
+            models.RHWorkDay.day == item.day
+        ).first()
+
+        st = "TRABALHO" if item.status == "X" else ("FOLGA_BH" if item.status == "BH" else ("FERIAS" if item.status == "FE" else ("FERIADO" if item.status == "F" else "FOLGA")))
+        raw_m = int(round((item.daily_hours or 8.0) * 60)) if st == "TRABALHO" else 0
+
+        if wd:
+            if item.schedule_type == "TRANSPORTE":
+                wd.status = st
+                wd.shift_id = item.shift_id
+                wd.shift = item.shift
+                wd.worked_minutes = raw_m
+                wd.raw_minutes = raw_m
+                wd.vt_tickets_override = item.tickets_count
+            elif item.schedule_type == "ALIMENTACAO":
+                wd.va_override = (item.status == "X")
+            wd.is_manual = True
+        else:
+            new_wd = models.RHWorkDay(
+                schedule_id=schedule.id,
+                employee_id=item.employee_id,
+                day=item.day,
+                status=st,
+                shift_id=item.shift_id,
+                shift=item.shift,
+                raw_minutes=raw_m,
+                worked_minutes=raw_m,
+                vt_tickets_override=item.tickets_count if item.schedule_type == "TRANSPORTE" else None,
+                va_override=(item.status == "X") if item.schedule_type == "ALIMENTACAO" else None,
+                is_manual=True
+            )
+            db.add(new_wd)
 
     db.commit()
     return {"message": "Escala atualizada com sucesso", "count": len(payload.entries)}
