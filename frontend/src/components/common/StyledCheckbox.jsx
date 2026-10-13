@@ -38,17 +38,16 @@ export default function StyledCheckbox({
     lg: 14
   };
 
-  const handleClick = (e) => {
+  const handleChange = (e) => {
     if (disabled) return;
     if (onChange) {
-      onChange(!checked);
+      onChange(e.target.checked);
     }
   };
 
   return (
     <label
       htmlFor={inputId}
-      onClick={handleClick}
       className={`inline-flex items-start gap-2.5 select-none transition-opacity ${
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer group'
       } ${className}`}
@@ -57,9 +56,9 @@ export default function StyledCheckbox({
         <input
           id={inputId}
           type="checkbox"
-          checked={checked}
+          checked={!!checked}
           disabled={disabled}
-          onChange={() => {}} // controlado pelo label/div
+          onChange={handleChange}
           className="sr-only"
         />
 
