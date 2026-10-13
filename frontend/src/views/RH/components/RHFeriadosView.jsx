@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   CalendarDays, Plus, Trash2, ShieldCheck, MapPin, 
-  ChevronLeft, ChevronRight, Sparkles, AlertCircle, RefreshCw, X, CheckCircle2 
+  Sparkles, AlertCircle, RefreshCw, X, CheckCircle2, RotateCw
 } from 'lucide-react';
 
 const MONTH_NAMES = [
@@ -9,22 +9,22 @@ const MONTH_NAMES = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
 ];
 
-export default function RHFeriadosView({ token, apiBase, initialYear = new Date().getFullYear(), onRefreshSchedule }) {
+export default function RHFeriadosView({ token, apiBase, onRefreshSchedule }) {
   // ==============================================================================
   // --- [BLOCO: ESTADOS PRINCIPAIS] ---
   // ==============================================================================
 
-  const [year, setYear] = useState(initialYear);
   const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [feedbackMsg, setFeedbackMsg] = useState('');
 
-  // Modal de Novo Feriado Customizado
+  // Modal de Cadastro de Feriado Recorrente (Dia e Mês)
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
-    date: `${initialYear}-01-01`,
+    month: 1,
+    day: 1,
     name: '',
     category: 'MUNICIPAL'
   });
@@ -37,7 +37,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${apiBase}/api/rh/holidays?year=${year}`, {
+      const res = await fetch(`${apiBase}/api/rh/holidays`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Falha ao carregar feriados');
@@ -53,16 +53,16 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
 
   useEffect(() => {
     fetchHolidays();
-  }, [year]);
+  }, []);
 
   // ==============================================================================
   // --- [BLOCO: CADASTRO E EXCLUSÃO DE FERIADOS] ---
   // ==============================================================================
 
   const handleOpenAddModal = (defaultMonth = 1) => {
-    const mm = String(defaultMonth).padStart(2, '0');
     setFormData({
-      date: `${year}-${mm}-01`,
+      month: defaultMonth,
+      day: 1,
       name: '',
       category: 'MUNICIPAL'
     });
@@ -71,15 +71,25 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
 
   const handleCreateHoliday = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.date) {
-      alert('Preencha a data e o nome do feriado.');
+    if (!formData.name.trim()) {
+      alert('Preencha o nome do feriado.');
       return;
     }
 
+    const mm = String(formData.month).padStart(2, '0');
+    const dd = String(formData.day).padStart(2, '0');
+    const dateStr = `${mm}-${dd}`;
+
     try {
       setSubmitting(true);
-      const displayName = formData.category && formData.category !== 'NACIONAL' 
-        ? `${formData.name.trim()} (${formData.category === 'MUNICIPAL' ? 'Municipal' : formData.category === 'ESTADUAL' ? 'Estadual' : 'Facultativo'})`
+      const categoryLabel = formData.category === 'MUNICIPAL' 
+        ? 'Municipal' 
+        : formData.category === 'ESTADUAL' 
+        ? 'Estadual' 
+        : 'Facultativo';
+
+      const displayName = formData.category !== 'NACIONAL' 
+        ? `${formData.name.trim()} (${categoryLabel})`
         : formData.name.trim();
 
       const res = await fetch(`${apiBase}/api/rh/holidays`, {
@@ -89,7 +99,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          date: formData.date,
+          date: dateStr,
           name: displayName
         })
       });
@@ -100,7 +110,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
       }
 
       setModalOpen(false);
-      setFeedbackMsg('Feriado registrado com sucesso!');
+      setFeedbackMsg('Feriado recorrente cadastrado com sucesso!');
       setTimeout(() => setFeedbackMsg(''), 4000);
       await fetchHolidays();
       if (onRefreshSchedule) onRefreshSchedule();
@@ -113,7 +123,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
 
   const handleDeleteHoliday = async (h) => {
     if (!h.db_id) return;
-    if (!confirm(`Deseja realmente remover o feriado "${h.name}" (${h.date})?`)) return;
+    if (!confirm(`Deseja realmente excluir o feriado "${h.name}"?`)) return;
 
     try {
       const res = await fetch(`${apiBase}/api/rh/holidays/${h.db_id}`, {
@@ -141,8 +151,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
       map[m] = [];
     }
     holidays.forEach((h) => {
-      const parts = h.date.split('-');
-      const m = parseInt(parts[1], 10);
+      const m = Number(h.month);
       if (map[m]) {
         map[m].push(h);
       }
@@ -159,38 +168,22 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
-      {/* Barra de Topo: Navegação do Ano e Ações */}
+      {/* Barra de Topo: Informações e Ações */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-base font-bold text-white flex items-center gap-2">
             <CalendarDays className="text-indigo-400" size={20} />
-            Gestão de Feriados Oficiais & Folgas Nacionais
+            Feriados & Folgas Recorrentes
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Feriados nacionais brasileiros inclusos automaticamente por legislação federal. Cadastre feriados municipais e estaduais específicos da sua localidade.
+            Calendário permanente: todos os feriados nacionais, estaduais e municipais repetem-se automaticamente em qualquer ano da escala.
           </p>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Seletor de Ano */}
-          <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
-            <button
-              onClick={() => setYear((y) => y - 1)}
-              className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
-              title="Ano anterior"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="px-3 text-sm font-bold text-white tracking-wide">
-              {year}
-            </span>
-            <button
-              onClick={() => setYear((y) => y + 1)}
-              className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
-              title="Próximo ano"
-            >
-              <ChevronRight size={16} />
-            </button>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300">
+            <RotateCw size={13} className="text-emerald-400 animate-spin" style={{ animationDuration: '8s' }} />
+            <span>Validade: <strong>Perpétua / Todos os Anos</strong></span>
           </div>
 
           <button
@@ -207,7 +200,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
           <div>
-            <span className="text-[11px] text-slate-400 uppercase font-semibold tracking-wider">Total de Feriados</span>
+            <span className="text-[11px] text-slate-400 uppercase font-semibold tracking-wider">Total de Feriados Anuais</span>
             <p className="text-2xl font-black text-white mt-0.5">{holidays.length}</p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
@@ -217,7 +210,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
 
         <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
           <div>
-            <span className="text-[11px] text-slate-400 uppercase font-semibold tracking-wider">Feriados Federais</span>
+            <span className="text-[11px] text-slate-400 uppercase font-semibold tracking-wider">Nacionais Federais</span>
             <p className="text-2xl font-black text-sky-400 mt-0.5">{totalNationals}</p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
@@ -243,7 +236,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
         </div>
       )}
 
-      {/* Grid de Meses e Feriados */}
+      {/* Grid dos 12 Meses Perenes */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, idx) => (
@@ -276,7 +269,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
                       {monthName}
                     </span>
                     <span className="text-[10px] text-slate-500 font-mono">
-                      {String(mNum).padStart(2, '0')}/{year}
+                      (Mês {String(mNum).padStart(2, '0')})
                     </span>
                   </div>
 
@@ -291,7 +284,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
                     <button
                       onClick={() => handleOpenAddModal(mNum)}
                       className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors"
-                      title={`Adicionar feriado em ${monthName}`}
+                      title={`Adicionar feriado recorrente em ${monthName}`}
                     >
                       <Plus size={13} />
                     </button>
@@ -302,12 +295,10 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
                 <div className="p-3 space-y-2">
                   {mHolidays.length === 0 ? (
                     <div className="text-center py-4 text-xs text-slate-500 italic">
-                      Nenhum feriado registrado
+                      Nenhum feriado neste mês
                     </div>
                   ) : (
                     mHolidays.map((h) => {
-                      const dayNum = parseInt(h.date.split('-')[2], 10);
-
                       return (
                         <div
                           key={h.id}
@@ -316,7 +307,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
                           <div className="flex items-center gap-2.5 min-w-0">
                             {/* Dia em Destaque */}
                             <div className="flex flex-col items-center justify-center w-8 h-8 rounded-lg bg-indigo-950/60 border border-indigo-700/40 text-indigo-300 shrink-0">
-                              <span className="text-xs font-bold leading-none">{dayNum}</span>
+                              <span className="text-xs font-bold leading-none">{h.day}</span>
                             </div>
 
                             <div className="min-w-0">
@@ -325,14 +316,21 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
                               </p>
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 {h.is_national ? (
-                                  <span className="inline-flex items-center gap-1 text-[9px] font-medium text-sky-400 bg-sky-950/60 border border-sky-800/50 px-1.5 py-0.2 rounded">
-                                    <ShieldCheck size={10} />
-                                    Nacional Federal
-                                  </span>
+                                  h.is_movable ? (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 px-1.5 py-0.2 rounded">
+                                      <ShieldCheck size={10} />
+                                      Móvel Federal
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-medium text-sky-400 bg-sky-950/60 border border-sky-800/50 px-1.5 py-0.2 rounded">
+                                      <ShieldCheck size={10} />
+                                      Nacional Federal
+                                    </span>
+                                  )
                                 ) : (
                                   <span className="inline-flex items-center gap-1 text-[9px] font-medium text-emerald-400 bg-emerald-950/60 border border-emerald-800/50 px-1.5 py-0.2 rounded">
                                     <MapPin size={10} />
-                                    Local Cadastrado
+                                    Local Recorrente
                                   </span>
                                 )}
                               </div>
@@ -361,7 +359,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
       )}
 
       {/* ============================================================================== */}
-      {/* --- [MODAL: CADASTRO DE FERIADO CUSTOMIZADO] --- */}
+      {/* --- [MODAL: CADASTRO DE FERIADO RECORRENTE (DIA E MÊS)] --- */}
       {/* ============================================================================== */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -369,7 +367,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
             <div className="flex items-start justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">
                 <CalendarDays size={18} />
-                Cadastrar Feriado Local
+                Cadastrar Feriado Permanente
               </div>
               <button
                 type="button"
@@ -380,32 +378,55 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
               </button>
             </div>
 
+            <p className="text-xs text-slate-300">
+              O feriado será cadastrado por <strong>Dia e Mês</strong> e se repetirá automaticamente em todos os anos futuros e passados da escala.
+            </p>
+
             <form onSubmit={handleCreateHoliday} className="space-y-4 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1 font-medium">Nome do Feriado</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Aniversário da Cidade, Padroeira Municipal"
+                  placeholder="Ex: São Sebastião, Aniversário do Município"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1 font-medium">Data do Feriado</label>
-                <input
-                  type="date"
-                  required
-                  value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Mês</label>
+                  <select
+                    value={formData.month}
+                    onChange={(e) => setFormData({ ...formData, month: parseInt(e.target.value, 10) })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    {MONTH_NAMES.map((mName, mIdx) => (
+                      <option key={mIdx + 1} value={mIdx + 1}>
+                        {mName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Dia do Mês</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    required
+                    value={formData.day}
+                    onChange={(e) => setFormData({ ...formData, day: parseInt(e.target.value, 10) || 1 })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">Tipo / Âmbito</label>
+                <label className="block text-slate-400 mb-1 font-medium">Âmbito / Categoria</label>
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
@@ -431,7 +452,7 @@ export default function RHFeriadosView({ token, apiBase, initialYear = new Date(
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow shadow-indigo-600/30 transition-all disabled:opacity-50"
                 >
                   {submitting ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />}
-                  {submitting ? 'Salvando...' : 'Salvar Feriado'}
+                  {submitting ? 'Salvando...' : 'Salvar Feriado Permanente'}
                 </button>
               </div>
             </form>

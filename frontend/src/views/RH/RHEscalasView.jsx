@@ -1528,7 +1528,6 @@ export default function RHEscalasView({ token }) {
         <RHFeriadosView
           token={token}
           apiBase={API_BASE}
-          initialYear={selectedYear}
           onRefreshSchedule={fetchSchedule}
         />
       )}
