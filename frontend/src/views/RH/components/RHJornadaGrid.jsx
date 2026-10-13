@@ -82,9 +82,52 @@ export default function RHJornadaGrid({
 
   const summaryMap = useMemo(() => {
     const map = {};
-    summaries.forEach((s) => { map[s.employee_id] = s; });
+    employees.forEach((emp) => {
+      const serverSummary = summaries.find((s) => s.employee_id === emp.id) || {};
+      const empDaysObj = localWorkDays[emp.id] || {};
+
+      const contractHours = Number(emp.weekly_contract_hours) || 44.0;
+      const workDaysPerWeek = Number(emp.work_days_per_week) || 6;
+      const dailyExpectedMin = Math.round((contractHours / workDaysPerWeek) * 60);
+
+      let totalWorkedMin = 0;
+      let totalExpectedMin = 0;
+
+      daysList.forEach((day) => {
+        const dVal = empDaysObj[day];
+        const status = dVal ? dVal.status : (sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'));
+        const workedMin = dVal?.worked_minutes !== undefined && dVal?.worked_minutes !== null ? Number(dVal.worked_minutes) : (status === 'TRABALHO' ? 480 : 0);
+
+        if (status === 'TRABALHO') {
+          totalWorkedMin += workedMin;
+          totalExpectedMin += dailyExpectedMin;
+        } else if (status === 'FOLGA_BH' || status === 'FALTA') {
+          totalExpectedMin += dailyExpectedMin;
+        }
+      });
+
+      const balanceMin = totalWorkedMin - totalExpectedMin;
+
+      const formatHours = (mins) => {
+        const sign = mins < 0 ? '-' : '';
+        const absM = Math.abs(mins);
+        const h = Math.floor(absM / 60);
+        const m = absM % 60;
+        return `${sign}${h}h${String(m).padStart(2, '0')}`;
+      };
+
+      map[emp.id] = {
+        ...serverSummary,
+        total_worked_minutes: totalWorkedMin,
+        total_expected_minutes: totalExpectedMin,
+        final_balance_minutes: balanceMin,
+        worked_hours_formatted: formatHours(totalWorkedMin),
+        expected_hours_formatted: formatHours(totalExpectedMin),
+        bank_hours_balance_formatted: formatHours(balanceMin)
+      };
+    });
     return map;
-  }, [summaries]);
+  }, [employees, summaries, localWorkDays, daysList, sundays, holidays]);
 
   // ==============================================================================
   // --- [AÇÕES DE EDIÇÃO DE CÉLULA] ---
@@ -180,7 +223,7 @@ export default function RHJornadaGrid({
             va_override: dVal.va_override,
             benefit_note: dVal.benefit_note,
             notes: dVal.notes,
-            is_manual: dVal.is_manual ?? true
+            is_manual: Boolean(dVal.is_manual)
           });
         });
       });
@@ -201,7 +244,7 @@ export default function RHJornadaGrid({
       setDirty(false);
       setSaveMsg('Jornada salva com sucesso!');
       setTimeout(() => setSaveMsg(''), 4000);
-      if (onRefresh) onRefresh();
+      if (onRefresh) await onRefresh();
     } catch (err) {
       console.error(err);
       alert('Falha ao salvar jornada de trabalho: ' + err.message);
@@ -217,6 +260,7 @@ export default function RHJornadaGrid({
   const handleExecuteFill = async () => {
     try {
       setFilling(true);
+      const hasSpecificDays = fillSelectedDays && fillSelectedDays.length > 0;
       const payload = {
         schedule_id: scheduleId,
         employee_ids: fillTargetEmployees === 'ALL' ? null : [parseInt(fillTargetEmployees, 10)],
@@ -224,7 +268,7 @@ export default function RHJornadaGrid({
         status: 'TRABALHO',
         day_from: parseInt(fillDayFrom, 10) || 1,
         day_to: parseInt(fillDayTo, 10) || daysList.length,
-        weekdays: fillWeekdays,
+        weekdays: hasSpecificDays ? null : fillWeekdays,
         selected_days: fillSelectedDays,
         overwrite_manual: fillOverwriteManual
       };
@@ -238,14 +282,21 @@ export default function RHJornadaGrid({
         body: JSON.stringify(payload)
       });
 
+      const resData = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || 'Erro ao preencher escala');
+        throw new Error(resData.detail || 'Erro ao preencher escala');
       }
 
-      setFillDrawerOpen(false);
+      if (resData.skipped_manual_count > 0 && resData.updated_count === 0) {
+        alert(
+          `Nenhuma alteração foi realizada porque ${resData.skipped_manual_count} dia(s) já possuem edições manuais registradas.\n\nPara forçar a aplicação neste período, marque a opção "Sobrescrever edições manuais".`
+        );
+      } else {
+        setFillDrawerOpen(false);
+      }
+
       setDirty(false);
-      if (onRefresh) onRefresh();
+      if (onRefresh) await onRefresh();
     } catch (err) {
       alert('Falha ao aplicar turno em lote: ' + err.message);
     } finally {
