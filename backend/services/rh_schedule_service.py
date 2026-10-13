@@ -168,7 +168,7 @@ def apply_shift_fill(
                 if rec_unsel and rec_unsel.is_manual and not overwrite_manual:
                     continue
 
-                unsel_status = "FERIADO" if unsel_day in holiday_days else ("DSR" if unsel_day in sundays else "FOLGA_BH")
+                unsel_status = "FERIADO" if unsel_day in holiday_days else ("DSR" if unsel_day in sundays else "FOLGA")
 
                 if rec_unsel:
                     rec_unsel.status = unsel_status
@@ -301,7 +301,7 @@ def clear_or_reset_schedule(
                 elif day in sundays:
                     st = "DSR"
                 else:
-                    st = "FOLGA_BH"
+                    st = "FOLGA"
                 
                 final_min = 0
                 shift_id_val = None
