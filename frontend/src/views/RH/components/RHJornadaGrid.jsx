@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Clock, Plus, CheckCircle2, AlertTriangle, Calendar, Save, 
-  RefreshCw, ChevronRight, Sliders, Sparkles, Filter, Info, X
+  RefreshCw, ChevronRight, Sliders, Sparkles, Filter, Info, X,
+  RotateCcw, Trash2
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
@@ -64,7 +65,14 @@ export default function RHJornadaGrid({
   const [fillWeekdays, setFillWeekdays] = useState([0, 1, 2, 3, 4, 5]); // Seg a Sáb por padrão
   const [fillSelectedDays, setFillSelectedDays] = useState(daysList.length ? daysList : Array.from({ length: 31 }, (_, i) => i + 1));
   const [fillOverwriteManual, setFillOverwriteManual] = useState(false);
+  const [fillClearUnselected, setFillClearUnselected] = useState(false);
   const [filling, setFilling] = useState(false);
+
+  // Estados do Modal de Limpar / Resetar Escala
+  const [clearModalOpen, setClearModalOpen] = useState(false);
+  const [clearEmployeeId, setClearEmployeeId] = useState('ALL');
+  const [clearMode, setClearMode] = useState('CLEAR_OFF'); // 'CLEAR_OFF' ou 'RESET_DEFAULT'
+  const [clearing, setClearing] = useState(false);
 
   // Sincroniza fillSelectedDays caso daysList mude
   React.useEffect(() => {
@@ -270,7 +278,8 @@ export default function RHJornadaGrid({
         day_to: parseInt(fillDayTo, 10) || daysList.length,
         weekdays: hasSpecificDays ? null : fillWeekdays,
         selected_days: fillSelectedDays,
-        overwrite_manual: fillOverwriteManual
+        overwrite_manual: fillOverwriteManual,
+        clear_unselected: fillClearUnselected
       };
 
       const res = await fetch(`${apiBase}/api/rh/schedules/fill`, {
@@ -304,6 +313,46 @@ export default function RHJornadaGrid({
     }
   };
 
+  // ==============================================================================
+  // --- [LIMPAR OU RESETAR ESCALA] ---
+  // ==============================================================================
+
+  const handleExecuteClear = async () => {
+    try {
+      setClearing(true);
+      const payload = {
+        schedule_id: scheduleId,
+        employee_id: clearEmployeeId === 'ALL' ? null : parseInt(clearEmployeeId, 10),
+        mode: clearMode,
+        overwrite_manual: true
+      };
+
+      const res = await fetch(`${apiBase}/api/rh/schedules/clear`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const resData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(resData.detail || 'Erro ao limpar escala');
+      }
+
+      setClearModalOpen(false);
+      setDirty(false);
+      setSaveMsg(resData.message || 'Escala atualizada com sucesso!');
+      setTimeout(() => setSaveMsg(''), 4000);
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      alert('Falha ao limpar escala: ' + err.message);
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       {/* Barra de Ferramentas Principal da Jornada */}
@@ -325,6 +374,15 @@ export default function RHJornadaGrid({
           >
             <Sliders size={14} />
             {fillDrawerOpen ? 'Fechar Painel de Turnos' : 'Aplicar Turnos em Lote'}
+          </button>
+
+          <button
+            onClick={() => setClearModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-rose-950/40 text-rose-300 border border-slate-700 hover:border-rose-800/50 transition-colors"
+            title="Limpar ou restaurar a escala do mês"
+          >
+            <RotateCcw size={14} />
+            Limpar Escala
           </button>
 
           <button
@@ -413,13 +471,19 @@ export default function RHJornadaGrid({
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">Proteção de Ajustes</label>
-              <div className="mt-2">
+              <label className="block text-slate-400 mb-1">Opções de Aplicação</label>
+              <div className="mt-2 space-y-2">
                 <StyledCheckbox
                   checked={fillOverwriteManual}
                   onChange={(checked) => setFillOverwriteManual(checked)}
                   label="Sobrescrever edições manuais"
                   description="Aplica novo turno mesmo em dias editados"
+                />
+                <StyledCheckbox
+                  checked={fillClearUnselected}
+                  onChange={(checked) => setFillClearUnselected(checked)}
+                  label="Substituir escala inteira"
+                  description="Define dias não selecionados como folga"
                 />
               </div>
             </div>
@@ -806,6 +870,122 @@ export default function RHJornadaGrid({
                 className="px-4 py-1.5 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow"
               >
                 Confirmar Ajuste
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================== */}
+      {/* --- [BLOCO: MODAL DE LIMPAR / RESETAR ESCALA] --- */}
+      {/* ============================================================================== */}
+      {clearModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
+                <RotateCcw size={18} />
+                Limpar ou Resetar Escala
+              </div>
+              <button
+                type="button"
+                onClick={() => setClearModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Selecione o colaborador e o modo como deseja redefinir os dias do mês:
+            </p>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Colaborador(es) Alvo</label>
+                <SelectDropdown
+                  value={clearEmployeeId}
+                  onChange={(val) => setClearEmployeeId(val)}
+                  placeholder="Selecione o colaborador"
+                  options={[
+                    { value: 'ALL', label: `Toda a Equipe (${employees.length})` },
+                    ...employees.map((e) => ({
+                      value: e.id,
+                      label: e.name,
+                      subtitle: e.role || 'Geral'
+                    }))
+                  ]}
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1.5 font-medium">Modo de Operação</label>
+                <div className="space-y-2">
+                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                    clearMode === 'CLEAR_OFF'
+                      ? 'bg-rose-950/30 border-rose-600/60 text-white shadow-sm'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="clearMode"
+                      value="CLEAR_OFF"
+                      checked={clearMode === 'CLEAR_OFF'}
+                      onChange={() => setClearMode('CLEAR_OFF')}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <span className="font-semibold text-rose-300 block">Zerar e Definir Folgas</span>
+                      <span className="text-[11px] text-slate-400 block mt-0.5">
+                        Remove todos os turnos de trabalho e define os dias como folga/DSR para montar a escala do zero.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                    clearMode === 'RESET_DEFAULT'
+                      ? 'bg-indigo-950/30 border-indigo-600/60 text-white shadow-sm'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="clearMode"
+                      value="RESET_DEFAULT"
+                      checked={clearMode === 'RESET_DEFAULT'}
+                      onChange={() => setClearMode('RESET_DEFAULT')}
+                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <span className="font-semibold text-indigo-300 block">Restaurar Turno Contratual</span>
+                      <span className="text-[11px] text-slate-400 block mt-0.5">
+                        Reaplica os horários e turnos contratuais padrão em dias úteis e DSR aos domingos.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setClearModalOpen(false)}
+                className="px-3.5 py-2 rounded-lg text-slate-400 hover:text-white bg-slate-800 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteClear}
+                disabled={clearing}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-white shadow-md transition-all ${
+                  clearMode === 'CLEAR_OFF'
+                    ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
+                    : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
+                }`}
+              >
+                {clearing ? <RefreshCw size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                {clearing ? 'Processando...' : 'Confirmar e Aplicar'}
               </button>
             </div>
           </div>
