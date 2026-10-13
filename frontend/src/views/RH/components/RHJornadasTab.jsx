@@ -25,6 +25,7 @@ export default function RHJornadasTab({
   sundays = [],
   holidays = {},
   grid = {},
+  workDays = {},
   onEditEmployee,
   organizationName = 'EMPRESA'
 }) {
@@ -34,11 +35,12 @@ export default function RHJornadasTab({
   const [showShiftGuide, setShowShiftGuide] = useState(false); // pré-preencher marca d'água com horários previstos
   const [filterRole, setFilterRole] = useState('ALL');
 
-  // Mapeamento de turnos por ID
+  // Mapeamento de turnos por ID e por Code
   const shiftMap = useMemo(() => {
     const map = {};
     shifts.forEach((s) => {
       map[s.id] = s;
+      if (s.code) map[s.code] = s;
     });
     return map;
   }, [shifts]);
@@ -482,9 +484,11 @@ export default function RHJornadasTab({
                             const isHoliday = !!holidays[day];
                             const holidayName = holidays[day];
 
-                            // Status da escala para o dia
+                            // Status e horários da escala / jornada para o dia
+                            const empWorkDays = workDays[emp.id] || {};
+                            const dayWork = empWorkDays[day];
                             const dayInfo = empGridTransport[day] || {};
-                            const dayStatus = dayInfo.status || 'X';
+                            const dayStatus = dayWork ? dayWork.status : (dayInfo.status || 'OFF');
 
                             // Determinar texto de ocorrência
                             let ocorrencia = '';
@@ -493,16 +497,33 @@ export default function RHJornadasTab({
                             if (isHoliday) {
                               ocorrencia = `FERIADO (${holidayName})`;
                               isOffDay = true;
-                            } else if (dayStatus === 'BH') {
+                            } else if (dayStatus === 'BH' || dayStatus === 'FOLGA_BH') {
                               ocorrencia = 'FOLGA BANCO DE HORAS';
                               isOffDay = true;
-                            } else if (dayStatus === 'FE') {
+                            } else if (dayStatus === 'FE' || dayStatus === 'FERIAS') {
                               ocorrencia = 'FÉRIAS';
                               isOffDay = true;
-                            } else if (dayStatus === 'OFF' || (isSunday && dayStatus === 'OFF')) {
+                            } else if (dayStatus === 'ATESTADO') {
+                              ocorrencia = 'ATESTADO MÉDICO';
+                              isOffDay = true;
+                            } else if (dayStatus === 'FALTA') {
+                              ocorrencia = 'FALTA NÃO JUSTIFICADA';
+                              isOffDay = true;
+                            } else if (dayStatus === 'DSR' || (isSunday && (dayStatus === 'OFF' || dayStatus === 'DSR'))) {
+                              ocorrencia = 'DSR / REPOUSO SEMANAL';
+                              isOffDay = true;
+                            } else if (dayStatus === 'OFF' || dayStatus === 'FOLGA') {
                               ocorrencia = isSunday ? 'DSR / REPOUSO SEMANAL' : 'FOLGA SEMANAL';
                               isOffDay = true;
                             }
+
+                            // Horários para exibição ou guia
+                            const displayShift = dayWork ? {
+                              start_time: dayWork.start_time,
+                              lunch_start: dayWork.lunch_start,
+                              lunch_end: dayWork.lunch_end,
+                              end_time: dayWork.end_time
+                            } : (shiftMap[dayInfo.shift_id || dayInfo.shift] || empShift);
 
                             return (
                               <tr
@@ -530,27 +551,29 @@ export default function RHJornadasTab({
                                 ) : (
                                   <>
                                     <td className="border border-black text-center text-gray-400">
-                                      {showShiftGuide && empShift ? (
-                                        <span className="text-gray-300 italic">{empShift.start_time}</span>
+                                      {showShiftGuide && displayShift ? (
+                                        <span className="text-gray-400 italic">{displayShift.start_time}</span>
                                       ) : null}
                                     </td>
                                     <td className="border border-black text-center text-gray-400">
-                                      {showShiftGuide && empShift ? (
-                                        <span className="text-gray-300 italic">{empShift.lunch_start || '12:00'}</span>
+                                      {showShiftGuide && displayShift ? (
+                                        <span className="text-gray-400 italic">{displayShift.lunch_start || '12:00'}</span>
                                       ) : null}
                                     </td>
                                     <td className="border border-black text-center text-gray-400">
-                                      {showShiftGuide && empShift ? (
-                                        <span className="text-gray-300 italic">{empShift.lunch_end || '13:00'}</span>
+                                      {showShiftGuide && displayShift ? (
+                                        <span className="text-gray-400 italic">{displayShift.lunch_end || '13:00'}</span>
                                       ) : null}
                                     </td>
                                     <td className="border border-black text-center text-gray-400">
-                                      {showShiftGuide && empShift ? (
-                                        <span className="text-gray-300 italic">{empShift.end_time}</span>
+                                      {showShiftGuide && displayShift ? (
+                                        <span className="text-gray-400 italic">{displayShift.end_time}</span>
                                       ) : null}
                                     </td>
                                     <td className="border border-black"></td>
-                                    <td className="border border-black text-left px-1 text-[9px]"></td>
+                                    <td className="border border-black text-left px-1 text-[9px]">
+                                      {dayWork?.notes || ''}
+                                    </td>
                                   </>
                                 )}
                               </tr>
