@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
 import RHShiftModal from './components/RHShiftModal';
+import RHJornadasTab from './components/RHJornadasTab';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -92,7 +93,7 @@ export default function RHEscalasView({ token }) {
     default_daily_transport_tickets: 2,
     daily_meal_cost: 25.00,
     weekly_contract_hours: 44.0,
-    weekly_actual_hours: 48.0,
+    weekly_actual_hours: 44.0,
     active: true
   });
 
@@ -354,7 +355,7 @@ export default function RHEscalasView({ token }) {
         default_daily_transport_tickets: parseInt(employeeFormData.default_daily_transport_tickets, 10) || 2,
         daily_meal_cost: parseFloat(Number(employeeFormData.daily_meal_cost).toFixed(2)) || 25.00,
         weekly_contract_hours: parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
-        weekly_actual_hours: 48.0,
+        weekly_actual_hours: parseFloat(employeeFormData.weekly_actual_hours) || parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         active: employeeFormData.active
       };
 
@@ -542,7 +543,7 @@ export default function RHEscalasView({ token }) {
                 default_daily_transport_tickets: 2,
                 daily_meal_cost: '25.00',
                 weekly_contract_hours: 44.0,
-                weekly_actual_hours: 48.0,
+                weekly_actual_hours: 44.0,
                 active: true
               });
               setEmployeeModalOpen(true);
@@ -967,7 +968,7 @@ export default function RHEscalasView({ token }) {
                 default_daily_transport_tickets: 2,
                 daily_meal_cost: '25.00',
                 weekly_contract_hours: 44.0,
-                weekly_actual_hours: 48.0,
+                weekly_actual_hours: 44.0,
                 active: true
               });
               setEmployeeModalOpen(true);
@@ -1041,7 +1042,7 @@ export default function RHEscalasView({ token }) {
                             default_daily_transport_tickets: emp.default_daily_transport_tickets || 2,
                             daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2),
                             weekly_contract_hours: emp.weekly_contract_hours || 44.0,
-                            weekly_actual_hours: 48.0,
+                            weekly_actual_hours: emp.weekly_actual_hours || emp.weekly_contract_hours || 44.0,
                             active: true
                           });
                           setEmployeeModalOpen(true);
@@ -1344,6 +1345,18 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
+          onClick={() => setActiveTab('jornada')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+            activeTab === 'jornada'
+              ? 'border-indigo-500 text-white bg-slate-900/60'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+          }`}
+        >
+          <Clock size={16} />
+          Jornada & Ponto Manual
+        </button>
+
+        <button
           onClick={() => setActiveTab('resumo')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'resumo'
@@ -1383,6 +1396,33 @@ export default function RHEscalasView({ token }) {
       {/* Renderização do Conteúdo da Aba */}
       {activeTab === 'transporte' && renderScheduleGrid('TRANSPORTE')}
       {activeTab === 'alimentacao' && renderScheduleGrid('ALIMENTACAO')}
+      {activeTab === 'jornada' && (
+        <RHJornadasTab
+          loading={loading}
+          employees={employees}
+          shifts={shifts}
+          selectedYear={selectedYear}
+          selectedMonth={selectedMonth}
+          numDays={scheduleData?.num_days || 31}
+          sundays={sundays}
+          holidays={holidays}
+          grid={localGrid}
+          onEditEmployee={(emp) => {
+            setEditingEmployee(emp);
+            setEmployeeFormData({
+              name: emp.name,
+              role_id: emp.role_id || '',
+              default_shift_id: emp.default_shift_id || '',
+              default_daily_transport_tickets: emp.default_daily_transport_tickets || 2,
+              daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2),
+              weekly_contract_hours: emp.weekly_contract_hours || 44.0,
+              weekly_actual_hours: emp.weekly_actual_hours || emp.weekly_contract_hours || 44.0,
+              active: true
+            });
+            setEmployeeModalOpen(true);
+          }}
+        />
+      )}
       {activeTab === 'resumo' && renderFinancialSummary()}
       {activeTab === 'mural' && renderSundayScheduleWall()}
       {activeTab === 'equipe' && renderTeamAndSettings()}
@@ -1456,7 +1496,15 @@ export default function RHEscalasView({ token }) {
                   <label className="block text-slate-400 mb-1">Jornada Semanal Contratual</label>
                   <select
                     value={employeeFormData.weekly_contract_hours}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, weekly_contract_hours: parseFloat(e.target.value) })}
+                    onChange={(e) => {
+                      const newContract = parseFloat(e.target.value);
+                      const wasEqual = employeeFormData.weekly_actual_hours === employeeFormData.weekly_contract_hours;
+                      setEmployeeFormData({ 
+                        ...employeeFormData, 
+                        weekly_contract_hours: newContract,
+                        weekly_actual_hours: wasEqual ? newContract : employeeFormData.weekly_actual_hours
+                      });
+                    }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value={44}>44 horas semanais</option>
@@ -1465,9 +1513,51 @@ export default function RHEscalasView({ token }) {
                     <option value={30}>30 horas semanais</option>
                     <option value={20}>20 horas semanais</option>
                   </select>
-                  <span className="text-[10px] text-slate-500">Praticado: 48h (gera banco de horas)</span>
                 </div>
 
+                <div>
+                  <label className="block text-slate-400 mb-1">Jornada Semanal Praticada (Real)</label>
+                  <select
+                    value={employeeFormData.weekly_actual_hours}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, weekly_actual_hours: parseFloat(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value={44}>44 horas semanais</option>
+                    <option value={48}>48 horas semanais (ex: 6x 8h)</option>
+                    <option value={40}>40 horas semanais</option>
+                    <option value={36}>36 horas semanais</option>
+                    <option value={30}>30 horas semanais</option>
+                    <option value={20}>20 horas semanais</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Indicador Reativo de Saldo de Horas */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-xs">
+                {Number(employeeFormData.weekly_actual_hours) === Number(employeeFormData.weekly_contract_hours) ? (
+                  <div className="flex items-center gap-1.5 text-emerald-400">
+                    <CheckCircle2 size={13} />
+                    <span>Jornada regular: Praticada igual à contratual (sem geração de banco de horas).</span>
+                  </div>
+                ) : Number(employeeFormData.weekly_actual_hours) > Number(employeeFormData.weekly_contract_hours) ? (
+                  <div className="flex items-center gap-1.5 text-amber-300">
+                    <Clock size={13} />
+                    <span>
+                      +{(Number(employeeFormData.weekly_actual_hours) - Number(employeeFormData.weekly_contract_hours)).toFixed(0)}h/semana excedentes 
+                      (gera saldo em Banco de Horas e meta de folgas compensatórias).
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-sky-300">
+                    <AlertCircle size={13} />
+                    <span>
+                      {(Number(employeeFormData.weekly_actual_hours) - Number(employeeFormData.weekly_contract_hours)).toFixed(0)}h/semana (regime com jornada reduzida).
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Passagens Padrão de VT por Dia</label>
                   <select
@@ -1480,35 +1570,35 @@ export default function RHEscalasView({ token }) {
                   </select>
                   <span className="text-[10px] text-slate-500">Tarifa: R$ {ticketUnitPrice.toFixed(2)} cada</span>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1">Valor do Vale Alimentação Individual (R$/refeição)</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    required
-                    value={employeeFormData.daily_meal_cost ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(',', '.');
-                      if (val === '' || /^\d*(\.\d{0,2})?$/.test(val)) {
-                        setEmployeeFormData({ ...employeeFormData, daily_meal_cost: val });
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const val = parseFloat(e.target.value);
-                      setEmployeeFormData({
-                        ...employeeFormData,
-                        daily_meal_cost: isNaN(val) ? '0.00' : val.toFixed(2)
-                      });
-                    }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
-                  />
+                <div>
+                  <label className="block text-slate-400 mb-1">Vale Alimentação (R$/refeição)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      required
+                      value={employeeFormData.daily_meal_cost ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(',', '.');
+                        if (val === '' || /^\d*(\.\d{0,2})?$/.test(val)) {
+                          setEmployeeFormData({ ...employeeFormData, daily_meal_cost: val });
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setEmployeeFormData({
+                          ...employeeFormData,
+                          daily_meal_cost: isNaN(val) ? '0.00' : val.toFixed(2)
+                        });
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-500">1 benefício pago/dia quando jornada &gt; 6h</span>
                 </div>
-                <span className="text-[10px] text-slate-500">1 benefício pago por dia quando a jornada for superior a 6h.</span>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
