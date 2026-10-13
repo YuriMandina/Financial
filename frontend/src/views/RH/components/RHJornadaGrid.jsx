@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
-import CalendarCheckboxPicker from '../../../components/common/CalendarCheckboxPicker';
+import CalendarCheckboxDropdown from '../../../components/common/CalendarCheckboxDropdown';
 
 const STATUS_OPTIONS = [
   { key: 'TRABALHO', label: 'Trabalho', short: 'TRAB', bg: 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30' },
@@ -350,26 +350,15 @@ export default function RHJornadaGrid({
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">Período (Dias)</label>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min="1"
-                  max={daysList.length}
-                  value={fillDayFrom}
-                  onChange={(e) => setFillDayFrom(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-center"
-                />
-                <span className="text-slate-500">até</span>
-                <input
-                  type="number"
-                  min="1"
-                  max={daysList.length}
-                  value={fillDayTo}
-                  onChange={(e) => setFillDayTo(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-center"
-                />
-              </div>
+              <label className="block text-slate-400 mb-1">Datas para Aplicação</label>
+              <CalendarCheckboxDropdown
+                year={selectedYear}
+                month={selectedMonth}
+                selectedDays={fillSelectedDays}
+                onChange={(days) => setFillSelectedDays(days)}
+                sundays={sundays}
+                holidays={holidays}
+              />
             </div>
 
             <div>
@@ -383,19 +372,6 @@ export default function RHJornadaGrid({
                 />
               </div>
             </div>
-          </div>
-
-          {/* Calendário Mensal com Seleção por Checkbox nas Datas */}
-          <div className="pt-2 border-t border-slate-800/80">
-            <CalendarCheckboxPicker
-              year={selectedYear}
-              month={selectedMonth}
-              selectedDays={fillSelectedDays}
-              onChange={(days) => setFillSelectedDays(days)}
-              sundays={sundays}
-              holidays={holidays}
-              title={`Datas para Aplicação (${MONTH_NAMES[selectedMonth - 1]} / ${selectedYear})`}
-            />
           </div>
 
           {/* Barra de Ações Inferior */}
