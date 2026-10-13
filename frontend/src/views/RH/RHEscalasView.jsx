@@ -3,13 +3,14 @@ import {
   Users, Bus, Utensils, AlertTriangle, Calendar, Printer, 
   Save, RefreshCw, Plus, Trash2, Edit2, CheckCircle2, Clock, 
   ChevronLeft, ChevronRight, ShieldAlert, Sparkles, FileSpreadsheet,
-  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle
+  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
 import RHShiftModal from './components/RHShiftModal';
 import RHJornadasTab from './components/RHJornadasTab';
 import RHJornadaGrid from './components/RHJornadaGrid';
 import RHBeneficiosGrid from './components/RHBeneficiosGrid';
+import RHFeriadosView from './components/RHFeriadosView';
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
 
@@ -1422,6 +1423,18 @@ export default function RHEscalasView({ token }) {
           <Users size={16} />
           Equipe, Cargos & Parâmetros
         </button>
+
+        <button
+          onClick={() => setActiveTab('feriados')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+            activeTab === 'feriados'
+              ? 'border-indigo-500 text-white bg-slate-900/60'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+          }`}
+        >
+          <CalendarDays size={16} />
+          Feriados & Folgas
+        </button>
       </div>
 
       {/* Renderização do Conteúdo da Aba */}
@@ -1511,6 +1524,14 @@ export default function RHEscalasView({ token }) {
       {activeTab === 'resumo' && renderFinancialSummary()}
       {activeTab === 'mural' && renderSundayScheduleWall()}
       {activeTab === 'equipe' && renderTeamAndSettings()}
+      {activeTab === 'feriados' && (
+        <RHFeriadosView
+          token={token}
+          apiBase={API_BASE}
+          initialYear={selectedYear}
+          onRefreshSchedule={fetchSchedule}
+        />
+      )}
 
       {/* ============================================================================== */}
       {/* --- [BLOCO: MODAIS DE EDIÇÃO] --- */}
