@@ -256,11 +256,7 @@ export default function RHFeriadosView({ token, apiBase, onRefreshSchedule }) {
             return (
               <div
                 key={mNum}
-                className={`bg-slate-900/80 border rounded-xl overflow-hidden transition-all ${
-                  mHolidays.length > 0
-                    ? 'border-slate-800 hover:border-slate-700 shadow-sm'
-                    : 'border-slate-850 opacity-70 hover:opacity-100'
-                }`}
+                className="bg-slate-900/80 border border-slate-800 hover:border-slate-700 rounded-xl overflow-hidden shadow-sm transition-all"
               >
                 {/* Cabeçalho do Mês */}
                 <div className="bg-slate-950/70 px-4 py-2.5 border-b border-slate-800/80 flex items-center justify-between">
