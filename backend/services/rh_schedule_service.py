@@ -19,6 +19,7 @@ def apply_shift_fill(
     day_from: int = 1,
     day_to: Optional[int] = None,
     weekdays: Optional[List[int]] = None, # 0=Segunda ... 6=Domingo
+    selected_days: Optional[List[int]] = None, # Lista explícita de dias do mês (ex: [1,2,5,10])
     overwrite_manual: bool = False
 ) -> Dict[str, Any]:
     schedule = db.query(models.RHMonthlySchedule).filter(
@@ -79,6 +80,10 @@ def apply_shift_fill(
         raw_min = compute_raw_minutes(start_time, lunch_start, lunch_end, end_time) if target_shift else 480
 
         for day in range(start_day, end_day + 1):
+            if selected_days is not None and len(selected_days) > 0:
+                if day not in selected_days:
+                    continue
+
             d_obj = date(schedule.year, schedule.month, day)
             w_day = d_obj.weekday()
 

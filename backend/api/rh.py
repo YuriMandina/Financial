@@ -151,6 +151,7 @@ class RHScheduleFillRequest(BaseModel):
     day_from: int = 1
     day_to: Optional[int] = None
     weekdays: Optional[List[int]] = None
+    selected_days: Optional[List[int]] = None
     overwrite_manual: bool = False
 
 class RHBenefitOverrideRequest(BaseModel):
@@ -916,6 +917,7 @@ def fill_schedule_shifts(
             day_from=payload.day_from,
             day_to=payload.day_to,
             weekdays=payload.weekdays,
+            selected_days=payload.selected_days,
             overwrite_manual=payload.overwrite_manual
         )
         return res
