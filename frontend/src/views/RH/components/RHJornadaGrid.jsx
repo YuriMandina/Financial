@@ -3,6 +3,7 @@ import {
   Clock, Plus, CheckCircle2, AlertTriangle, Calendar, Save, 
   RefreshCw, ChevronRight, Sliders, Sparkles, Filter, Info, X
 } from 'lucide-react';
+import SelectDropdown from '../../../components/common/SelectDropdown';
 
 const STATUS_OPTIONS = [
   { key: 'TRABALHO', label: 'Trabalho', short: 'TRAB', bg: 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30' },
@@ -299,30 +300,37 @@ export default function RHJornadaGrid({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             <div>
               <label className="block text-slate-400 mb-1">Turno a Aplicar</label>
-              <select
+              <SelectDropdown
                 value={fillShiftId}
-                onChange={(e) => setFillShiftId(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
-              >
-                <option value="">Turno Contratual do Colaborador</option>
-                {shifts.map((s) => (
-                  <option key={s.id} value={s.id}>{s.code}: {s.name} ({s.net_hours}h)</option>
-                ))}
-              </select>
+                onChange={(val) => setFillShiftId(val)}
+                placeholder="Turno Contratual do Colaborador"
+                options={[
+                  { value: '', label: 'Turno Contratual do Colaborador' },
+                  ...shifts.map((s) => ({
+                    value: s.id,
+                    label: `${s.code}: ${s.name}`,
+                    subtitle: `${s.net_hours}h líquidas`
+                  }))
+                ]}
+              />
             </div>
 
             <div>
               <label className="block text-slate-400 mb-1">Colaborador(es)</label>
-              <select
+              <SelectDropdown
                 value={fillTargetEmployees}
-                onChange={(e) => setFillTargetEmployees(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
-              >
-                <option value="ALL">Toda a Equipe ({employees.length})</option>
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
+                onChange={(val) => setFillTargetEmployees(val)}
+                searchable={employees.length > 5}
+                placeholder="Selecione o colaborador"
+                options={[
+                  { value: 'ALL', label: `Toda a Equipe (${employees.length})` },
+                  ...employees.map((e) => ({
+                    value: e.id,
+                    label: e.name,
+                    subtitle: e.role || 'Geral'
+                  }))
+                ]}
+              />
             </div>
 
             <div>
@@ -614,10 +622,10 @@ export default function RHJornadaGrid({
                 <>
                   <div>
                     <label className="block text-slate-400 mb-1 font-medium">Turno Base</label>
-                    <select
+                    <SelectDropdown
                       value={editingCell.data.shift_id || ''}
-                      onChange={(e) => {
-                        const sId = e.target.value ? parseInt(e.target.value, 10) : null;
+                      onChange={(val) => {
+                        const sId = val ? parseInt(val, 10) : null;
                         const sObj = shiftMap[sId];
                         setEditingCell({
                           ...editingCell,
@@ -633,13 +641,16 @@ export default function RHJornadaGrid({
                           }
                         });
                       }}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white"
-                    >
-                      <option value="">Personalizado / Sem turno fixo</option>
-                      {shifts.map((s) => (
-                        <option key={s.id} value={s.id}>{s.code}: {s.name} ({s.net_hours}h)</option>
-                      ))}
-                    </select>
+                      placeholder="Personalizado / Sem turno fixo"
+                      options={[
+                        { value: '', label: 'Personalizado / Sem turno fixo' },
+                        ...shifts.map((s) => ({
+                          value: s.id,
+                          label: `${s.code}: ${s.name}`,
+                          subtitle: `${s.net_hours}h`
+                        }))
+                      ]}
+                    />
                   </div>
 
                   {/* Horários do Dia */}

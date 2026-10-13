@@ -3,6 +3,7 @@ import {
   Bus, Utensils, RotateCcw, Plus, Trash2, CheckCircle2, 
   AlertCircle, Edit2, Sparkles, Filter, X, HelpCircle
 } from 'lucide-react';
+import SelectDropdown from '../../../components/common/SelectDropdown';
 
 export default function RHBeneficiosGrid({
   type = 'VT', // 'VT' ou 'VA'
@@ -552,16 +553,17 @@ export default function RHBeneficiosGrid({
             <form onSubmit={handleCreateAdjustment} className="space-y-3">
               <div>
                 <label className="block text-slate-400 mb-1 font-medium">Colaborador</label>
-                <select
-                  required
+                <SelectDropdown
                   value={adjEmpId}
-                  onChange={(e) => setAdjEmpId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white"
-                >
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>{e.name}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setAdjEmpId(val)}
+                  searchable={employees.length > 5}
+                  placeholder="Selecione o colaborador"
+                  options={employees.map((e) => ({
+                    value: e.id,
+                    label: e.name,
+                    subtitle: e.role || 'Geral'
+                  }))}
+                />
               </div>
 
               <div>
