@@ -581,19 +581,23 @@ def add_holiday(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    raw_date = payload.date.strip()
+    normalized_date = raw_date[-5:] if len(raw_date) >= 5 else raw_date
+
     existing = db.query(models.RHHoliday).filter(
         models.RHHoliday.organization_id == current_user.organization_id,
-        models.RHHoliday.date == payload.date
+        (models.RHHoliday.date == normalized_date) | (models.RHHoliday.date.like(f"%{normalized_date}"))
     ).first()
     if existing:
         existing.name = payload.name
+        existing.date = normalized_date
         db.commit()
         db.refresh(existing)
         return existing
 
     hol = models.RHHoliday(
         organization_id=current_user.organization_id,
-        date=payload.date,
+        date=normalized_date,
         name=payload.name
     )
     db.add(hol)

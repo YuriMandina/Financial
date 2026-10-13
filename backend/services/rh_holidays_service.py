@@ -1,6 +1,7 @@
 """
 Service de Feriados Nacionais e Corporativos do Módulo de RH
-Contém feriados nacionais brasileiros oficiais (fixos e móveis) e mesclagem com feriados cadastrados.
+Gerencia feriados nacionais e municipais de forma perpétua/recorrente por Dia e Mês (MM-DD),
+evitando a necessidade de recadastrar feriados anualmente.
 """
 
 from datetime import date, timedelta
@@ -26,50 +27,63 @@ def get_easter_date(year: int) -> date:
     day = ((h + l - 7 * m + 114) % 31) + 1
     return date(year, month, day)
 
-def get_national_holidays(year: int) -> List[Dict[str, Any]]:
-    """
-    Retorna a lista completa dos feriados nacionais brasileiros oficiais para o ano especificado.
-    Inclui feriados fixos e datas móveis (Carnaval, Paixão de Cristo e Corpus Christi).
-    """
+# ==============================================================================
+# --- [FERIADOS NACIONAIS FIXOS FEDERAIS (PERENES)] ---
+# ==============================================================================
+
+FIXED_NATIONAL_HOLIDAYS = [
+    {"mm_dd": "01-01", "month": 1, "day": 1, "name": "Confraternização Universal (Ano Novo)"},
+    {"mm_dd": "04-21", "month": 4, "day": 21, "name": "Tiradentes"},
+    {"mm_dd": "05-01", "month": 5, "day": 1, "name": "Dia do Trabalhador"},
+    {"mm_dd": "09-07", "month": 9, "day": 7, "name": "Independência do Brasil"},
+    {"mm_dd": "10-12", "month": 10, "day": 12, "name": "Nossa Senhora Aparecida (Padroeira do Brasil)"},
+    {"mm_dd": "11-02", "month": 11, "day": 2, "name": "Finados"},
+    {"mm_dd": "11-15", "month": 11, "day": 15, "name": "Proclamação da República"},
+    {"mm_dd": "11-20", "month": 11, "day": 20, "name": "Dia Nacional de Zumbi e da Consciência Negra"},
+    {"mm_dd": "12-25", "month": 12, "day": 25, "name": "Natal"},
+]
+
+def get_movable_national_holidays(year: int) -> List[Dict[str, Any]]:
+    """Calcula as datas móveis oficiais para o ano especificado."""
     easter = get_easter_date(year)
     carnival = easter - timedelta(days=47)
     good_friday = easter - timedelta(days=2)
     corpus_christi = easter + timedelta(days=60)
 
-    holidays = [
-        # Feriados Fixos Nacionais
-        {"date": f"{year}-01-01", "name": "Confraternização Universal (Ano Novo)", "type": "NATIONAL"},
-        {"date": f"{year}-04-21", "name": "Tiradentes", "type": "NATIONAL"},
-        {"date": f"{year}-05-01", "name": "Dia do Trabalhador", "type": "NATIONAL"},
-        {"date": f"{year}-09-07", "name": "Independência do Brasil", "type": "NATIONAL"},
-        {"date": f"{year}-10-12", "name": "Nossa Senhora Aparecida (Padroeira do Brasil)", "type": "NATIONAL"},
-        {"date": f"{year}-11-02", "name": "Finados", "type": "NATIONAL"},
-        {"date": f"{year}-11-15", "name": "Proclamação da República", "type": "NATIONAL"},
-        {"date": f"{year}-11-20", "name": "Dia Nacional de Zumbi e da Consciência Negra", "type": "NATIONAL"},
-        {"date": f"{year}-12-25", "name": "Natal", "type": "NATIONAL"},
-
-        # Feriados / Pontos Facultativos Nacionais Móveis Oficiais
-        {"date": carnival.isoformat(), "name": "Carnaval", "type": "NATIONAL"},
-        {"date": good_friday.isoformat(), "name": "Sexta-feira Santa (Paixão de Cristo)", "type": "NATIONAL"},
-        {"date": easter.isoformat(), "name": "Páscoa", "type": "NATIONAL"},
-        {"date": corpus_christi.isoformat(), "name": "Corpus Christi", "type": "NATIONAL"},
+    return [
+        {
+            "mm_dd": carnival.strftime("%m-%d"),
+            "month": carnival.month,
+            "day": carnival.day,
+            "name": "Carnaval",
+            "is_movable": True
+        },
+        {
+            "mm_dd": good_friday.strftime("%m-%d"),
+            "month": good_friday.month,
+            "day": good_friday.day,
+            "name": "Sexta-feira Santa (Paixão de Cristo)",
+            "is_movable": True
+        },
+        {
+            "mm_dd": easter.strftime("%m-%d"),
+            "month": easter.month,
+            "day": easter.day,
+            "name": "Páscoa",
+            "is_movable": True
+        },
+        {
+            "mm_dd": corpus_christi.strftime("%m-%d"),
+            "month": corpus_christi.month,
+            "day": corpus_christi.day,
+            "name": "Corpus Christi",
+            "is_movable": True
+        },
     ]
 
-    # Ordenar por data
-    holidays.sort(key=lambda x: x["date"])
-
-    # Formatar itens com propriedades enriquecidas
-    result = []
-    for h in holidays:
-        result.append({
-            "id": f"national-{h['date']}",
-            "date": h["date"],
-            "name": h["name"],
-            "type": h["type"],
-            "is_national": True,
-            "can_delete": False
-        })
-    return result
+# ==============================================================================
+# --- [MAPA EFETIVO PARA ESCALAS MENSAIS (QUALQUER ANO)] ---
+# ==============================================================================
 
 def get_effective_holidays_map(
     db: Session,
@@ -78,81 +92,115 @@ def get_effective_holidays_map(
     month: Optional[int] = None
 ) -> Dict[str, str]:
     """
-    Retorna um dicionário { "YYYY-MM-DD": "Nome do Feriado" } unindo feriados nacionais
-    hardcoded e feriados customizados gravados no banco de dados para a organização.
+    Retorna { 'YYYY-MM-DD': 'Nome' } para o ano e mês solicitados.
+    Combina feriados fixos, móveis e os municipais/customizados perenes da organização.
     """
     holidays_map: Dict[str, str] = {}
 
-    # 1. Carrega Feriados Nacionais
-    nationals = get_national_holidays(year)
-    for n in nationals:
-        d_str = n["date"]
-        if month is not None:
-            if int(d_str.split("-")[1]) != month:
-                continue
-        holidays_map[d_str] = n["name"]
+    # 1. Feriados Nacionais Fixos
+    for fix in FIXED_NATIONAL_HOLIDAYS:
+        if month is not None and fix["month"] != month:
+            continue
+        d_str = f"{year:04d}-{fix['mm_dd']}"
+        holidays_map[d_str] = fix["name"]
 
-    # 2. Carrega Feriados Customizados do Banco de Dados
-    query = db.query(models.RHHoliday).filter(
+    # 2. Feriados Nacionais Móveis do Ano
+    for mov in get_movable_national_holidays(year):
+        if month is not None and mov["month"] != month:
+            continue
+        d_str = f"{year:04d}-{mov['mm_dd']}"
+        holidays_map[d_str] = mov["name"]
+
+    # 3. Feriados Municipais / Corporativos Cadastrados (Perenes por MM-DD)
+    db_holidays = db.query(models.RHHoliday).filter(
         models.RHHoliday.organization_id == organization_id
-    )
-    if month is not None:
-        month_prefix = f"{year:04d}-{month:02d}-"
-        query = query.filter(models.RHHoliday.date.like(f"{month_prefix}%"))
-    else:
-        year_prefix = f"{year:04d}-"
-        query = query.filter(models.RHHoliday.date.like(f"{year_prefix}%"))
+    ).all()
 
-    db_holidays = query.all()
-    for db_h in db_holidays:
-        holidays_map[db_h.date] = db_h.name
+    for h in db_holidays:
+        # Extrai MM-DD mesmo se o registro antigo contiver YYYY-MM-DD
+        raw = h.date.strip()
+        mm_dd = raw[-5:] if len(raw) >= 5 else raw
+        try:
+            m_part, d_part = map(int, mm_dd.split("-"))
+            if month is not None and m_part != month:
+                continue
+            full_date = f"{year:04d}-{m_part:02d}-{d_part:02d}"
+            holidays_map[full_date] = h.name
+        except Exception:
+            continue
 
     return holidays_map
+
+# ==============================================================================
+# --- [LISTAGEM PERPÉTUA ANUAL PARA A INTERFACE] ---
+# ==============================================================================
 
 def list_all_holidays_for_organization(
     db: Session,
     organization_id: int,
-    year: int
+    reference_year: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """
-    Lista todos os feriados do ano (nacionais + cadastrados pela empresa), ordenados cronologicamente.
+    Lista todos os feriados fixos e customizados em formato perene (anual),
+    com datas móveis calculadas com base no ano de referência.
     """
-    # 1. Nacionais
-    nationals = get_national_holidays(year)
-    national_dates = {n["date"] for n in nationals}
-
-    # 2. Customizados do Banco
-    year_prefix = f"{year:04d}-"
-    db_holidays = db.query(models.RHHoliday).filter(
-        models.RHHoliday.organization_id == organization_id,
-        models.RHHoliday.date.like(f"{year_prefix}%")
-    ).all()
+    ref_year = reference_year or date.today().year
 
     combined: List[Dict[str, Any]] = []
 
-    # Adiciona nacionais
-    combined.extend(nationals)
+    # 1. Nacionais Fixos
+    for fix in FIXED_NATIONAL_HOLIDAYS:
+        combined.append({
+            "id": f"national-fixed-{fix['mm_dd']}",
+            "mm_dd": fix["mm_dd"],
+            "month": fix["month"],
+            "day": fix["day"],
+            "name": fix["name"],
+            "type": "NATIONAL",
+            "is_national": True,
+            "is_movable": False,
+            "can_delete": False
+        })
 
-    # Adiciona os do banco (se não sobrepuserem exatamente uma data nacional)
+    # 2. Nacionais Móveis
+    for mov in get_movable_national_holidays(ref_year):
+        combined.append({
+            "id": f"national-movable-{mov['name'].lower().replace(' ', '-')}",
+            "mm_dd": mov["mm_dd"],
+            "month": mov["month"],
+            "day": mov["day"],
+            "name": mov["name"],
+            "type": "NATIONAL",
+            "is_national": True,
+            "is_movable": True,
+            "can_delete": False
+        })
+
+    # 3. Customizados da Organização
+    db_holidays = db.query(models.RHHoliday).filter(
+        models.RHHoliday.organization_id == organization_id
+    ).all()
+
     for h in db_holidays:
-        if h.date in national_dates:
-            # Atualiza o nome se o usuário renomeou o feriado no banco
-            for item in combined:
-                if item["date"] == h.date:
-                    item["name"] = h.name
-                    item["db_id"] = h.id
-                    break
-        else:
+        raw = h.date.strip()
+        mm_dd = raw[-5:] if len(raw) >= 5 else raw
+        try:
+            m_part, d_part = map(int, mm_dd.split("-"))
             combined.append({
                 "id": f"custom-{h.id}",
                 "db_id": h.id,
-                "date": h.date,
+                "mm_dd": f"{m_part:02d}-{d_part:02d}",
+                "month": m_part,
+                "day": d_part,
                 "name": h.name,
                 "type": "CUSTOM",
                 "is_national": False,
+                "is_movable": False,
                 "can_delete": True
             })
+        except Exception:
+            continue
 
-    # Ordena por data
-    combined.sort(key=lambda x: x["date"])
+    # Ordena cronologicamente pelo mês e dia
+    combined.sort(key=lambda x: (x["month"], x["day"], x["name"]))
     return combined
