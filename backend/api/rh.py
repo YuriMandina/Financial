@@ -17,7 +17,7 @@ from services.rh_engine import (
     format_minutes_to_hours,
     derive_day_benefits
 )
-from services.rh_schedule_service import apply_shift_fill
+from services.rh_schedule_service import apply_shift_fill, clear_or_reset_schedule
 
 router = APIRouter(prefix="/api/rh", tags=["rh"])
 
@@ -153,6 +153,14 @@ class RHScheduleFillRequest(BaseModel):
     weekdays: Optional[List[int]] = None
     selected_days: Optional[List[int]] = None
     overwrite_manual: bool = False
+    clear_unselected: bool = False
+
+class RHScheduleClearRequest(BaseModel):
+    schedule_id: int
+    employee_id: Optional[int] = None
+    mode: str = "CLEAR_OFF" # 'CLEAR_OFF' ou 'RESET_DEFAULT'
+    overwrite_manual: bool = True
+
 
 class RHBenefitOverrideRequest(BaseModel):
     schedule_id: int
@@ -918,11 +926,33 @@ def fill_schedule_shifts(
             day_to=payload.day_to,
             weekdays=payload.weekdays,
             selected_days=payload.selected_days,
+            overwrite_manual=payload.overwrite_manual,
+            clear_unselected=payload.clear_unselected
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/schedules/clear")
+def clear_schedule_shifts_endpoint(
+    payload: RHScheduleClearRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Limpa ou restaura a escala de trabalho (para um colaborador ou toda a equipe)."""
+    try:
+        res = clear_or_reset_schedule(
+            db=db,
+            organization_id=current_user.organization_id,
+            schedule_id=payload.schedule_id,
+            employee_id=payload.employee_id,
+            mode=payload.mode,
             overwrite_manual=payload.overwrite_manual
         )
         return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.patch("/schedules/work-days")
 def update_work_days_batch(
