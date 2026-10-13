@@ -40,6 +40,11 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS default_daily_transport_tickets INTEGER DEFAULT 2;"))
             conn.execute(text("ALTER TABLE rh_schedule_days ADD COLUMN IF NOT EXISTS shift_id INTEGER REFERENCES rh_work_shifts(id);"))
             conn.execute(text("ALTER TABLE rh_schedule_days ADD COLUMN IF NOT EXISTS tickets_count INTEGER DEFAULT 2;"))
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS work_days_per_week INTEGER DEFAULT 6;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS time_rounding_minutes INTEGER DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS time_rounding_mode VARCHAR DEFAULT 'NEAREST';"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS clt_tolerance_enabled BOOLEAN DEFAULT TRUE;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS hours_display_format VARCHAR DEFAULT 'HHMM';"))
     except Exception as e:
         print(f"Warning during auto-migration: {e}")
 
