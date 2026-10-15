@@ -242,6 +242,7 @@ class RHEmployee(Base):
     daily_meal_cost = Column(Float, default=25.00) # Valor individual de 1 refeição/dia
     weekly_contract_hours = Column(Float, default=44.0) # Regime semanal contratual (ex: 44h, 40h)
     weekly_actual_hours = Column(Float, default=48.0) # Regime praticado
+    work_days_per_week = Column(Integer, default=6) # 5 ou 6 dias de trabalho por semana
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -249,6 +250,7 @@ class RHEmployee(Base):
     role_obj = relationship("RHRole")
     default_shift = relationship("RHWorkShift")
     schedule_days = relationship("RHScheduleDay", back_populates="employee", cascade="all, delete-orphan")
+    work_days = relationship("RHWorkDay", back_populates="employee", cascade="all, delete-orphan")
 
 
 class RHSettings(Base):
@@ -263,6 +265,10 @@ class RHSettings(Base):
     min_daily_hours_for_meal = Column(Float, default=6.0)
     weekly_bank_overtime_hours = Column(Float, default=4.0)
     compensatory_days_per_month = Column(Integer, default=2)
+    time_rounding_minutes = Column(Integer, default=0) # 0 (sem arredondar), 5, 10, 15, 30, 60
+    time_rounding_mode = Column(String, default="NEAREST") # NEAREST, DOWN, UP
+    clt_tolerance_enabled = Column(Boolean, default=True) # Art. 58 §1º CLT
+    hours_display_format = Column(String, default="HHMM") # HHMM ou DECIMAL
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     organization = relationship("Organization")
@@ -297,6 +303,8 @@ class RHMonthlySchedule(Base):
     )
 
     days = relationship("RHScheduleDay", back_populates="schedule", cascade="all, delete-orphan")
+    work_days = relationship("RHWorkDay", back_populates="schedule", cascade="all, delete-orphan")
+    benefit_adjustments = relationship("RHBenefitAdjustment", back_populates="schedule", cascade="all, delete-orphan")
 
 
 class RHScheduleDay(Base):
@@ -321,5 +329,57 @@ class RHScheduleDay(Base):
     schedule = relationship("RHMonthlySchedule", back_populates="days")
     employee = relationship("RHEmployee", back_populates="schedule_days")
     shift_obj = relationship("RHWorkShift")
+
+
+# ==============================================================================
+# --- [BLOCO: NOVA JORNADA UNIFICADA DIÁRIA & AJUSTES AVULSOS] ---
+# ==============================================================================
+
+class RHWorkDay(Base):
+    __tablename__ = "rh_work_days"
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id", ondelete="CASCADE"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False)
+    day = Column(Integer, nullable=False) # 1 a 31
+    # Status padrão: TRABALHO, DSR, FOLGA, FERIADO, FERIAS, FOLGA_BH, FALTA, ATESTADO
+    status = Column(String, nullable=False, default="TRABALHO")
+    shift_id = Column(Integer, ForeignKey("rh_work_shifts.id"), nullable=True)
+    shift = Column(String, nullable=True) # Código do turno (ex: ABRE, FECHA)
+    start_time = Column(String, nullable=True) # "07:00"
+    lunch_start = Column(String, nullable=True) # "12:00"
+    lunch_end = Column(String, nullable=True) # "13:00"
+    end_time = Column(String, nullable=True) # "16:00"
+    raw_minutes = Column(Integer, default=480) # Minutos brutos calculados (ex: 480 min = 8h)
+    worked_minutes = Column(Integer, default=480) # Minutos apurados após tolerância
+    vt_tickets_override = Column(Integer, nullable=True) # NULL: calculado, 0: sem VT, N: override
+    va_override = Column(Boolean, nullable=True) # NULL: calculado, True: concedido, False: removido
+    benefit_note = Column(String, nullable=True) # Observação/justificativa do ajuste de benefício
+    is_manual = Column(Boolean, default=False) # Proteção contra sobrescrita acidental em preenchimento em lote
+    notes = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('schedule_id', 'employee_id', 'day', name='uq_rh_work_day'),
+    )
+
+    schedule = relationship("RHMonthlySchedule", back_populates="work_days")
+    employee = relationship("RHEmployee", back_populates="work_days")
+    shift_obj = relationship("RHWorkShift")
+
+
+class RHBenefitAdjustment(Base):
+    __tablename__ = "rh_benefit_adjustments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id", ondelete="CASCADE"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False)
+    benefit_type = Column(String, nullable=False) # 'VT' ou 'VA'
+    quantity = Column(Float, nullable=False) # Ex: +3 passagens ou -1 VA
+    reason = Column(String, nullable=True) # Motivo do ajuste avulso
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    schedule = relationship("RHMonthlySchedule", back_populates="benefit_adjustments")
+    employee = relationship("RHEmployee")
 
 
