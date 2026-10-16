@@ -69,6 +69,7 @@ SYSTEM_ITEMS = {
     "FALTAS": ("101", "Faltas", "DESPESA", True, True, True, True),
     "DSR_FALTA": ("102", "DSR sobre Faltas", "DESPESA", True, True, True, True),
     "VT": ("103", "Vale Transporte (6%)", "DESPESA", False, False, False, True),
+    "ADIANTAMENTO": ("104", "Adiantamento Salarial", "DESPESA", False, False, False, True),
     "INSS": ("201", "INSS", "DESPESA", False, False, False, True),
     "IRRF": ("202", "IRRF", "DESPESA", False, False, False, True),
     "VA": ("901", "Vale Alimentação (benefício)", "RECEITA", False, False, False, False),
@@ -78,7 +79,7 @@ SYSTEM_ITEMS = {
 TAX_KEYS = {"INSS", "IRRF", "FGTS"}
 
 # Rubricas do sistema com percentual configurável: system_key -> % padrão
-CONFIGURABLE_PERCENT_ITEMS = {"TRIENIO": 4.0}
+CONFIGURABLE_PERCENT_ITEMS = {"TRIENIO": 4.0, "ADIANTAMENTO": 40.0}
 
 
 def ensure_system_items(db: Session, organization_id: int) -> Dict[str, models.RHPayrollItem]:
@@ -325,6 +326,13 @@ def calculate_payroll(
         models.RHBenefitAdjustment.schedule_id == schedule.id
     ).all()
 
+    advance_ids = {
+        a.employee_id for a in db.query(models.RHSalaryAdvance).filter(
+            models.RHSalaryAdvance.schedule_id == schedule.id,
+            models.RHSalaryAdvance.enabled == True
+        ).all()
+    }
+
     cal_info = get_month_calendar_info(schedule.year, schedule.month)
     num_days = cal_info["num_days"]
     sundays = set(cal_info["sundays"])
@@ -454,6 +462,12 @@ def calculate_payroll(
         add_auto(system_items["VA"], float(summary.get("total_va_amount") or 0.0),
                  f"{summary.get('total_va_count_final', 0)} refeição(ões)")
 
+        # Adiantamento salarial: pago somente nos meses marcados para o colaborador
+        advance_item = system_items["ADIANTAMENTO"]
+        if advance_item.active and emp.id in advance_ids:
+            pct = float(advance_item.default_value or 0.0)
+            add_auto(advance_item, salary * pct / 100, f"{pct:g}%")
+
         # Rubricas recorrentes cadastradas pelo operador
         for item in recurring_items:
             value = float(item.default_value or 0.0)
@@ -568,6 +582,12 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
     work_days_by_emp: Dict[int, Dict[int, Any]] = {}
     for wd in db.query(models.RHWorkDay).filter(models.RHWorkDay.schedule_id == schedule.id).all():
         work_days_by_emp.setdefault(wd.employee_id, {})[wd.day] = wd
+    advance_ids = {
+        a.employee_id for a in db.query(models.RHSalaryAdvance).filter(
+            models.RHSalaryAdvance.schedule_id == schedule.id,
+            models.RHSalaryAdvance.enabled == True
+        ).all()
+    }
     by_emp: Dict[int, List[models.RHPayrollEntry]] = {}
     for e in entries:
         by_emp.setdefault(e.employee_id, []).append(e)
@@ -600,6 +620,10 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "entries": [entry_to_dict(e) for e in emp_entries],
             "totals": totals,
+            "advance": {
+                "enabled": emp.id in advance_ids,
+                "amount": round(sum(e.amount for e in emp_entries if e.item.system_key == "ADIANTAMENTO"), 2),
+            },
             "bank": bank_to_dict(
                 bank_rows.get(emp.id), emp, default_policy,
                 bank_entries_by_emp.get(emp.id), daily_bank_movements(emp, work_days_by_emp.get(emp.id, {}))
@@ -665,6 +689,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
         "headcount": len(rows),
         "inss": round(item_sum("INSS"), 2),
         "irrf": round(item_sum("IRRF"), 2),
+        "adiantamento": round(item_sum("ADIANTAMENTO"), 2),
         "custo_empresa": round(totals["receitas"] + totals["fgts"] + totals["beneficios"], 2),
     })
 

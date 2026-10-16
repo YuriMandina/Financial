@@ -77,6 +77,12 @@ class BankHoursEntryCreate(BaseModel):
     pay_mode: Optional[str] = None  # PAYMENT: PAY ou PAY_NORMAL
     note: Optional[str] = None
 
+class SalaryAdvanceUpdate(BaseModel):
+    year: int
+    month: int
+    employee_ids: List[int]
+    enabled: bool
+
 class PayrollEntryUpdate(BaseModel):
     amount: Optional[float] = None
     reference: Optional[str] = None
@@ -411,6 +417,43 @@ def set_bank_hours_policy(
     db.commit()
     calculate_payroll_through(db, org_id, schedule)
     return {"message": "Destino das horas atualizado."}
+
+
+@router.put("/advances")
+def set_salary_advances(
+    payload: SalaryAdvanceUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Marca se os colaboradores recebem (ou não) o adiantamento salarial no mês."""
+    org_id = current_user.organization_id
+    emp_ids = {
+        e.id for e in db.query(models.RHEmployee.id).filter(
+            models.RHEmployee.organization_id == org_id,
+            models.RHEmployee.id.in_(payload.employee_ids)
+        ).all()
+    }
+    if not emp_ids:
+        raise HTTPException(status_code=404, detail="Colaborador não encontrado")
+
+    schedule = _get_or_create_schedule(db, org_id, payload.year, payload.month)
+    if schedule.status == "CLOSED":
+        raise HTTPException(status_code=400, detail="Folha do mês fechada")
+    rows = {
+        r.employee_id: r for r in db.query(models.RHSalaryAdvance).filter(
+            models.RHSalaryAdvance.schedule_id == schedule.id,
+            models.RHSalaryAdvance.employee_id.in_(emp_ids)
+        ).all()
+    }
+    for emp_id in emp_ids:
+        row = rows.get(emp_id)
+        if not row:
+            row = models.RHSalaryAdvance(schedule_id=schedule.id, employee_id=emp_id)
+            db.add(row)
+        row.enabled = payload.enabled
+    db.commit()
+    calculate_payroll(db, org_id, schedule, employee_ids=list(emp_ids))
+    return {"message": "Adiantamento atualizado."}
 
 
 BANK_ENTRY_KINDS = {"PAYMENT", "CREDIT", "DEBIT"}

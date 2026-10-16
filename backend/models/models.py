@@ -297,6 +297,21 @@ class RHBankHours(Base):
     )
 
 
+class RHSalaryAdvance(Base):
+    """Decisão do mês de pagar (ou não) o adiantamento salarial ao colaborador."""
+    __tablename__ = "rh_salary_advances"
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id"), nullable=False, index=True)
+    enabled = Column(Boolean, default=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('schedule_id', 'employee_id', name='uq_salary_advance_schedule_employee'),
+    )
+
+
 class RHBankHoursEntry(Base):
     """Lançamento manual no banco de horas: pagamento (parcial) de horas, crédito ou débito."""
     __tablename__ = "rh_bank_hours_entries"

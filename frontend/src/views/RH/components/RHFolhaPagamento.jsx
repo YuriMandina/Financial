@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Wallet, Calculator, RefreshCw, Plus, Edit2, Trash2, X, ChevronDown, ChevronRight,
-  ListChecks, Lock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users
+  ListChecks, Lock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users, HandCoins
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
@@ -221,6 +221,28 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
     }
   };
 
+  // ==============================================================================
+  // --- [ADIANTAMENTO SALARIAL] ---
+  // ==============================================================================
+
+  const [advanceSaving, setAdvanceSaving] = useState(false);
+
+  const handleToggleAdvance = async (employeeIds, enabled) => {
+    if (employeeIds.length === 0) return;
+    setAdvanceSaving(true);
+    try {
+      await request('/api/rh/payroll/advances', {
+        method: 'PUT',
+        body: JSON.stringify({ year: selectedYear, month: selectedMonth, employee_ids: employeeIds, enabled })
+      });
+      await loadAll();
+    } catch (err) {
+      alert('Falha ao atualizar o adiantamento: ' + err.message);
+    } finally {
+      setAdvanceSaving(false);
+    }
+  };
+
   const handleDeleteEntry = async (entry) => {
     if (!window.confirm(`Excluir o lançamento "${entry.name}"?`)) return;
     try {
@@ -253,9 +275,10 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
 
   const renderFolha = () => (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         {renderKpi('Receitas (Proventos)', totals.receitas, TrendingUp, 'text-emerald-300')}
         {renderKpi('Despesas (Descontos)', totals.despesas, TrendingDown, 'text-rose-300')}
+        {renderKpi('Adiantamento Salarial', totals.adiantamento, HandCoins, 'text-amber-300')}
         {renderKpi('Líquido a Pagar', totals.liquido, Wallet, 'text-white')}
         {renderKpi('FGTS (Encargo)', totals.fgts, Landmark, 'text-sky-300')}
         {renderKpi('Benefícios (VA)', totals.beneficios, Gift, 'text-purple-300')}
@@ -303,6 +326,17 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   <th className="py-2.5 px-3 text-right">Salário Base</th>
                   <th className="py-2.5 px-3 text-right">Receitas</th>
                   <th className="py-2.5 px-3 text-right">Despesas</th>
+                  <th className="py-2.5 px-3 text-center">
+                    <div className="inline-flex items-center gap-1.5 normal-case tracking-normal">
+                      <StyledCheckbox
+                        size="sm"
+                        checked={employees.length > 0 && employees.every((e) => e.advance?.enabled)}
+                        disabled={advanceSaving}
+                        onChange={(checked) => handleToggleAdvance(employees.map((e) => e.employee_id), checked)}
+                      />
+                      <span className="uppercase tracking-wider">Adiantamento</span>
+                    </div>
+                  </th>
                   <th className="py-2.5 px-3 text-right">Líquido</th>
                   <th className="py-2.5 px-3 text-right">FGTS</th>
                   <th className="py-2.5 px-3 text-right">Banco de Horas</th>
@@ -330,6 +364,19 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                         <td className="py-2.5 px-3 text-right text-slate-300">{brl(emp.base_salary)}</td>
                         <td className="py-2.5 px-3 text-right text-emerald-300">{brl(emp.totals.receitas)}</td>
                         <td className="py-2.5 px-3 text-right text-rose-300">{brl(emp.totals.despesas)}</td>
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-2">
+                            <StyledCheckbox
+                              size="sm"
+                              checked={!!emp.advance?.enabled}
+                              disabled={advanceSaving}
+                              onChange={(checked) => handleToggleAdvance([emp.employee_id], checked)}
+                            />
+                            <span className={`min-w-[72px] text-right ${emp.advance?.enabled ? 'text-amber-300 font-semibold' : 'text-slate-600'}`}>
+                              {emp.advance?.enabled ? brl(emp.advance.amount) : 'Não pagar'}
+                            </span>
+                          </div>
+                        </td>
                         <td className="py-2.5 px-3 text-right font-bold text-white">{brl(emp.totals.liquido)}</td>
                         <td className="py-2.5 px-3 text-right text-sky-300">{brl(emp.totals.fgts)}</td>
                         <td className={`py-2.5 px-3 text-right font-semibold ${
@@ -349,7 +396,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
 
                       {isOpen && (
                         <tr className="bg-slate-950/50">
-                          <td colSpan={8} className="px-4 py-3">
+                          <td colSpan={9} className="px-4 py-3">
                             <table className="w-full text-[11px]">
                               <thead>
                                 <tr className="text-slate-500 uppercase tracking-wider text-[9px]">
@@ -429,6 +476,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   </td>
                   <td className="py-2.5 px-3 text-right text-emerald-300">{brl(totals.receitas)}</td>
                   <td className="py-2.5 px-3 text-right text-rose-300">{brl(totals.despesas)}</td>
+                  <td className="py-2.5 px-3 text-right text-amber-300">{brl(totals.adiantamento)}</td>
                   <td className="py-2.5 px-3 text-right text-white">{brl(totals.liquido)}</td>
                   <td className="py-2.5 px-3 text-right text-sky-300">{brl(totals.fgts)}</td>
                   <td className="py-2.5 px-3 text-right text-amber-300">
@@ -745,7 +793,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 </td>
                 <td className="py-2 px-3 text-slate-300">
                   {it.configurable
-                    ? `${Number(it.default_value).toLocaleString('pt-BR')}% por triênio`
+                    ? `${Number(it.default_value).toLocaleString('pt-BR')}% ${it.system_key === 'ADIANTAMENTO' ? 'do salário (meses marcados)' : 'por triênio'}`
                     : it.system_key
                     ? <span className="text-slate-500">Automático</span>
                     : it.calc_type === 'PERCENT'
@@ -855,7 +903,9 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
           {system && data.configurable && (
             <>
               <div>
-                <label className="block text-slate-400 mb-1">Percentual por triênio (% do salário base)</label>
+                <label className="block text-slate-400 mb-1">
+                  {data.system_key === 'ADIANTAMENTO' ? 'Percentual do adiantamento (% do salário base)' : 'Percentual por triênio (% do salário base)'}
+                </label>
                 <input
                   inputMode="decimal"
                   value={data.default_value}
@@ -863,7 +913,9 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   className={inputCls}
                 />
                 <span className="text-[10px] text-slate-500">
-                  Acumulativo: aplicado uma vez para cada 3 anos completos desde a admissão (ex: 7 anos = 2 triênios).
+                  {data.system_key === 'ADIANTAMENTO'
+                    ? 'Descontado na folha apenas dos colaboradores marcados para receber o adiantamento no mês.'
+                    : 'Acumulativo: aplicado uma vez para cada 3 anos completos desde a admissão (ex: 7 anos = 2 triênios).'}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">

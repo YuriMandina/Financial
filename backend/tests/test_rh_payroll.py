@@ -42,7 +42,7 @@ class TestCalculatePayroll(unittest.TestCase):
             models.Organization, models.RHRole, models.RHWorkShift, models.RHEmployee,
             models.RHMonthlySchedule, models.RHWorkDay, models.RHSettings, models.RHBenefitAdjustment,
             models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange, models.RHBankHours,
-            models.RHBankHoursEntry
+            models.RHBankHoursEntry, models.RHSalaryAdvance
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()
@@ -71,6 +71,19 @@ class TestCalculatePayroll(unittest.TestCase):
 
     def _by_key(self, row):
         return {e["system_key"] or e["code"]: e for e in row["entries"]}
+
+    def test_salary_advance_only_when_enabled(self):
+        lines = self._by_key(self._calc())
+        self.assertNotIn("ADIANTAMENTO", lines)
+
+        self.db.add(models.RHSalaryAdvance(schedule_id=self.schedule.id, employee_id=self.emp.id, enabled=True))
+        self.db.commit()
+        row = self._calc()
+        lines = self._by_key(row)
+        self.assertEqual(lines["ADIANTAMENTO"]["amount"], 1200.0)  # 40% de 3000
+        self.assertEqual(lines["INSS"]["amount"], calc_inss(3000.0))  # não reduz a base do INSS
+        self.assertTrue(row["advance"]["enabled"])
+        self.assertEqual(row["advance"]["amount"], 1200.0)
 
     def test_salary_and_taxes(self):
         row = self._calc()
