@@ -82,9 +82,9 @@ async def sync_module_dados(
     return {"task_id": task_id, "message": "Sincronização iniciada na fila."}
 
 @router.get("/api/geral/bancos")
-def obter_bancos(current_user: models.User = Depends(get_current_user_and_set_org)):
+def obter_bancos(force_sync: bool = False, current_user: models.User = Depends(get_current_user_and_set_org)):
     current_org.set(current_user.organization)
-    dict_contas = extrair_dicionario_contas_correntes()
+    dict_contas = extrair_dicionario_contas_correntes(force_sync=force_sync)
     bancos = [{"id": k, "nome": v} for k, v in dict_contas.items()]
     return sorted(bancos, key=lambda x: x["nome"])
 

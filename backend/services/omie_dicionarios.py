@@ -99,6 +99,9 @@ def _omie_extrair_dicionario_contas_correntes():
             total_paginas = res.get("total_de_paginas", 1)
             lista_contas = res.get("ListarContasCorrentes", [])
             for cc in lista_contas:
+                # Omitir se estiver explicitamente inativo ou bloqueado se o campo existir
+                if cc.get("bloqueado") == "S" or cc.get("inativo") == "S":
+                    continue
                 id_cc = str(cc.get("nCodCC", ""))
                 dicionario[id_cc] = cc.get("descricao", f"Conta {id_cc}")
         except:
@@ -108,9 +111,10 @@ def _omie_extrair_dicionario_contas_correntes():
 
     return dicionario
 
-def extrair_dicionario_contas_correntes():
+def extrair_dicionario_contas_correntes(force_sync=False):
     return obter_global_db(
         "dicionario_contas_correntes",
         "Dicionário Contas Correntes",
-        _omie_extrair_dicionario_contas_correntes
+        _omie_extrair_dicionario_contas_correntes,
+        force_sync=force_sync
     )

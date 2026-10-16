@@ -21,7 +21,9 @@ router = APIRouter()
 
 def bg_sync_recebimentos(task_id: str, org_id: int):
     try:
-        TaskManager.update_task(task_id, progress=5.0, log=f"Iniciando sincronização de Recebimentos...")
+        TaskManager.update_task(task_id, progress=5.0, log="Atualizando lista de bancos e contas...")
+        extrair_dicionario_contas_correntes(force_sync=True)
+        TaskManager.update_task(task_id, progress=15.0, log="Iniciando extração de títulos em aberto...")
         extrair_contas_receber_abertas(task_id=task_id, force_sync=True)
         TaskManager.update_task(task_id, progress=100.0, log="Sincronização concluída com sucesso!", status="completed")
     except Exception as e:
