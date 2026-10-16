@@ -365,10 +365,10 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
   const gruposRecebimentos = useMemo(() => {
     if (menuAtivo !== 'recebimentos') return [];
-    const clientesUnicos = [...new Set(contasFiltradas.map(c => c.nome_cliente))];
+    const clientesUnicos = [...new Set(contasFiltradas.map(c => c.nome_cliente).filter(Boolean))];
     return clientesUnicos.map(cli => {
       const contasCompletasDoCli = contasFiltradas.filter(c => c.nome_cliente === cli);
-      const subtotal = contasCompletasDoCli.reduce((acc, c) => acc + c.saldo_devedor, 0);
+      const subtotal = contasCompletasDoCli.reduce((acc, c) => acc + (c.saldo_devedor || 0), 0);
       return { dataReferencia: cli, contas: contasCompletasDoCli, subtotal, contasOcultas: 0 };
     }).sort((a, b) => b.subtotal - a.subtotal);
   }, [contasFiltradas, menuAtivo]);

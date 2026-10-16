@@ -80,10 +80,12 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
 
         <div className="flex items-center gap-4 print:gap-2 print:flex-1 print:min-w-0">
           <div className="w-12 h-12 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xl print:border print:border-slate-400 shrink-0 print:w-7 print:h-7 print:text-xs">
-            {grupo.dataReferencia.charAt(0)}
+            {(grupo.dataReferencia || 'C').charAt(0).toUpperCase()}
           </div>
           <div className="print:min-w-0 print:overflow-hidden">
-            <h3 className="text-xl font-bold text-white print:text-slate-900 print:text-sm print:leading-tight print:truncate">{grupo.dataReferencia}</h3>
+            <h3 className="text-xl font-bold text-white print:text-slate-900 print:text-sm print:leading-tight print:truncate">
+              {grupo.dataReferencia || 'Cliente Não Informado'}
+            </h3>
             <p className="text-slate-400 text-sm font-medium print:text-slate-600 print:text-[10px]">
               {contasOrdenadas.length} títulos listados {grupo.contasOcultas > 0 && `(mais ${grupo.contasOcultas} na busca oculta)`}
             </p>
