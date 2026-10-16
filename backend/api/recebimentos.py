@@ -145,6 +145,7 @@ def obter_recebimentos_abertos(data_inicio: str = None, data_fim: str = None, fo
                     "nome_fornecedor": nome_cli,
                     "desc_categoria": desc_cat,
                     "conta_corrente": nome_conta,
+                    "is_omie_cash": "omie.cash" in nome_conta.lower() or "boleto" in nome_conta.lower(),
                     "valor_documento": valor_documento,
                     "valor_pag": valor_pag,
                     "saldo_devedor": saldo,
