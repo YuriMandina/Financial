@@ -139,6 +139,42 @@ export default function RHJornadaGrid({
     return map;
   }, [employees, summaries, localWorkDays, daysList, sundays, holidays]);
 
+  // Totais de colaboradores por turno em cada dia (cobertura diária)
+  const dailyShiftTotals = useMemo(() => {
+    const rows = {}; // { code: { name, counts: { day: n } } }
+    const totals = {};
+
+    employees.forEach((emp) => {
+      const empDays = localWorkDays[emp.id] || {};
+      const defaultShift = shiftMap[emp.default_shift_id];
+
+      daysList.forEach((day) => {
+        const dInfo = empDays[day] || {};
+        const status = dInfo.status || (sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'));
+        if (status !== 'TRABALHO') return;
+
+        const dayShift = shiftMap[dInfo.shift_id] || shifts.find((s) => s.code === dInfo.shift) || (dInfo.shift ? null : defaultShift);
+        const code = dayShift?.code || dInfo.shift || 'Sem turno';
+        const role = emp.role || 'Geral';
+        if (!rows[code]) rows[code] = { name: dayShift?.name || code, counts: {}, roles: {} };
+        if (!rows[code].roles[role]) rows[code].roles[role] = {};
+        rows[code].counts[day] = (rows[code].counts[day] || 0) + 1;
+        rows[code].roles[role][day] = (rows[code].roles[role][day] || 0) + 1;
+        totals[day] = (totals[day] || 0) + 1;
+      });
+    });
+
+    // Mantém a ordem de cadastro dos turnos; turnos avulsos ao final
+    const order = shifts.map((s) => s.code);
+    const sortedRows = Object.entries(rows).sort(([a], [b]) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      return (ia === -1 ? Infinity : ia) - (ib === -1 ? Infinity : ib);
+    });
+
+    return { rows: sortedRows, totals };
+  }, [employees, localWorkDays, daysList, sundays, holidays, shifts, shiftMap]);
+
   // ==============================================================================
   // --- [AÇÕES DE EDIÇÃO DE CÉLULA] ---
   // ==============================================================================
@@ -664,6 +700,82 @@ export default function RHJornadaGrid({
                 );
               })}
             </tbody>
+
+            {employees.length > 0 && (
+              <tfoot className="border-t-2 border-slate-700 bg-slate-950/70">
+                {dailyShiftTotals.rows.map(([code, row]) => (
+                  <React.Fragment key={code}>
+                  <tr className="border-b border-slate-800/60">
+                    <td className="py-1.5 px-3 sticky left-0 bg-slate-950 border-r border-slate-800 z-10">
+                      <div className="text-[11px] font-semibold text-indigo-300 truncate max-w-[150px]">{code}</div>
+                      {row.name !== code && (
+                        <div className="text-[10px] text-slate-500 truncate max-w-[150px]">{row.name}</div>
+                      )}
+                    </td>
+                    {daysList.map((day) => {
+                      const n = row.counts[day] || 0;
+                      return (
+                        <td
+                          key={day}
+                          className={`py-1.5 px-0.5 text-center text-[11px] border-r border-slate-800/50 ${
+                            sundays.includes(day) ? 'bg-red-950/10' : ''
+                          } ${n > 0 ? 'font-bold text-slate-200' : 'text-slate-600'}`}
+                          title={`Dia ${day}: ${n} colaborador(es) no turno ${code}`}
+                        >
+                          {n > 0 ? n : '·'}
+                        </td>
+                      );
+                    })}
+                    <td colSpan={3} className="border-l border-slate-800" />
+                  </tr>
+                  {Object.entries(row.roles)
+                    .sort(([a], [b]) => a.localeCompare(b, 'pt-BR'))
+                    .map(([role, roleCounts]) => (
+                      <tr key={`${code}-${role}`} className="border-b border-slate-800/30">
+                        <td className="py-1 pl-6 pr-3 sticky left-0 bg-slate-950 border-r border-slate-800 z-10">
+                          <div className="text-[10px] text-slate-400 truncate max-w-[140px]" title={role}>↳ {role}</div>
+                        </td>
+                        {daysList.map((day) => {
+                          const n = roleCounts[day] || 0;
+                          return (
+                            <td
+                              key={day}
+                              className={`py-1 px-0.5 text-center text-[10px] border-r border-slate-800/50 ${
+                                sundays.includes(day) ? 'bg-red-950/10' : ''
+                              } ${n > 0 ? 'text-slate-400' : 'text-slate-700'}`}
+                              title={`Dia ${day}: ${n} ${role} no turno ${code}`}
+                            >
+                              {n > 0 ? n : '·'}
+                            </td>
+                          );
+                        })}
+                        <td colSpan={3} className="border-l border-slate-800" />
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+                <tr>
+                  <td className="py-2 px-3 sticky left-0 bg-slate-950 border-r border-slate-800 z-10 text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                    Total no dia
+                  </td>
+                  {daysList.map((day) => {
+                    const n = dailyShiftTotals.totals[day] || 0;
+                    return (
+                      <td
+                        key={day}
+                        className={`py-2 px-0.5 text-center text-[11px] font-bold border-r border-slate-800/50 ${
+                          sundays.includes(day) ? 'bg-red-950/10' : ''
+                        } ${n > 0 ? 'text-emerald-300' : 'text-slate-600'}`}
+                        title={`Dia ${day}: ${n} colaborador(es) trabalhando`}
+                      >
+                        {n}
+                      </td>
+                    );
+                  })}
+                  <td colSpan={3} className="border-l border-slate-800" />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
