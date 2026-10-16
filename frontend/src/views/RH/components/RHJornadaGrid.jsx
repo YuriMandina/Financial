@@ -63,7 +63,8 @@ export default function RHJornadaGrid({
   apiBase,
   onRefresh,
   summaries = [],
-  onDirtyChange
+  onDirtyChange,
+  absenceDsrMode = 'ONE'
 }) {
   const [dirty, setDirty] = useState(false);
 
@@ -147,7 +148,7 @@ export default function RHJornadaGrid({
         if (status === 'TRABALHO') {
           totalWorkedMin += workedMin;
           totalExpectedMin += dailyExpectedMin;
-        } else if (status === 'FOLGA_BH' || status === 'FALTA') {
+        } else if (status === 'FOLGA_BH') {
           totalExpectedMin += dailyExpectedMin;
         }
       });
@@ -403,6 +404,46 @@ export default function RHJornadaGrid({
   });
 
   // Células com alteração local ainda não salva
+  // DSR perdidos por falta injustificada na semana (mesma regra da folha: absence_dsr_mode)
+  const lostDsr = useMemo(() => {
+    const result = {}; // { empId: { day: [dias de falta] } }
+    if (absenceDsrMode === 'NONE') return result;
+    const weekKey = (day) => {
+      // Semana de segunda a domingo: identifica pela data da segunda-feira
+      const d = new Date(selectedYear, selectedMonth - 1, day);
+      const offset = (d.getDay() + 6) % 7;
+      d.setDate(d.getDate() - offset);
+      return d.toISOString().slice(0, 10);
+    };
+    employees.forEach((emp) => {
+      const empDays = localWorkDays[emp.id] || {};
+      const statusOf = (day) => empDays[day]?.status || (sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'));
+      const weeks = {};
+      daysList.forEach((day) => {
+        const wk = weekKey(day);
+        if (!weeks[wk]) weeks[wk] = { absences: [], dsr: [] };
+        const st = statusOf(day);
+        if (st === 'FALTA') weeks[wk].absences.push(day);
+        if (st === 'DSR') weeks[wk].dsr.push(day);
+      });
+      Object.values(weeks).forEach(({ absences, dsr }) => {
+        if (absences.length === 0 || dsr.length === 0) return;
+        let lost;
+        if (absenceDsrMode === 'SCHEDULE') {
+          lost = dsr;
+        } else {
+          const sunday = dsr.find((d) => sundays.includes(d));
+          lost = [sunday ?? dsr[dsr.length - 1]];
+        }
+        lost.forEach((day) => {
+          if (!result[emp.id]) result[emp.id] = {};
+          result[emp.id][day] = absences;
+        });
+      });
+    });
+    return result;
+  }, [employees, localWorkDays, daysList, sundays, holidays, absenceDsrMode, selectedYear, selectedMonth]);
+
   const changedCells = useMemo(() => {
     const changed = new Set();
     const fields = ['status', 'shift_id', 'start_time', 'lunch_start', 'lunch_end', 'end_time', 'worked_minutes', 'notes'];
@@ -906,11 +947,16 @@ export default function RHJornadaGrid({
 
                     {daysList.map((day, dayIdx) => {
                       const dInfo = empDays[day] || {};
+                      const lostDsrBy = lostDsr[emp.id]?.[day]; // dias de falta que causaram a perda deste DSR
                       const status = dInfo.status || (sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'));
                       const isSun = sundays.includes(day);
                       const isManual = dInfo.is_manual;
                       const workedMin = dInfo.worked_minutes || 0;
                       const workedH = (workedMin / 60).toFixed(workedMin % 60 === 0 ? 0 : 1);
+                      // Diferença em relação à jornada diária esperada (mesma regra do banco de horas)
+                      const dailyExpectedMin = Math.round(((Number(emp.weekly_contract_hours) || 44) / (Number(emp.work_days_per_week) || 6)) * 60);
+                      const diffMin = workedMin - dailyExpectedMin;
+                      const diffLabel = `${diffMin > 0 ? '+' : '-'}${Math.floor(Math.abs(diffMin) / 60)}h${Math.abs(diffMin) % 60 ? String(Math.abs(diffMin) % 60).padStart(2, '0') : ''}`;
 
                       let label = '';
                       let badgeStyle = 'bg-slate-800/40 text-slate-400 border-slate-700/50';
@@ -920,7 +966,9 @@ export default function RHJornadaGrid({
                         badgeStyle = 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30';
                       } else if (status === 'DSR') {
                         label = 'DSR';
-                        badgeStyle = 'bg-red-950/30 text-red-400 border-red-500/30';
+                        badgeStyle = lostDsrBy
+                          ? 'bg-red-950/60 text-red-300/70 border-red-500/60 line-through'
+                          : 'bg-red-950/30 text-red-400 border-red-500/30';
                       } else if (status === 'FOLGA') {
                         label = '-';
                         badgeStyle = 'bg-slate-800/40 text-slate-500 border-slate-700/40';
@@ -953,7 +1001,7 @@ export default function RHJornadaGrid({
                           className={`py-1 px-0.5 text-center cursor-pointer select-none transition-colors border-r border-slate-800/50 ${
                             isSelected ? 'bg-indigo-500/25' : isSun ? 'bg-red-950/10' : ''
                           }`}
-                          title={`Dia ${day}: ${status} (${workedH}h)${isChanged ? ' • alterado, não salvo' : ''}. Clique para ajustar; arraste ou use Shift/Ctrl+clique para selecionar vários.`}
+                          title={`Dia ${day}: ${status}${lostDsrBy ? ` PERDIDO (falta no dia ${lostDsrBy.join(', ')}; remuneração do DSR descontada na folha)` : ''} (${workedH}h trabalhadas${status === 'TRABALHO' && diffMin !== 0 ? `, ${diffLabel} em relação à jornada` : ''})${isChanged ? ' • alterado, não salvo' : ''}. Clique para ajustar; arraste ou use Shift/Ctrl+clique para selecionar vários.`}
                         >
                           <div
                             className={`w-7 h-7 mx-auto rounded flex flex-col items-center justify-center font-bold text-[10px] border transition-transform active:scale-95 relative ${badgeStyle} ${
@@ -965,10 +1013,15 @@ export default function RHJornadaGrid({
                             {isChanged && (
                               <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-slate-900" />
                             )}
+                            {lostDsrBy && (
+                              <span className="absolute inset-0 flex items-center justify-center text-red-500 text-base font-black leading-none pointer-events-none">
+                                ✕
+                              </span>
+                            )}
                             <span>{label}</span>
-                            {status === 'TRABALHO' && workedMin !== 480 && (
-                              <span className="text-[8px] font-semibold opacity-90 -mt-1 leading-none">
-                                {workedH}h
+                            {status === 'TRABALHO' && diffMin !== 0 && (
+                              <span className={`text-[8px] font-bold -mt-0.5 leading-none ${diffMin > 0 ? 'text-amber-300' : 'text-rose-300'}`}>
+                                {diffLabel}
                               </span>
                             )}
                           </div>

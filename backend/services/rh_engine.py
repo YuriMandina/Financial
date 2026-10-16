@@ -352,7 +352,8 @@ def calculate_work_days_summary(
         elif st == "FERIAS":
             vacation_days += 1
         elif st == "FALTA":
-            total_expected_minutes += daily_expected_minutes
+            # Falta injustificada é descontada em dinheiro na folha (dia + DSR);
+            # não entra no banco de horas para não ser cobrada duas vezes
             absences_count += 1
         # DSR, FOLGA, FERIADO, ATESTADO: expectativa do dia é zero
 

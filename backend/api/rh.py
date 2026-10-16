@@ -18,7 +18,7 @@ from services.rh_engine import (
     derive_day_benefits
 )
 from services.rh_schedule_service import apply_shift_fill, clear_or_reset_schedule
-from services.rh_payroll_service import sync_payroll_if_calculated
+from services.rh_payroll_service import sync_payroll_if_calculated, OVERTIME_POLICIES
 from services.rh_salary_service import (
     get_salary_history, current_salary, current_role_salary, apply_salary_change, sync_current_salary
 )
@@ -43,6 +43,9 @@ class RHSettingsSchema(BaseModel):
     clt_tolerance_enabled: bool = True
     hours_display_format: str = "HHMM"
     absence_dsr_mode: str = "ONE"  # NONE, ONE ou SCHEDULE
+    overtime_policy: str = "PAY"  # PAY, PAY_NORMAL, FIXED_PLUS_BANK ou BANK
+    overtime_rate: float = 50.0
+    overtime_fixed_value: float = 0.0
 
     @field_validator(
         "transport_ticket_unit_price",
@@ -101,6 +104,7 @@ class RHEmployeeCreate(BaseModel):
     work_days_per_week: int = 6
     dependents: int = 0
     admission_date: Optional[date] = None
+    overtime_policy: Optional[str] = None
     active: bool = True
 
 class RHEmployeeUpdate(BaseModel):
@@ -116,6 +120,7 @@ class RHEmployeeUpdate(BaseModel):
     work_days_per_week: Optional[int] = None
     dependents: Optional[int] = None
     admission_date: Optional[date] = None
+    overtime_policy: Optional[str] = None
     active: Optional[bool] = None
 
 class RHSalaryChangeCreate(BaseModel):
@@ -453,7 +458,10 @@ def get_rh_settings(
             time_rounding_mode="NEAREST",
             clt_tolerance_enabled=True,
             hours_display_format="HHMM",
-            absence_dsr_mode="ONE"
+            absence_dsr_mode="ONE",
+            overtime_policy="PAY",
+            overtime_rate=50.0,
+            overtime_fixed_value=0.0
         )
         db.add(settings)
         db.commit()
@@ -489,6 +497,11 @@ def update_rh_settings(
     if payload.absence_dsr_mode not in ("NONE", "ONE", "SCHEDULE"):
         raise HTTPException(status_code=400, detail="Modo de desconto de DSR inválido")
     settings.absence_dsr_mode = payload.absence_dsr_mode
+    if payload.overtime_policy not in OVERTIME_POLICIES:
+        raise HTTPException(status_code=400, detail="Destino das horas extras inválido")
+    settings.overtime_policy = payload.overtime_policy
+    settings.overtime_rate = max(0.0, round(float(payload.overtime_rate or 0.0), 2))
+    settings.overtime_fixed_value = max(0.0, round(float(payload.overtime_fixed_value or 0.0), 2))
 
     db.commit()
     db.refresh(settings)
@@ -527,6 +540,7 @@ def list_employees(
             "base_salary": current_salary(db, emp),
             "dependents": emp.dependents or 0,
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
+            "overtime_policy": emp.overtime_policy,
             "active": emp.active
         })
     return result
@@ -557,6 +571,7 @@ def create_employee(
         work_days_per_week=payload.work_days_per_week or 6,
         dependents=payload.dependents or 0,
         admission_date=payload.admission_date,
+        overtime_policy=payload.overtime_policy if payload.overtime_policy in OVERTIME_POLICIES else None,
         active=payload.active
     )
     db.add(emp)
@@ -604,6 +619,8 @@ def update_employee(
         emp.dependents = payload.dependents
     if "admission_date" in payload.model_fields_set:
         emp.admission_date = payload.admission_date
+    if "overtime_policy" in payload.model_fields_set:
+        emp.overtime_policy = payload.overtime_policy if payload.overtime_policy in OVERTIME_POLICIES else None
     if payload.active is not None:
         emp.active = payload.active
 
@@ -918,7 +935,10 @@ def get_monthly_schedule(
                 "time_rounding_mode": settings.time_rounding_mode or "NEAREST",
                 "clt_tolerance_enabled": settings.clt_tolerance_enabled if settings.clt_tolerance_enabled is not None else True,
                 "hours_display_format": settings.hours_display_format or "HHMM",
-                "absence_dsr_mode": settings.absence_dsr_mode or "ONE"
+                "absence_dsr_mode": settings.absence_dsr_mode or "ONE",
+                "overtime_policy": settings.overtime_policy or "PAY",
+                "overtime_rate": settings.overtime_rate if settings.overtime_rate is not None else 50.0,
+                "overtime_fixed_value": settings.overtime_fixed_value or 0.0
             },
             "roles": [_role_to_dict(db, r) for r in roles],
             "shifts": [
@@ -950,7 +970,8 @@ def get_monthly_schedule(
                     "work_days_per_week": emp.work_days_per_week or 6,
                     "base_salary": current_salary(db, emp),
                     "dependents": emp.dependents or 0,
-                    "admission_date": emp.admission_date.isoformat() if emp.admission_date else None
+                    "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
+                    "overtime_policy": emp.overtime_policy
                 }
                 for emp in employees
             ],

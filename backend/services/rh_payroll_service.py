@@ -46,7 +46,14 @@ IRRF_REDUCTION_PARTIAL_FACTOR = 0.133145
 
 FGTS_RATE = 0.08
 VT_DISCOUNT_RATE = 0.06
-OVERTIME_RATE = 1.5
+
+# Destino das horas extras / saldo do banco de horas
+OVERTIME_POLICIES = {
+    "PAY": "Pagar com acréscimo",
+    "PAY_NORMAL": "Pagar valor normal",
+    "FIXED_PLUS_BANK": "Valor fixo + folga (banco)",
+    "BANK": "Somente folga (banco de horas)",
+}
 
 # ==============================================================================
 # --- [BLOCO: RUBRICAS DO SISTEMA] ---
@@ -55,7 +62,8 @@ OVERTIME_RATE = 1.5
 # system_key: (código, nome, tipo, incide_inss, incide_irrf, incide_fgts, afeta_liquido)
 SYSTEM_ITEMS = {
     "SALARIO": ("001", "Salário Base", "RECEITA", True, True, True, True),
-    "HE50": ("002", "Horas Extras 50%", "RECEITA", True, True, True, True),
+    "HE50": ("002", "Horas Extras", "RECEITA", True, True, True, True),
+    "HE_FIXO": ("005", "Valor Fixo por Horas Extras (Banco)", "RECEITA", True, True, True, True),
     "DSR_HE": ("003", "DSR sobre Horas Extras", "RECEITA", True, True, True, True),
     "TRIENIO": ("004", "Triênio", "RECEITA", True, True, True, True),
     "FALTAS": ("101", "Faltas", "DESPESA", True, True, True, True),
@@ -178,7 +186,65 @@ def count_lost_dsr(
 
 
 def _fmt_hours(minutes: int) -> str:
-    return f"{minutes // 60}h{minutes % 60:02d}"
+    sign = "-" if minutes < 0 else ""
+    minutes = abs(minutes)
+    return f"{sign}{minutes // 60}h{minutes % 60:02d}"
+
+
+def _get_bank_row(db: Session, schedule_id: int, employee_id: int) -> models.RHBankHours:
+    row = db.query(models.RHBankHours).filter(
+        models.RHBankHours.schedule_id == schedule_id,
+        models.RHBankHours.employee_id == employee_id
+    ).first()
+    if not row:
+        row = models.RHBankHours(schedule_id=schedule_id, employee_id=employee_id)
+        db.add(row)
+    return row
+
+
+def _previous_bank_balance(db: Session, schedule: models.RHMonthlySchedule, employee_id: int) -> int:
+    """Saldo do banco de horas no fim do mês anterior mais recente calculado."""
+    previous = db.query(models.RHBankHours).join(
+        models.RHMonthlySchedule, models.RHBankHours.schedule_id == models.RHMonthlySchedule.id
+    ).filter(
+        models.RHBankHours.employee_id == employee_id,
+        models.RHMonthlySchedule.organization_id == schedule.organization_id,
+        (models.RHMonthlySchedule.year * 12 + models.RHMonthlySchedule.month) < (schedule.year * 12 + schedule.month)
+    ).order_by(models.RHMonthlySchedule.year.desc(), models.RHMonthlySchedule.month.desc()).first()
+    return int(previous.balance_minutes or 0) if previous else 0
+
+
+def bank_to_dict(row: Optional[models.RHBankHours], emp: models.RHEmployee, default_policy: str) -> Dict[str, Any]:
+    override = row.policy if row else None
+    return {
+        "policy": override,
+        "employee_policy": emp.overtime_policy,
+        "effective_policy": override or emp.overtime_policy or default_policy,
+        "previous_balance_minutes": int(row.previous_balance_minutes or 0) if row else 0,
+        "month_balance_minutes": int(row.month_balance_minutes or 0) if row else 0,
+        "paid_minutes": int(row.paid_minutes or 0) if row else 0,
+        "balance_minutes": int(row.balance_minutes or 0) if row else 0,
+    }
+
+
+def calculate_payroll_through(db: Session, organization_id: int, schedule: models.RHMonthlySchedule) -> None:
+    """
+    Recalcula os meses anteriores com escala (em ordem) e depois o mês informado,
+    para o saldo acumulado do banco de horas refletir alterações feitas no passado.
+    Folhas fechadas (status CLOSED) não são recalculadas.
+    """
+    earlier = db.query(models.RHMonthlySchedule).filter(
+        models.RHMonthlySchedule.organization_id == organization_id,
+        (models.RHMonthlySchedule.year * 12 + models.RHMonthlySchedule.month) < (schedule.year * 12 + schedule.month)
+    ).order_by(models.RHMonthlySchedule.year.asc(), models.RHMonthlySchedule.month.asc()).all()
+    for sched in earlier:
+        if sched.status == "CLOSED":
+            continue
+        has_schedule = db.query(models.RHWorkDay.id).filter(models.RHWorkDay.schedule_id == sched.id).first()
+        if has_schedule:
+            calculate_payroll(db, organization_id, sched)
+    if schedule.status != "CLOSED":
+        calculate_payroll(db, organization_id, schedule)
 
 
 # ==============================================================================
@@ -229,6 +295,9 @@ def calculate_payroll(
     holiday_days = {int(d.split("-")[2]) for d in holidays.keys()}
     rest_days = len(sundays | holiday_days)
     dsr_mode = getattr(settings, "absence_dsr_mode", None) or "ONE"
+    overtime_policy_default = getattr(settings, "overtime_policy", None) or "PAY"
+    overtime_rate = float(getattr(settings, "overtime_rate", None) if getattr(settings, "overtime_rate", None) is not None else 50.0)
+    overtime_fixed_value = float(getattr(settings, "overtime_fixed_value", None) or 0.0)
     business_days = max(1, num_days - rest_days)
 
     for emp in employees:
@@ -284,14 +353,30 @@ def calculate_payroll(
             add_auto(triennium_item, salary * pct / 100 * triennia,
                      f"{triennia} triênio(s) x {pct:g}%")
 
-        # Horas extras: saldo positivo do banco de horas do mês
-        balance_min = int(summary.get("final_balance_minutes") or 0)
-        he_value = 0.0
-        if balance_min > 0 and hourly_rate > 0:
-            he_value = round(balance_min / 60 * hourly_rate * OVERTIME_RATE, 2)
-            add_auto(system_items["HE50"], he_value, _fmt_hours(balance_min))
+        # Horas extras e banco de horas: saldo anterior + saldo do mês, conforme o destino definido
+        month_balance = int(summary.get("final_balance_minutes") or 0)
+        bank = _get_bank_row(db, schedule.id, emp.id)
+        previous_balance = _previous_bank_balance(db, schedule, emp.id)
+        policy = bank.policy or emp.overtime_policy or overtime_policy_default
+        total_balance = previous_balance + month_balance
+        paid_minutes = 0
+
+        if policy in ("PAY", "PAY_NORMAL"):
+            paid_minutes = max(0, total_balance)
+            factor = 1 + overtime_rate / 100 if policy == "PAY" else 1.0
+            he_value = round(paid_minutes / 60 * hourly_rate * factor, 2)
+            label = f"{overtime_rate:g}%" if policy == "PAY" else "valor normal"
+            add_auto(system_items["HE50"], he_value, f"{_fmt_hours(paid_minutes)} • {label}")
             add_auto(system_items["DSR_HE"], he_value / business_days * rest_days,
                      f"{rest_days}/{business_days} dias")
+        elif policy == "FIXED_PLUS_BANK" and month_balance > 0:
+            add_auto(system_items["HE_FIXO"], month_balance / 60 * overtime_fixed_value,
+                     f"{_fmt_hours(month_balance)} x {overtime_fixed_value:.2f}")
+
+        bank.previous_balance_minutes = previous_balance
+        bank.month_balance_minutes = month_balance
+        bank.paid_minutes = paid_minutes
+        bank.balance_minutes = total_balance - paid_minutes
 
         # Faltas: desconto do dia e perda do DSR da semana
         absence_days = [d for d, wd in work_days.items() if wd.status == "FALTA"]
@@ -406,6 +491,15 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
     entries = db.query(models.RHPayrollEntry).filter(
         models.RHPayrollEntry.schedule_id == schedule.id
     ).all()
+    bank_rows = {
+        b.employee_id: b for b in db.query(models.RHBankHours).filter(
+            models.RHBankHours.schedule_id == schedule.id
+        ).all()
+    }
+    settings = db.query(models.RHSettings).filter(
+        models.RHSettings.organization_id == organization_id
+    ).first()
+    default_policy = (settings.overtime_policy if settings else None) or "PAY"
     by_emp: Dict[int, List[models.RHPayrollEntry]] = {}
     for e in entries:
         by_emp.setdefault(e.employee_id, []).append(e)
@@ -438,6 +532,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "entries": [entry_to_dict(e) for e in emp_entries],
             "totals": totals,
+            "bank": bank_to_dict(bank_rows.get(emp.id), emp, default_policy),
         })
 
     # Totais por rubrica (somatório do mês e quantidade de colaboradores)

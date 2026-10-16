@@ -23,6 +23,20 @@ const parseMoney = (value) => {
 
 const toInputMoney = (v) => Number(v || 0).toFixed(2).replace('.', ',');
 
+const fmtHours = (minutes) => {
+  const m = Number(minutes || 0);
+  const sign = m < 0 ? '-' : m > 0 ? '+' : '';
+  const abs = Math.abs(m);
+  return `${sign}${Math.floor(abs / 60)}h${String(abs % 60).padStart(2, '0')}`;
+};
+
+const OVERTIME_POLICY_LABELS = {
+  PAY: 'Pagar com acréscimo',
+  PAY_NORMAL: 'Pagar valor normal',
+  FIXED_PLUS_BANK: 'Valor fixo + folga',
+  BANK: 'Somente folga (banco)'
+};
+
 const EMPTY_ITEM = {
   code: '',
   name: '',
@@ -213,6 +227,24 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
     }
   };
 
+  const handleBankPolicy = async (employee, policy) => {
+    try {
+      await request('/api/rh/payroll/bank-hours', {
+        method: 'PUT',
+        body: JSON.stringify({
+          year: selectedYear,
+          month: selectedMonth,
+          employee_id: employee.employee_id,
+          policy: policy || null
+        })
+      });
+      await loadAll();
+      flash('Destino das horas atualizado e folha recalculada.');
+    } catch (err) {
+      alert('Erro ao definir destino das horas: ' + err.message);
+    }
+  };
+
   const handleDeleteEntry = async (entry) => {
     if (!window.confirm(`Excluir o lançamento "${entry.name}"?`)) return;
     try {
@@ -297,6 +329,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   <th className="py-2.5 px-3 text-right">Despesas</th>
                   <th className="py-2.5 px-3 text-right">Líquido</th>
                   <th className="py-2.5 px-3 text-right">FGTS</th>
+                  <th className="py-2.5 px-3 text-right">Banco de Horas</th>
                   <th className="py-2.5 px-3" />
                 </tr>
               </thead>
@@ -323,6 +356,11 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                         <td className="py-2.5 px-3 text-right text-rose-300">{brl(emp.totals.despesas)}</td>
                         <td className="py-2.5 px-3 text-right font-bold text-white">{brl(emp.totals.liquido)}</td>
                         <td className="py-2.5 px-3 text-right text-sky-300">{brl(emp.totals.fgts)}</td>
+                        <td className={`py-2.5 px-3 text-right font-semibold ${
+                          emp.bank.balance_minutes > 0 ? 'text-amber-300' : emp.bank.balance_minutes < 0 ? 'text-rose-300' : 'text-slate-500'
+                        }`}>
+                          {fmtHours(emp.bank.balance_minutes)}
+                        </td>
                         <td className="py-2.5 px-3 text-right">
                           <button
                             onClick={(e) => { e.stopPropagation(); openNewEntry(emp); }}
@@ -335,7 +373,45 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
 
                       {isOpen && (
                         <tr className="bg-slate-950/50">
-                          <td colSpan={7} className="px-4 py-3">
+                          <td colSpan={8} className="px-4 py-3">
+                            <div className="mb-3 bg-slate-900 border border-slate-800 rounded-lg p-3 flex flex-col lg:flex-row lg:items-center gap-3 text-[11px]">
+                              <div className="grid grid-cols-4 gap-3 flex-1">
+                                <div>
+                                  <div className="text-slate-500">Saldo anterior</div>
+                                  <div className="font-semibold text-slate-200">{fmtHours(emp.bank.previous_balance_minutes)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-500">Horas do mês</div>
+                                  <div className="font-semibold text-slate-200">{fmtHours(emp.bank.month_balance_minutes)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-500">Pagas na folha</div>
+                                  <div className="font-semibold text-emerald-300">{fmtHours(emp.bank.paid_minutes)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-500">Saldo no banco</div>
+                                  <div className={`font-bold ${emp.bank.balance_minutes < 0 ? 'text-rose-300' : 'text-amber-300'}`}>
+                                    {fmtHours(emp.bank.balance_minutes)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="lg:w-72">
+                                <div className="text-slate-500 mb-1">Destino das horas neste mês</div>
+                                <SelectDropdown
+                                  size="sm"
+                                  value={emp.bank.policy || ''}
+                                  onChange={(val) => handleBankPolicy(emp, val)}
+                                  options={[
+                                    {
+                                      value: '',
+                                      label: 'Padrão',
+                                      subtitle: OVERTIME_POLICY_LABELS[emp.bank.employee_policy || emp.bank.effective_policy] || ''
+                                    },
+                                    ...Object.entries(OVERTIME_POLICY_LABELS).map(([value, label]) => ({ value, label }))
+                                  ]}
+                                />
+                              </div>
+                            </div>
                             <table className="w-full text-[11px]">
                               <thead>
                                 <tr className="text-slate-500 uppercase tracking-wider text-[9px]">
@@ -417,6 +493,9 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   <td className="py-2.5 px-3 text-right text-rose-300">{brl(totals.despesas)}</td>
                   <td className="py-2.5 px-3 text-right text-white">{brl(totals.liquido)}</td>
                   <td className="py-2.5 px-3 text-right text-sky-300">{brl(totals.fgts)}</td>
+                  <td className="py-2.5 px-3 text-right text-amber-300">
+                    {fmtHours(employees.reduce((acc, e) => acc + (e.bank?.balance_minutes || 0), 0))}
+                  </td>
                   <td />
                 </tr>
               </tfoot>

@@ -249,6 +249,7 @@ class RHEmployee(Base):
     base_salary = Column(Float, default=0.0) # Salário base mensal (folha de pagamento)
     dependents = Column(Integer, default=0) # Dependentes para dedução do IRRF
     admission_date = Column(Date, nullable=True) # Data de admissão (tempo de casa / triênio)
+    overtime_policy = Column(String, nullable=True) # Destino das horas extras (None = padrão da empresa)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -272,6 +273,25 @@ class RHSalaryChange(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     role = relationship("RHRole", back_populates="salary_changes")
+
+
+class RHBankHours(Base):
+    """Banco de horas mensal por colaborador: saldo anterior, movimento do mês, horas pagas e saldo final."""
+    __tablename__ = "rh_bank_hours"
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id"), nullable=False, index=True)
+    policy = Column(String, nullable=True) # Decisão do mês (None = padrão do colaborador/empresa)
+    previous_balance_minutes = Column(Integer, default=0)
+    month_balance_minutes = Column(Integer, default=0)
+    paid_minutes = Column(Integer, default=0)
+    balance_minutes = Column(Integer, default=0) # Saldo após o mês
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('schedule_id', 'employee_id', name='uq_bank_hours_schedule_employee'),
+    )
 
 
 class RHPayrollItem(Base):
@@ -333,6 +353,9 @@ class RHSettings(Base):
     clt_tolerance_enabled = Column(Boolean, default=True) # Art. 58 §1º CLT
     hours_display_format = Column(String, default="HHMM") # HHMM ou DECIMAL
     absence_dsr_mode = Column(String, default="ONE") # Desconto de DSR por falta: NONE, ONE ou SCHEDULE
+    overtime_policy = Column(String, default="PAY") # PAY, PAY_NORMAL, FIXED_PLUS_BANK ou BANK
+    overtime_rate = Column(Float, default=50.0) # Acréscimo da hora extra (%)
+    overtime_fixed_value = Column(Float, default=0.0) # Valor fixo por hora no modo valor fixo + folga
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     organization = relationship("Organization")

@@ -12,7 +12,9 @@ from services.rh_payroll_service import (
     calculate_payroll,
     get_payroll_month,
     entry_to_dict,
-    CONFIGURABLE_PERCENT_ITEMS
+    CONFIGURABLE_PERCENT_ITEMS,
+    OVERTIME_POLICIES,
+    calculate_payroll_through
 )
 
 router = APIRouter(prefix="/api/rh/payroll", tags=["rh-payroll"])
@@ -58,6 +60,12 @@ class PayrollEntryCreate(BaseModel):
     amount: float
     reference: Optional[str] = None
     notes: Optional[str] = None
+
+class BankHoursPolicyUpdate(BaseModel):
+    year: int
+    month: int
+    employee_id: int
+    policy: Optional[str] = None  # None = padrão do colaborador/empresa
 
 class PayrollEntryUpdate(BaseModel):
     amount: Optional[float] = None
@@ -258,8 +266,7 @@ def get_payroll(
     schedule = _get_or_create_schedule(db, current_user.organization_id, year, month)
     # A folha é sempre derivada do estado atual (escala, cadastro, rubricas e configurações).
     # Folhas fechadas (status CLOSED) ficam congeladas.
-    if schedule.status != "CLOSED":
-        calculate_payroll(db, current_user.organization_id, schedule)
+    calculate_payroll_through(db, current_user.organization_id, schedule)
     return get_payroll_month(db, current_user.organization_id, schedule)
 
 
@@ -354,3 +361,43 @@ def delete_entry(
     schedule = db.query(models.RHMonthlySchedule).get(schedule_id)
     calculate_payroll(db, org_id, schedule, [employee_id])
     return {"message": "Lançamento excluído"}
+
+
+# ==============================================================================
+# --- [BLOCO: DESTINO DAS HORAS EXTRAS / BANCO DE HORAS] ---
+# ==============================================================================
+
+@router.get("/overtime-policies")
+def list_overtime_policies():
+    return [{"value": k, "label": v} for k, v in OVERTIME_POLICIES.items()]
+
+
+@router.put("/bank-hours")
+def set_bank_hours_policy(
+    payload: BankHoursPolicyUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Define o destino das horas do mês para um colaborador (pagar, folga ou valor fixo + folga)."""
+    org_id = current_user.organization_id
+    if payload.policy is not None and payload.policy not in OVERTIME_POLICIES:
+        raise HTTPException(status_code=400, detail="Destino das horas extras inválido")
+    emp = db.query(models.RHEmployee).filter(
+        models.RHEmployee.id == payload.employee_id,
+        models.RHEmployee.organization_id == org_id
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Colaborador não encontrado")
+
+    schedule = _get_or_create_schedule(db, org_id, payload.year, payload.month)
+    row = db.query(models.RHBankHours).filter(
+        models.RHBankHours.schedule_id == schedule.id,
+        models.RHBankHours.employee_id == emp.id
+    ).first()
+    if not row:
+        row = models.RHBankHours(schedule_id=schedule.id, employee_id=emp.id)
+        db.add(row)
+    row.policy = payload.policy
+    db.commit()
+    calculate_payroll_through(db, org_id, schedule)
+    return {"message": "Destino das horas atualizado."}

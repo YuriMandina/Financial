@@ -127,6 +127,7 @@ export default function RHEscalasView({ token }) {
     base_salary: '0,00',
     dependents: 0,
     admission_date: '',
+    overtime_policy: '',
     work_days_per_week: 6,
     active: true
   });
@@ -148,7 +149,10 @@ export default function RHEscalasView({ token }) {
     time_rounding_minutes: 0,
     time_rounding_mode: 'NEAREST',
     clt_tolerance_enabled: true,
-    absence_dsr_mode: 'ONE'
+    absence_dsr_mode: 'ONE',
+    overtime_policy: 'PAY',
+    overtime_rate: '50',
+    overtime_fixed_value: '0,00'
   });
 
   // Modal para Ajuste Rápido de Célula (Turno do Dia e Quantidade de Vales)
@@ -227,7 +231,10 @@ export default function RHEscalasView({ token }) {
           time_rounding_minutes: data.settings.time_rounding_minutes ?? 0,
           time_rounding_mode: data.settings.time_rounding_mode || 'NEAREST',
           clt_tolerance_enabled: data.settings.clt_tolerance_enabled ?? true,
-          absence_dsr_mode: data.settings.absence_dsr_mode || 'ONE'
+          absence_dsr_mode: data.settings.absence_dsr_mode || 'ONE',
+          overtime_policy: data.settings.overtime_policy || 'PAY',
+          overtime_rate: String(data.settings.overtime_rate ?? 50).replace('.', ','),
+          overtime_fixed_value: Number(data.settings.overtime_fixed_value || 0).toFixed(2).replace('.', ',')
         });
       }
     } catch (err) {
@@ -437,6 +444,7 @@ export default function RHEscalasView({ token }) {
         work_days_per_week: parseInt(employeeFormData.work_days_per_week, 10) || 6,
         dependents: parseInt(employeeFormData.dependents, 10) || 0,
         admission_date: employeeFormData.admission_date || null,
+        overtime_policy: employeeFormData.overtime_policy || null,
         active: employeeFormData.active
       };
 
@@ -546,7 +554,10 @@ export default function RHEscalasView({ token }) {
         time_rounding_minutes: parseInt(settingsFormData.time_rounding_minutes, 10) || 0,
         time_rounding_mode: settingsFormData.time_rounding_mode || 'NEAREST',
         clt_tolerance_enabled: !!settingsFormData.clt_tolerance_enabled,
-        absence_dsr_mode: settingsFormData.absence_dsr_mode || 'ONE'
+        absence_dsr_mode: settingsFormData.absence_dsr_mode || 'ONE',
+        overtime_policy: settingsFormData.overtime_policy || 'PAY',
+        overtime_rate: parseMoney(settingsFormData.overtime_rate),
+        overtime_fixed_value: parseMoney(settingsFormData.overtime_fixed_value)
       };
       const res = await fetch(`${API_BASE}/api/rh/settings`, {
         method: 'POST',
@@ -633,6 +644,7 @@ export default function RHEscalasView({ token }) {
                 base_salary: '0,00',
                 dependents: 0,
                 admission_date: '',
+                overtime_policy: '',
                 active: true
               });
               setEmployeeModalOpen(true);
@@ -1069,6 +1081,7 @@ export default function RHEscalasView({ token }) {
                 base_salary: '0,00',
                 dependents: 0,
                 admission_date: '',
+                overtime_policy: '',
                 active: true
               });
               setEmployeeModalOpen(true);
@@ -1150,6 +1163,7 @@ export default function RHEscalasView({ token }) {
                             base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
                             dependents: emp.dependents || 0,
                             admission_date: emp.admission_date || '',
+                            overtime_policy: emp.overtime_policy || '',
                             work_days_per_week: emp.work_days_per_week || 6,
                             active: true
                           });
@@ -1320,7 +1334,7 @@ export default function RHEscalasView({ token }) {
         <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-400 mx-auto flex items-center justify-center">
           <AlertCircle size={24} />
         </div>
-        <h3 className="text-base font-bold text-white">Falha ao Conectar com a API de RH</h3>
+        <h3 className="text-base font-bold text-white">Falha ao Conectar com o Departamento Pessoal</h3>
         <p className="text-xs text-slate-400">
           {fetchError || 'Não foi possível carregar as informações da escala no momento.'}
         </p>
@@ -1569,6 +1583,7 @@ export default function RHEscalasView({ token }) {
         <RHJornadaGrid
           key={`${selectedYear}-${selectedMonth}`}
           onDirtyChange={setJornadaDirty}
+          absenceDsrMode={scheduleData?.settings?.absence_dsr_mode || 'ONE'}
           employees={employees}
           shifts={shifts}
           workDays={workDays}
@@ -1646,6 +1661,7 @@ export default function RHEscalasView({ token }) {
               base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
               dependents: emp.dependents || 0,
               admission_date: emp.admission_date || '',
+              overtime_policy: emp.overtime_policy || '',
               work_days_per_week: emp.work_days_per_week || 6,
               active: true
             });
@@ -1867,6 +1883,23 @@ export default function RHEscalasView({ token }) {
                   />
                   <span className="text-[10px] text-slate-500">Dedução de R$ 189,59 por dependente</span>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Destino das horas extras</label>
+                <SelectDropdown
+                  value={employeeFormData.overtime_policy || ''}
+                  onChange={(val) => setEmployeeFormData({ ...employeeFormData, overtime_policy: val })}
+                  options={[
+                    { value: '', label: 'Padrão da empresa', subtitle: 'Definido nas Regras de RH' },
+                    ...[
+                      { value: 'PAY', label: 'Pagar com acréscimo', subtitle: 'Hora extra com o % definido + DSR' },
+                      { value: 'PAY_NORMAL', label: 'Pagar valor normal', subtitle: 'Hora simples, sem acréscimo' },
+                      { value: 'FIXED_PLUS_BANK', label: 'Valor fixo + folga', subtitle: 'Paga valor fixo/hora e acumula no banco' },
+                      { value: 'BANK', label: 'Somente folga (banco de horas)', subtitle: 'Acumula para compensar (se a CCT permitir)' }
+                    ]
+                  ]}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -2130,6 +2163,47 @@ export default function RHEscalasView({ token }) {
                     ]}
                   />
                   <span className="text-[10px] text-slate-500">Aplicado no cálculo da folha de pagamento.</span>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-800 space-y-2.5">
+                  <div className="text-slate-300 font-semibold">Horas Extras e Banco de Horas</div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Destino padrão das horas extras</label>
+                    <SelectDropdown
+                      value={settingsFormData.overtime_policy || 'PAY'}
+                      onChange={(val) => setSettingsFormData({ ...settingsFormData, overtime_policy: val })}
+                      options={[
+                      { value: 'PAY', label: 'Pagar com acréscimo', subtitle: 'Hora extra com o % definido + DSR' },
+                      { value: 'PAY_NORMAL', label: 'Pagar valor normal', subtitle: 'Hora simples, sem acréscimo' },
+                      { value: 'FIXED_PLUS_BANK', label: 'Valor fixo + folga', subtitle: 'Paga valor fixo/hora e acumula no banco' },
+                      { value: 'BANK', label: 'Somente folga (banco de horas)', subtitle: 'Acumula para compensar (se a CCT permitir)' }
+                    ]}
+                    />
+                    <span className="text-[10px] text-slate-500">
+                      Pode ser alterado por colaborador no cadastro e por mês na folha de pagamento.
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Acréscimo da hora extra (%)</label>
+                      <input
+                        inputMode="decimal"
+                        value={settingsFormData.overtime_rate ?? ''}
+                        onChange={(e) => setSettingsFormData({ ...settingsFormData, overtime_rate: e.target.value.replace(/[^0-9.,]/g, '') })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Valor fixo por hora (R$)</label>
+                      <input
+                        inputMode="decimal"
+                        value={settingsFormData.overtime_fixed_value ?? ''}
+                        onChange={(e) => setSettingsFormData({ ...settingsFormData, overtime_fixed_value: e.target.value.replace(/[^0-9.,]/g, '') })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
+                      />
+                      <span className="text-[10px] text-slate-500">Usado em "Valor fixo + folga"</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 

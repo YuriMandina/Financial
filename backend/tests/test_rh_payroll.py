@@ -41,7 +41,7 @@ class TestCalculatePayroll(unittest.TestCase):
         needed = [
             models.Organization, models.RHRole, models.RHWorkShift, models.RHEmployee,
             models.RHMonthlySchedule, models.RHWorkDay, models.RHSettings, models.RHBenefitAdjustment,
-            models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange
+            models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange, models.RHBankHours
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()
@@ -256,6 +256,101 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(data["totals"]["custo_empresa"], 6000.0 + 480.0)
         self.assertEqual(data["role_totals"][0]["headcount"], 2)
         self.assertEqual(data["role_totals"][0]["receitas"], 6000.0)
+
+    # --- Banco de horas e destino das horas extras --------------------------------
+
+    def _work_month(self, sched, extra_days=(), extra_minutes=120):
+        """Escala de 5 dias/semana com 8h; dias em extra_days recebem minutos a mais."""
+        for d in range(1, 32):
+            try:
+                wd = date(sched.year, sched.month, d)
+            except ValueError:
+                break
+            status = "TRABALHO" if wd.weekday() < 5 else "DSR"
+            minutes = 480 + (extra_minutes if d in extra_days else 0) if status == "TRABALHO" else 0
+            self.db.add(models.RHWorkDay(schedule_id=sched.id, employee_id=self.emp.id, day=d,
+                                         status=status, worked_minutes=minutes, raw_minutes=minutes))
+        self.db.commit()
+
+    def _set_policy(self, policy, rate=50.0, fixed=0.0):
+        st = self.db.query(models.RHSettings).first()
+        st.overtime_policy, st.overtime_rate, st.overtime_fixed_value = policy, rate, fixed
+        self.db.commit()
+
+    def _payroll(self, sched):
+        from services.rh_payroll_service import calculate_payroll_through
+        with patch("services.rh_payroll_service.get_effective_holidays_map", return_value={}):
+            calculate_payroll_through(self.db, self.org_id, sched)
+        row = get_payroll_month(self.db, self.org_id, sched)["employees"][0]
+        return self._by_key(row), row["bank"]
+
+    def test_overtime_paid_with_rate(self):
+        self._work_month(self.schedule, extra_days=(1, 2))  # +4h
+        lines, bank = self._payroll(self.schedule)
+        hourly = 3000.0 / 200
+        self.assertEqual(lines["HE50"]["amount"], round(4 * hourly * 1.5, 2))
+        self.assertEqual(bank["paid_minutes"], 240)
+        self.assertEqual(bank["balance_minutes"], 0)
+
+    def test_absence_does_not_cancel_overtime(self):
+        self._work_month(self.schedule, extra_days=(1, 2))
+        rec = self.db.query(models.RHWorkDay).filter_by(employee_id=self.emp.id, day=7).first()
+        rec.status, rec.worked_minutes = "FALTA", 0
+        self.db.commit()
+        lines, bank = self._payroll(self.schedule)
+        self.assertEqual(bank["month_balance_minutes"], 240)
+        self.assertIn("HE50", lines)
+        self.assertIn("FALTAS", lines)
+
+    def test_bank_only_accumulates_across_months(self):
+        self._set_policy("BANK")
+        self._work_month(self.schedule, extra_days=(1, 2))  # +4h em out
+        nov = models.RHMonthlySchedule(organization_id=self.org_id, year=2026, month=11)
+        self.db.add(nov)
+        self.db.commit()
+        self._work_month(nov, extra_days=(2,))  # +2h em nov
+        lines, bank = self._payroll(nov)
+        self.assertNotIn("HE50", lines)
+        self.assertEqual(bank["previous_balance_minutes"], 240)
+        self.assertEqual(bank["balance_minutes"], 360)
+
+    def test_bank_folga_consumes_balance_then_pay_out(self):
+        self._set_policy("BANK")
+        self._work_month(self.schedule, extra_days=(1, 2, 5, 6), extra_minutes=240)  # +16h
+        nov = models.RHMonthlySchedule(organization_id=self.org_id, year=2026, month=11)
+        self.db.add(nov)
+        self.db.commit()
+        self._work_month(nov)
+        rec = self.db.query(models.RHWorkDay).filter_by(schedule_id=nov.id, employee_id=self.emp.id, day=2).first()
+        rec.status, rec.worked_minutes = "FOLGA_BH", 0
+        self.db.commit()
+        _, bank = self._payroll(nov)
+        self.assertEqual(bank["balance_minutes"], 960 - 480)
+
+        # Decisão do mês: pagar o saldo acumulado
+        row = self.db.query(models.RHBankHours).filter_by(schedule_id=nov.id, employee_id=self.emp.id).first()
+        row.policy = "PAY_NORMAL"
+        self.db.commit()
+        lines, bank = self._payroll(nov)
+        self.assertEqual(lines["HE50"]["amount"], round(8 * 3000.0 / 200, 2))
+        self.assertEqual(bank["balance_minutes"], 0)
+
+    def test_fixed_value_plus_bank(self):
+        self._set_policy("FIXED_PLUS_BANK", fixed=10.0)
+        self._work_month(self.schedule, extra_days=(1, 2))
+        lines, bank = self._payroll(self.schedule)
+        self.assertEqual(lines["HE_FIXO"]["amount"], 40.0)
+        self.assertNotIn("HE50", lines)
+        self.assertEqual(bank["balance_minutes"], 240)
+
+    def test_employee_policy_overrides_company(self):
+        self._set_policy("PAY")
+        self.emp.overtime_policy = "BANK"
+        self.db.commit()
+        self._work_month(self.schedule, extra_days=(1, 2))
+        lines, bank = self._payroll(self.schedule)
+        self.assertNotIn("HE50", lines)
+        self.assertEqual(bank["effective_policy"], "BANK")
 
     def test_recalculate_is_idempotent(self):
         first = self._calc()
