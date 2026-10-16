@@ -64,7 +64,7 @@ class TestApplyShiftFillWeeklyCap(unittest.TestCase):
         recs = {r.day: r for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id)}
         # Outubro/2026: domingos 4, 11, 18, 25; semana completa 5-11
         self.assertEqual(recs[11].status, "DSR")
-        self.assertEqual(recs[10].status, "FOLGA")  # sábado excede 5 dias / 40h
+        self.assertEqual(recs[10].status, "DSR")  # 5x2: sábado também é DSR
         self.assertTrue(all(recs[d].status == "TRABALHO" for d in range(5, 10)))
 
     def test_holiday_is_not_worked(self):
@@ -117,6 +117,36 @@ class TestApplyShiftFillWeeklyCap(unittest.TestCase):
         nov = self._fill_november()
         rec = self.db.query(models.RHWorkDay).filter_by(schedule_id=nov.id, employee_id=emp.id, day=1).first()
         self.assertEqual(rec.status, "TRABALHO")
+
+
+    def test_5x2_has_two_dsr_per_full_week(self):
+        emp = self._add_employee(40.0, 5)
+        self._fill_whole_month()
+        recs = {r.day: r.status for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id)}
+        # Semanas completas de outubro/2026: 5-11, 12-18, 19-25
+        for monday in (5, 12, 19):
+            week = [recs[d] for d in range(monday, monday + 7)]
+            self.assertEqual(week.count("DSR"), 2)
+            self.assertEqual(week.count("TRABALHO"), 5)
+
+    def test_6x1_keeps_single_dsr_on_sunday(self):
+        emp = self._add_employee(44.0, 6)
+        self._fill_whole_month()
+        recs = {r.day: r.status for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id)}
+        week = [recs[d] for d in range(5, 12)]
+        self.assertEqual(week.count("DSR"), 1)
+        self.assertEqual(recs[11], "DSR")
+        self.assertEqual(recs[10], "FOLGA")  # sábado excede 44h com turno de 8h
+
+    def test_reset_default_5x2_sets_saturday_as_dsr(self):
+        from services.rh_schedule_service import clear_or_reset_schedule
+        emp = self._add_employee(40.0, 5)
+        with patch("services.rh_schedule_service.get_effective_holidays_map", return_value={}):
+            clear_or_reset_schedule(self.db, self.org_id, self.schedule.id, mode="RESET_DEFAULT")
+        recs = {r.day: r.status for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id)}
+        self.assertEqual(recs[10], "DSR")
+        self.assertEqual(recs[11], "DSR")
+        self.assertEqual(recs[9], "TRABALHO")
 
 
 if __name__ == "__main__":

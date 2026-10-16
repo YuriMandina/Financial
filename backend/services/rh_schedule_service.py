@@ -119,6 +119,7 @@ def apply_shift_fill(
         weekly_hours = emp.weekly_actual_hours or emp.weekly_contract_hours or 44.0
         weekly_cap_min = int(round(float(weekly_hours) * 60))
         max_work_days = int(emp.work_days_per_week or 6)
+        dsr_quota = max(1, 7 - max_work_days)
 
         existing = {
             r.day: r for r in db.query(models.RHWorkDay).filter(
@@ -139,10 +140,23 @@ def apply_shift_fill(
             # Dia sem registro é exibido como trabalho padrão (exceto domingo/feriado)
             return 0 if (day in sundays or day in holiday_days) else 480
 
+        def count_kept_dsr(week_days: List[int]) -> int:
+            """DSRs da semana que o preenchimento não vai alterar."""
+            total = 0
+            for day in week_days:
+                will_change = (day in target_set) or (clear_unselected and has_selected_days)
+                if will_change and not is_locked(day):
+                    continue
+                rec = existing.get(day)
+                if rec and rec.status == "DSR":
+                    total += 1
+            return total
+
         # Horas já cumpridas no mês anterior dentro da semana incompleta do dia 1.
         # Usa a escala real se existir; senão assume semana padrão (turno de segunda a sábado).
         prev_used_min = 0
         prev_used_days = 0
+        prev_dsr_days = 0
         if prev_month_dates:
             prev_records = {}
             if prev_schedule:
@@ -156,6 +170,8 @@ def apply_shift_fill(
                 rec = prev_records.get(d_obj.day)
                 if rec:
                     m = int(rec.worked_minutes or 0) if rec.status == "TRABALHO" else 0
+                    if rec.status == "DSR":
+                        prev_dsr_days += 1
                 elif d_obj.weekday() == 6 or d_obj.day in prev_holiday_days:
                     m = 0
                 else:
@@ -163,6 +179,9 @@ def apply_shift_fill(
                 if m > 0 and prev_used_days < max_work_days:
                     prev_used_min += m
                     prev_used_days += 1
+                elif m > 0 and not rec:
+                    # Semana padrão assumida: dia útil além do limite de dias seria repouso
+                    prev_dsr_days += 1
 
         # Decide o status de cada dia-alvo semana a semana, respeitando o teto semanal
         planned_status: Dict[int, str] = {}
@@ -183,6 +202,7 @@ def apply_shift_fill(
                 (d for d in week_days if d in target_set),
                 key=lambda d: (d in sundays, d)
             )
+            off_days = []
             for day in ordered:
                 if status != "TRABALHO":
                     planned_status[day] = status
@@ -194,8 +214,20 @@ def apply_shift_fill(
                         used_min += raw_min
                         used_days += 1
                 else:
-                    planned_status[day] = "DSR" if day in sundays else "FOLGA"
+                    off_days.append(day)
                     capped_days_count += 1
+
+            # Repousos semanais: 7 - dias de trabalho (5x2 = 2 DSR, 6x1 = 1 DSR).
+            # Domingo tem prioridade; os demais dias de descanso viram FOLGA.
+            dsr_left = dsr_quota - count_kept_dsr(week_days)
+            if week_key == first_week_key:
+                dsr_left -= prev_dsr_days
+            for day in sorted(off_days, key=lambda d: (d not in sundays, -d)):
+                if dsr_left > 0 or day in sundays:
+                    planned_status[day] = "DSR"
+                    dsr_left -= 1
+                else:
+                    planned_status[day] = "FOLGA"
 
         # Loop de aplicação principal
         for day in target_days:
@@ -310,7 +342,7 @@ def clear_or_reset_schedule(
     Limpa ou restaura a escala de trabalho de um colaborador específico ou de toda a equipe.
     Modos:
     - CLEAR_OFF: Define dias como folga (FOLGA_BH/DSR/FERIADO), zerando horas e turnos.
-    - RESET_DEFAULT: Restaura o turno contratual padrão do colaborador de Seg-Sáb e DSR aos domingos.
+    - RESET_DEFAULT: Restaura o turno contratual padrão nos dias de trabalho do colaborador (6x1: Seg-Sáb; 5x2: Seg-Sex) e DSR nos demais.
     """
     schedule = db.query(models.RHMonthlySchedule).filter(
         models.RHMonthlySchedule.id == schedule_id,
@@ -350,6 +382,7 @@ def clear_or_reset_schedule(
         lunch_end = default_shift.lunch_end if default_shift else "13:00"
         end_time = default_shift.end_time if default_shift else "17:00"
         raw_min = compute_raw_minutes(start_time, lunch_start, lunch_end, end_time) if default_shift else 480
+        work_days_limit = min(6, int(emp.work_days_per_week or 6))
 
         for day in range(1, num_days + 1):
             rec = db.query(models.RHWorkDay).filter(
@@ -365,7 +398,8 @@ def clear_or_reset_schedule(
                 if day in holiday_days:
                     st = "FERIADO"
                     is_work = False
-                elif day in sundays:
+                elif day in sundays or date(schedule.year, schedule.month, day).weekday() >= work_days_limit:
+                    # 6x1: segunda a sábado; 5x2: segunda a sexta com sábado e domingo de DSR
                     st = "DSR"
                     is_work = False
                 else:
