@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Clock, Plus, CheckCircle2, AlertTriangle, Calendar, Save, 
   RefreshCw, ChevronRight, Sliders, Sparkles, Filter, Info, X,
-  RotateCcw, Trash2
+  RotateCcw, Trash2, Undo2, MousePointerSquareDashed
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
@@ -19,7 +19,30 @@ const STATUS_OPTIONS = [
   { key: 'ATESTADO', label: 'Atestado Médico', short: 'ATEST', bg: 'bg-cyan-600/20 text-cyan-300 border-cyan-500/40 hover:bg-cyan-600/30' }
 ];
 
-const WEEKDAY_SHORT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const UNDO_LIMIT = 50;
+
+const toMinutes = (t) => {
+  if (!t) return null;
+  const [h, m] = t.split(':').map((v) => parseInt(v, 10));
+  return Number.isNaN(h) || Number.isNaN(m) ? null : h * 60 + m;
+};
+
+const spanMinutes = (from, to) => (to < from ? to + 1440 - from : to - from);
+
+// Horas líquidas do dia; mesma regra de compute_raw_minutes no backend
+const computeWorkedMinutes = ({ start_time, lunch_start, lunch_end, end_time }) => {
+  const start = toMinutes(start_time);
+  const end = toMinutes(end_time);
+  if (start === null || end === null) return 0;
+  const lStart = toMinutes(lunch_start);
+  const lEnd = toMinutes(lunch_end);
+  const lunch = lStart !== null && lEnd !== null ? spanMinutes(lStart, lEnd) : 0;
+  return Math.max(0, spanMinutes(start, end) - lunch);
+};
+
+const formatWorked = (mins) => `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}`;
+
+const WEEKDAY_SHORT =['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
 const MONTH_NAMES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -58,6 +81,12 @@ export default function RHJornadaGrid({
 
   // Modal de Ajuste de Célula
   const [editingCell, setEditingCell] = useState(null); // { empId, day, cellData, empName }
+
+  // Seleção múltipla de células ("empId:day") e histórico de desfazer
+  const [selectedCells, setSelectedCells] = useState(() => new Set());
+  const [undoStack, setUndoStack] = useState([]);
+  const dragRef = React.useRef(null);
+  const selectionAnchorRef = React.useRef(null);
 
   // Parâmetros do Painel de Preenchimento em Lote
   const [fillShiftId, setFillShiftId] = useState('');
@@ -179,29 +208,45 @@ export default function RHJornadaGrid({
   // --- [AÇÕES DE EDIÇÃO DE CÉLULA] ---
   // ==============================================================================
 
+  const getCellData = (empId, day, source = localWorkDays) => source[empId]?.[day] || {
+    day,
+    status: sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'),
+    start_time: '08:00',
+    lunch_start: '12:00',
+    lunch_end: '13:00',
+    end_time: '17:00',
+    worked_minutes: 480
+  };
+
   const handleOpenCellEdit = (emp, day) => {
-    const current = localWorkDays[emp.id]?.[day] || {
-      day,
-      status: sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'),
-      start_time: '08:00',
-      lunch_start: '12:00',
-      lunch_end: '13:00',
-      end_time: '17:00',
-      worked_minutes: 480
-    };
     setEditingCell({
       empId: emp.id,
       empName: emp.name,
       day,
-      data: { ...current }
+      data: { ...getCellData(emp.id, day) }
     });
+  };
+
+  // Toda alteração local passa por aqui para registrar o histórico de desfazer
+  const commitLocalChange = (updater) => {
+    setUndoStack((stack) => [...stack.slice(-(UNDO_LIMIT - 1)), localWorkDays]);
+    setLocalWorkDays(updater);
+    setDirty(true);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack(undoStack.slice(0, -1));
+    setLocalWorkDays(previous);
+    if (undoStack.length === 1) setDirty(false);
   };
 
   const handleApplyCellEdit = () => {
     if (!editingCell) return;
     const { empId, day, data } = editingCell;
 
-    setLocalWorkDays((prev) => ({
+    commitLocalChange((prev) => ({
       ...prev,
       [empId]: {
         ...(prev[empId] || {}),
@@ -211,9 +256,172 @@ export default function RHJornadaGrid({
         }
       }
     }));
-    setDirty(true);
     setEditingCell(null);
   };
+
+  // ==============================================================================
+  // --- [SELEÇÃO MÚLTIPLA E AÇÕES EM MASSA] ---
+  // ==============================================================================
+
+  const cellKey = (empId, day) => `${empId}:${day}`;
+
+  const rectKeys = (from, to) => {
+    const keys = [];
+    const [e1, e2] = [Math.min(from.empIdx, to.empIdx), Math.max(from.empIdx, to.empIdx)];
+    const [d1, d2] = [Math.min(from.dayIdx, to.dayIdx), Math.max(from.dayIdx, to.dayIdx)];
+    for (let e = e1; e <= e2; e++) {
+      for (let d = d1; d <= d2; d++) {
+        keys.push(cellKey(employees[e].id, daysList[d]));
+      }
+    }
+    return keys;
+  };
+
+  const handleCellMouseDown = (e, empIdx, dayIdx) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const pos = { empIdx, dayIdx };
+    const key = cellKey(employees[empIdx].id, daysList[dayIdx]);
+    const additive = e.ctrlKey || e.metaKey;
+
+    if (e.shiftKey && selectionAnchorRef.current) {
+      setSelectedCells(new Set(rectKeys(selectionAnchorRef.current, pos)));
+      dragRef.current = null;
+      return;
+    }
+
+    selectionAnchorRef.current = pos;
+    if (additive) {
+      const next = new Set(selectedCells);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      setSelectedCells(next);
+      dragRef.current = { anchor: pos, base: next, moved: false, additive: true };
+      return;
+    }
+    dragRef.current = { anchor: pos, base: new Set(), moved: false, additive: false };
+  };
+
+  const handleCellMouseEnter = (empIdx, dayIdx) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    drag.moved = true;
+    const next = new Set(drag.base);
+    rectKeys(drag.anchor, { empIdx, dayIdx }).forEach((k) => next.add(k));
+    setSelectedCells(next);
+  };
+
+  const handleCellMouseUp = (emp, day) => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    // Clique simples (sem arrastar e sem modificadores) mantém o ajuste fino pelo modal
+    if (drag && !drag.moved && !drag.additive) {
+      setSelectedCells(new Set());
+      handleOpenCellEdit(emp, day);
+    }
+  };
+
+  React.useEffect(() => {
+    const endDrag = () => { dragRef.current = null; };
+    window.addEventListener('mouseup', endDrag);
+    return () => window.removeEventListener('mouseup', endDrag);
+  }, []);
+
+  // Aplica turno ou status a todas as células selecionadas
+  const handleBulkApply = (action) => {
+    if (selectedCells.size === 0) return;
+    const empById = {};
+    employees.forEach((emp) => { empById[emp.id] = emp; });
+
+    commitLocalChange((prev) => {
+      const next = { ...prev };
+      selectedCells.forEach((key) => {
+        const [empIdStr, dayStr] = key.split(':');
+        const empId = parseInt(empIdStr, 10);
+        const day = parseInt(dayStr, 10);
+        const current = getCellData(empId, day, prev);
+        let entry;
+
+        if (action.type === 'shift') {
+          const shiftObj = action.shiftId === 'DEFAULT'
+            ? shiftMap[empById[empId]?.default_shift_id]
+            : shiftMap[action.shiftId];
+          entry = {
+            ...current,
+            day,
+            status: 'TRABALHO',
+            shift_id: shiftObj?.id || null,
+            shift: shiftObj?.code || null,
+            start_time: shiftObj?.start_time || '08:00',
+            lunch_start: shiftObj ? (shiftObj.lunch_start || null) : '12:00',
+            lunch_end: shiftObj ? (shiftObj.lunch_end || null) : '13:00',
+            end_time: shiftObj?.end_time || '17:00',
+            worked_minutes: shiftObj ? Math.round(shiftObj.net_hours * 60) : 480
+          };
+        } else {
+          entry = {
+            ...current,
+            day,
+            status: action.status,
+            shift_id: null,
+            shift: null,
+            start_time: null,
+            lunch_start: null,
+            lunch_end: null,
+            end_time: null,
+            worked_minutes: 0
+          };
+        }
+
+        next[empId] = { ...(next[empId] || {}), [day]: { ...entry, is_manual: true } };
+      });
+      return next;
+    });
+  };
+
+  // Atalhos: Ctrl+Z desfaz, Esc limpa a seleção (ignorados com modal aberto ou em campos de texto)
+  React.useEffect(() => {
+    const onKeyDown = (e) => {
+      if (editingCell || clearModalOpen) return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        handleUndo();
+      } else if (e.key === 'Escape') {
+        setSelectedCells(new Set());
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
+
+  // Células com alteração local ainda não salva
+  const changedCells = useMemo(() => {
+    const changed = new Set();
+    const fields = ['status', 'shift_id', 'start_time', 'lunch_start', 'lunch_end', 'end_time', 'worked_minutes', 'notes'];
+    Object.entries(localWorkDays).forEach(([empId, days]) => {
+      Object.entries(days || {}).forEach(([day, local]) => {
+        const original = workDays[empId]?.[day];
+        if (!original || fields.some((f) => (local?.[f] ?? null) !== (original?.[f] ?? null))) {
+          changed.add(cellKey(empId, day));
+        }
+      });
+    });
+    return changed;
+  }, [localWorkDays, workDays]);
+
+  // Atualiza horários do modal recalculando as horas líquidas
+  const updateEditingTimes = (patch) => {
+    if (!editingCell) return;
+    const data = { ...editingCell.data, ...patch };
+    const worked = computeWorkedMinutes(data);
+    setEditingCell({
+      ...editingCell,
+      data: { ...data, worked_minutes: worked, worked_hours_formatted: formatWorked(worked) }
+    });
+  };
+
+  const editingNoLunch = Boolean(editingCell && !editingCell.data.lunch_start && !editingCell.data.lunch_end);
 
   const handleQuickHourShift = (minutesDiff) => {
     if (!editingCell) return;
@@ -288,6 +496,7 @@ export default function RHJornadaGrid({
 
       if (!res.ok) throw new Error('Erro ao salvar jornada');
       setDirty(false);
+      setUndoStack([]);
       setSaveMsg('Jornada salva com sucesso!');
       setTimeout(() => setSaveMsg(''), 4000);
       if (onRefresh) await onRefresh();
@@ -345,6 +554,7 @@ export default function RHJornadaGrid({
       }
 
       setDirty(false);
+      setUndoStack([]);
       if (onRefresh) await onRefresh();
     } catch (err) {
       alert('Falha ao aplicar turno em lote: ' + err.message);
@@ -383,6 +593,7 @@ export default function RHJornadaGrid({
 
       setClearModalOpen(false);
       setDirty(false);
+      setUndoStack([]);
       setSaveMsg(resData.message || 'Escala atualizada com sucesso!');
       setTimeout(() => setSaveMsg(''), 4000);
       if (onRefresh) await onRefresh();
@@ -423,6 +634,16 @@ export default function RHJornadaGrid({
           >
             <RotateCcw size={14} />
             Limpar Escala
+          </button>
+
+          <button
+            onClick={handleUndo}
+            disabled={undoStack.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Desfazer última alteração (Ctrl+Z)"
+          >
+            <Undo2 size={14} />
+            Desfazer{undoStack.length > 0 ? ` (${undoStack.length})` : ''}
           </button>
 
           <button
@@ -550,6 +771,67 @@ export default function RHJornadaGrid({
         </div>
       )}
 
+      {/* Barra de Ações da Seleção Múltipla */}
+      {selectedCells.size > 0 ? (
+        <div className="sticky top-2 z-30 bg-slate-950/95 backdrop-blur border border-indigo-500/40 rounded-xl px-3 py-2.5 shadow-lg shadow-indigo-900/20 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+          <span className="font-bold text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2.5 py-0.5 rounded-full">
+            {selectedCells.size} {selectedCells.size === 1 ? 'célula' : 'células'}
+          </span>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-slate-500 font-medium">Turno:</span>
+            <button
+              type="button"
+              onClick={() => handleBulkApply({ type: 'shift', shiftId: 'DEFAULT' })}
+              className="px-2 py-1 rounded-md border border-emerald-500/40 bg-emerald-600/10 text-emerald-300 hover:bg-emerald-600/25 font-semibold"
+              title="Aplica o turno contratual de cada colaborador"
+            >
+              Contratual
+            </button>
+            {shifts.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => handleBulkApply({ type: 'shift', shiftId: s.id })}
+                className="px-2 py-1 rounded-md border border-emerald-500/40 bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/35 font-bold"
+                title={`${s.name} (${s.net_hours}h)`}
+              >
+                {s.code}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-slate-500 font-medium">Status:</span>
+            {STATUS_OPTIONS.filter((st) => st.key !== 'TRABALHO').map((st) => (
+              <button
+                key={st.key}
+                type="button"
+                onClick={() => handleBulkApply({ type: 'status', status: st.key })}
+                className={`px-2 py-1 rounded-md border font-semibold ${st.bg}`}
+                title={st.label}
+              >
+                {st.short}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSelectedCells(new Set())}
+            className="ml-auto flex items-center gap-1 px-2 py-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"
+            title="Limpar seleção (Esc)"
+          >
+            <X size={13} /> Limpar seleção
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 px-1">
+          <MousePointerSquareDashed size={13} />
+          Clique para ajustar um dia. Arraste, use Shift+clique ou Ctrl+clique para selecionar vários e aplicar turno ou status de uma vez.
+        </div>
+      )}
+
       {/* Matriz Diária de Horas e Turnos */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
@@ -598,7 +880,7 @@ export default function RHJornadaGrid({
             </thead>
 
             <tbody className="divide-y divide-slate-800/60">
-              {employees.map((emp) => {
+              {employees.map((emp, empIdx) => {
                 const empDays = localWorkDays[emp.id] || {};
                 const summary = summaryMap[emp.id] || {};
                 const shift = shiftMap[emp.default_shift_id];
@@ -615,7 +897,7 @@ export default function RHJornadaGrid({
                       </div>
                     </td>
 
-                    {daysList.map((day) => {
+                    {daysList.map((day, dayIdx) => {
                       const dInfo = empDays[day] || {};
                       const status = dInfo.status || (sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'));
                       const isSun = sundays.includes(day);
@@ -652,20 +934,30 @@ export default function RHJornadaGrid({
                         badgeStyle = 'bg-cyan-600/20 text-cyan-300 border-cyan-500/40';
                       }
 
+                      const isSelected = selectedCells.has(cellKey(emp.id, day));
+                      const isChanged = changedCells.has(cellKey(emp.id, day));
+
                       return (
                         <td
                           key={day}
-                          onClick={() => handleOpenCellEdit(emp, day)}
+                          onMouseDown={(e) => handleCellMouseDown(e, empIdx, dayIdx)}
+                          onMouseEnter={() => handleCellMouseEnter(empIdx, dayIdx)}
+                          onMouseUp={() => handleCellMouseUp(emp, day)}
                           className={`py-1 px-0.5 text-center cursor-pointer select-none transition-colors border-r border-slate-800/50 ${
-                            isSun ? 'bg-red-950/10' : ''
+                            isSelected ? 'bg-indigo-500/25' : isSun ? 'bg-red-950/10' : ''
                           }`}
-                          title={`Dia ${day}: ${status} (${workedH}h). Clique para ajustar horários ou turno.`}
+                          title={`Dia ${day}: ${status} (${workedH}h)${isChanged ? ' • alterado, não salvo' : ''}. Clique para ajustar; arraste ou use Shift/Ctrl+clique para selecionar vários.`}
                         >
                           <div
                             className={`w-7 h-7 mx-auto rounded flex flex-col items-center justify-center font-bold text-[10px] border transition-transform active:scale-95 relative ${badgeStyle} ${
-                              isManual ? 'border-dashed ring-1 ring-indigo-400/30' : ''
+                              isSelected
+                                ? 'ring-2 ring-indigo-400'
+                                : isManual ? 'border-dashed ring-1 ring-indigo-400/30' : ''
                             }`}
                           >
+                            {isChanged && (
+                              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-slate-900" />
+                            )}
                             <span>{label}</span>
                             {status === 'TRABALHO' && workedMin !== 480 && (
                               <span className="text-[8px] font-semibold opacity-90 -mt-1 leading-none">
@@ -812,6 +1104,9 @@ export default function RHJornadaGrid({
                         ...editingCell,
                         data: {
                           ...editingCell.data,
+                          ...(st.key === 'TRABALHO' && !editingCell.data.start_time
+                            ? { start_time: '08:00', lunch_start: '12:00', lunch_end: '13:00', end_time: '17:00' }
+                            : {}),
                           status: st.key,
                           worked_minutes: st.key === 'TRABALHO' ? (editingCell.data.worked_minutes || 480) : 0
                         }
@@ -845,8 +1140,8 @@ export default function RHJornadaGrid({
                             shift_id: sId,
                             shift: sObj?.code || null,
                             start_time: sObj?.start_time || editingCell.data.start_time || '08:00',
-                            lunch_start: sObj?.lunch_start || '12:00',
-                            lunch_end: sObj?.lunch_end || '13:00',
+                            lunch_start: sObj ? (sObj.lunch_start || null) : '12:00',
+                            lunch_end: sObj ? (sObj.lunch_end || null) : '13:00',
                             end_time: sObj?.end_time || '17:00',
                             worked_minutes: sObj ? Math.round(sObj.net_hours * 60) : 480
                           }
@@ -871,10 +1166,7 @@ export default function RHJornadaGrid({
                       <input
                         type="time"
                         value={editingCell.data.start_time || '08:00'}
-                        onChange={(e) => setEditingCell({
-                          ...editingCell,
-                          data: { ...editingCell.data, start_time: e.target.value }
-                        })}
+                        onChange={(e) => updateEditingTimes({ start_time: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white text-center text-xs"
                       />
                     </div>
@@ -882,24 +1174,20 @@ export default function RHJornadaGrid({
                       <label className="block text-[10px] text-slate-400 mb-1">Início Almoço</label>
                       <input
                         type="time"
-                        value={editingCell.data.lunch_start || '12:00'}
-                        onChange={(e) => setEditingCell({
-                          ...editingCell,
-                          data: { ...editingCell.data, lunch_start: e.target.value }
-                        })}
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white text-center text-xs"
+                        value={editingNoLunch ? '' : (editingCell.data.lunch_start || '12:00')}
+                        disabled={editingNoLunch}
+                        onChange={(e) => updateEditingTimes({ lunch_start: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white text-center text-xs disabled:opacity-30 disabled:cursor-not-allowed"
                       />
                     </div>
                     <div>
                       <label className="block text-[10px] text-slate-400 mb-1">Fim Almoço</label>
                       <input
                         type="time"
-                        value={editingCell.data.lunch_end || '13:00'}
-                        onChange={(e) => setEditingCell({
-                          ...editingCell,
-                          data: { ...editingCell.data, lunch_end: e.target.value }
-                        })}
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white text-center text-xs"
+                        value={editingNoLunch ? '' : (editingCell.data.lunch_end || '13:00')}
+                        disabled={editingNoLunch}
+                        onChange={(e) => updateEditingTimes({ lunch_end: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white text-center text-xs disabled:opacity-30 disabled:cursor-not-allowed"
                       />
                     </div>
                     <div>
@@ -907,13 +1195,26 @@ export default function RHJornadaGrid({
                       <input
                         type="time"
                         value={editingCell.data.end_time || '17:00'}
-                        onChange={(e) => setEditingCell({
-                          ...editingCell,
-                          data: { ...editingCell.data, end_time: e.target.value }
-                        })}
+                        onChange={(e) => updateEditingTimes({ end_time: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white text-center text-xs"
                       />
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <StyledCheckbox
+                      checked={editingNoLunch}
+                      onChange={(checked) => updateEditingTimes(
+                        checked
+                          ? { lunch_start: null, lunch_end: null }
+                          : { lunch_start: '12:00', lunch_end: '13:00' }
+                      )}
+                      label="Sem intervalo de almoço"
+                      description="Jornada corrida, sem pausa descontada"
+                    />
+                    <span className="text-[11px] text-slate-400 whitespace-nowrap">
+                      Total: <span className="font-bold text-white">{formatWorked(editingCell.data.worked_minutes || 0)}</span>
+                    </span>
                   </div>
 
                   {/* Botões de Ajuste Rápido de Horas */}
