@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Wallet, Calculator, RefreshCw, Plus, Edit2, Trash2, X, ChevronDown, ChevronRight,
-  ListChecks, Lock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users, HandCoins
+  ListChecks, Lock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users, HandCoins, Printer
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
@@ -276,8 +276,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   const renderFolha = () => (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-        {renderKpi('Receitas (Proventos)', totals.receitas, TrendingUp, 'text-emerald-300')}
-        {renderKpi('Despesas (Descontos)', totals.despesas, TrendingDown, 'text-rose-300')}
+        {renderKpi('Proventos', totals.receitas, TrendingUp, 'text-emerald-300')}
+        {renderKpi('Descontos', totals.despesas, TrendingDown, 'text-rose-300')}
         {renderKpi('Adiantamento Salarial', totals.adiantamento, HandCoins, 'text-amber-300')}
         {renderKpi('Líquido a Pagar', totals.liquido, Wallet, 'text-white')}
         {renderKpi('FGTS (Encargo)', totals.fgts, Landmark, 'text-sky-300')}
@@ -324,8 +324,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 <tr className="bg-slate-950/90 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
                   <th className="py-2.5 px-3 text-left">Colaborador</th>
                   <th className="py-2.5 px-3 text-right">Salário Base</th>
-                  <th className="py-2.5 px-3 text-right">Receitas</th>
-                  <th className="py-2.5 px-3 text-right">Despesas</th>
+                  <th className="py-2.5 px-3 text-right">Proventos</th>
+                  <th className="py-2.5 px-3 text-right">Descontos</th>
                   <th className="py-2.5 px-3 text-center">
                     <div className="inline-flex items-center gap-1.5 normal-case tracking-normal">
                       <StyledCheckbox
@@ -403,8 +403,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                                   <th className="py-1 text-left w-14">Cód.</th>
                                   <th className="py-1 text-left">Rubrica</th>
                                   <th className="py-1 text-left">Referência</th>
-                                  <th className="py-1 text-right">Receita</th>
-                                  <th className="py-1 text-right">Despesa</th>
+                                  <th className="py-1 text-right">Provento</th>
+                                  <th className="py-1 text-right">Desconto</th>
                                   <th className="py-1 text-center">Origem</th>
                                   <th className="py-1 w-16" />
                                 </tr>
@@ -600,8 +600,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               </tr>
             </thead>
             <tbody>
-              {renderGroup('RECEITA', 'Receitas (Proventos)', receitas, 'text-emerald-300', '+')}
-              {renderGroup('DESPESA', 'Despesas (Descontos)', despesas, 'text-rose-300', '−')}
+              {renderGroup('RECEITA', 'Proventos', receitas, 'text-emerald-300', '+')}
+              {renderGroup('DESPESA', 'Descontos', despesas, 'text-rose-300', '−')}
               <tr className="border-t-2 border-slate-600 bg-slate-950">
                 <td colSpan={3} className="py-3 px-3 font-bold text-white uppercase tracking-wider text-[11px]">
                   <span className="w-3 inline-block text-center mr-2">=</span>Líquido a Pagar
@@ -644,8 +644,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             <div className="flex items-center gap-1.5 text-slate-400 mb-2">
               <Users size={12} /> {totals.headcount || 0} colaborador(es)
             </div>
-            {summaryLine('Total de receitas (bruto)', totals.receitas, 'text-emerald-300')}
-            {summaryLine('Total de despesas (descontos)', totals.despesas, 'text-rose-300')}
+            {summaryLine('Total de proventos (bruto)', totals.receitas, 'text-emerald-300')}
+            {summaryLine('Total de descontos', totals.despesas, 'text-rose-300')}
             {summaryLine('Líquido a pagar', totals.liquido, 'text-white', true)}
           </div>
 
@@ -667,7 +667,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             <div className="flex items-center gap-1.5 font-bold text-white mb-2">
               <Building2 size={14} className="text-amber-400" /> Custo Total da Empresa
             </div>
-            {summaryLine('Receitas dos colaboradores (bruto)', totals.receitas)}
+            {summaryLine('Proventos dos colaboradores (bruto)', totals.receitas)}
             {summaryLine('FGTS', totals.fgts)}
             {summaryLine('Benefícios (VA)', totals.beneficios)}
             {summaryLine('Custo total do mês', totals.custo_empresa, 'text-amber-300', true)}
@@ -690,8 +690,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 <tr className="text-slate-500 uppercase tracking-wider text-[9px] border-b border-slate-800/60">
                   <th className="py-1.5 px-3 text-left">Cargo</th>
                   <th className="py-1.5 px-3 text-center">Colab.</th>
-                  <th className="py-1.5 px-3 text-right">Receitas</th>
-                  <th className="py-1.5 px-3 text-right">Despesas</th>
+                  <th className="py-1.5 px-3 text-right">Proventos</th>
+                  <th className="py-1.5 px-3 text-right">Descontos</th>
                   <th className="py-1.5 px-3 text-right">Líquido</th>
                   <th className="py-1.5 px-3 text-right">FGTS</th>
                   <th className="py-1.5 px-3 text-right">Custo Empresa</th>
@@ -728,6 +728,293 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
     );
   };
 
+  // ==============================================================================
+  // --- [IMPRESSÃO] ---
+  // Relatórios em fundo branco, exibidos apenas na impressão (a tela fica oculta).
+  // ==============================================================================
+
+  const printTitle = (subtitle) => (
+    <div className="mb-3 border-b-2 border-black pb-1.5">
+      <h1 className="text-lg font-bold">Folha de Pagamento • {MONTH_NAMES[selectedMonth - 1]}/{selectedYear}</h1>
+      <div className="flex justify-between text-[10px] text-slate-700">
+        <span>{subtitle}</span>
+        <span>Emitido em {new Date().toLocaleString('pt-BR')}</span>
+      </div>
+    </div>
+  );
+
+  const renderPrintFolha = () => {
+    const netEntries = (emp) => [
+      ...emp.entries.filter((en) => en.affects_net && en.kind === 'RECEITA'),
+      ...emp.entries.filter((en) => en.affects_net && en.kind === 'DESPESA')
+    ];
+
+    return (
+      <div className="hidden print:block text-black bg-white">
+        <style>{'@media print { @page { size: A4 portrait; margin: 10mm; } }'}</style>
+        {printTitle(`Detalhamento por colaborador • ${employees.length} colaborador(es)`)}
+        <div className="space-y-3">
+          {employees.map((emp) => {
+            const informativos = emp.entries.filter((en) => !en.affects_net);
+            return (
+              <section key={emp.employee_id} style={{ breakInside: 'avoid' }}>
+                <div className="flex justify-between items-end bg-slate-200 border border-slate-400 px-2 py-1">
+                  <span className="font-bold text-[11px]">
+                    {emp.employee_name} <span className="font-normal text-[10px]">• {emp.employee_role}</span>
+                  </span>
+                  <span className="text-[10px]">Salário base: {brl(emp.base_salary)}</span>
+                </div>
+                <table className="w-full">
+                  <thead>
+                    <tr>
+                      <th className="text-left w-12">Cód.</th>
+                      <th className="text-left">Rubrica</th>
+                      <th className="text-left">Referência</th>
+                      <th className="text-right w-28">(+) Proventos</th>
+                      <th className="text-right w-28">(−) Descontos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {netEntries(emp).length === 0 && (
+                      <tr><td colSpan={5}>Nenhum lançamento.</td></tr>
+                    )}
+                    {netEntries(emp).map((en) => (
+                      <tr key={en.id}>
+                        <td>{en.code}</td>
+                        <td>
+                          {en.name}
+                          {en.source === 'MANUAL' && ' • manual'}
+                        </td>
+                        <td>{en.reference || '-'}</td>
+                        <td className="text-right whitespace-nowrap">{en.kind === 'RECEITA' ? brl(en.amount) : ''}</td>
+                        <td className="text-right whitespace-nowrap">{en.kind === 'DESPESA' ? brl(en.amount) : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-100 font-semibold">
+                      <td />
+                      <td />
+                      <td className="text-right">Totais</td>
+                      <td className="text-right whitespace-nowrap">{brl(emp.totals.receitas)}</td>
+                      <td className="text-right whitespace-nowrap">{brl(emp.totals.despesas)}</td>
+                    </tr>
+                    <tr className="bg-slate-200 font-bold">
+                      <td />
+                      <td />
+                      <td className="text-right">(=) Líquido a receber</td>
+                      <td />
+                      <td className="text-right whitespace-nowrap">{brl(emp.totals.liquido)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+                {informativos.length > 0 && (
+                  <div className="text-[9px] text-slate-700 italic mt-0.5">
+                    Informativos (não alteram o líquido):{' '}
+                    {informativos.map((en) => `${en.name}: ${brl(en.amount)}${en.reference ? ` (${en.reference})` : ''}`).join(' • ')}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+
+        <div style={{ breakBefore: 'page' }}>
+          {printTitle(`Resumo por colaborador • ${employees.length} colaborador(es)`)}
+          <table className="w-full">
+            <thead>
+              <tr className="bg-slate-200">
+                <th className="text-left">Colaborador</th>
+                <th className="text-left">Cargo</th>
+                <th className="text-right">Salário Base</th>
+                <th className="text-right">(+) Proventos</th>
+                <th className="text-right">(−) Descontos</th>
+                <th className="text-right">(−) Adiantamento</th>
+                <th className="text-right">(=) Líquido</th>
+                <th className="text-right">FGTS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map((emp) => {
+                const adv = emp.advance?.amount || 0;
+                return (
+                  <tr key={emp.employee_id}>
+                    <td className="font-semibold">{emp.employee_name}</td>
+                    <td>{emp.employee_role}</td>
+                    <td className="text-right">{brl(emp.base_salary)}</td>
+                    <td className="text-right">{brl(emp.totals.receitas)}</td>
+                    <td className="text-right">{brl(emp.totals.despesas - adv)}</td>
+                    <td className="text-right">{adv ? brl(adv) : '-'}</td>
+                    <td className="text-right font-bold">{brl(emp.totals.liquido)}</td>
+                    <td className="text-right">{brl(emp.totals.fgts)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100 font-bold">
+                <td colSpan={2}>Total</td>
+                <td className="text-right">{brl(employees.reduce((acc, e) => acc + (e.base_salary || 0), 0))}</td>
+                <td className="text-right">{brl(totals.receitas)}</td>
+                <td className="text-right">{brl((totals.despesas || 0) - (totals.adiantamento || 0))}</td>
+                <td className="text-right">{brl(totals.adiantamento)}</td>
+                <td className="text-right">{brl(totals.liquido)}</td>
+                <td className="text-right">{brl(totals.fgts)}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className="text-[9px] text-slate-700 mt-1">
+            Líquido = Proventos − Descontos − Adiantamento (saldo a pagar no fechamento do mês). Na coluna Descontos o adiantamento não está incluído.
+          </p>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPrintTotais = () => {
+    const itemTotals = payroll?.item_totals || [];
+    const roleTotals = payroll?.role_totals || [];
+    const groups = [
+      { key: 'RECEITA', label: 'Proventos', rows: itemTotals.filter((i) => i.affects_net && i.kind === 'RECEITA') },
+      { key: 'DESPESA', label: 'Descontos', rows: itemTotals.filter((i) => i.affects_net && i.kind === 'DESPESA') },
+      { key: 'INFO', label: 'Informativos (não alteram o líquido)', rows: itemTotals.filter((i) => !i.affects_net) }
+    ];
+    const sum = (rows) => rows.reduce((acc, r) => acc + r.total, 0);
+
+    const summaryBox = (title, lines) => (
+      <table className="w-full">
+        <thead>
+          <tr className="bg-slate-200"><th colSpan={2} className="text-left">{title}</th></tr>
+        </thead>
+        <tbody>
+          {lines.map(([label, value, strong]) => (
+            <tr key={label} className={strong ? 'font-bold bg-slate-100' : ''}>
+              <td>{label}</td>
+              <td className="text-right whitespace-nowrap">{brl(value)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+
+    return (
+      <div className="hidden print:block text-black bg-white">
+        <style>{'@media print { @page { size: A4 portrait; margin: 10mm; } }'}</style>
+        {printTitle(`Totais da folha • ${totals.headcount || 0} colaborador(es)`)}
+
+        <div className="grid grid-cols-3 gap-3 mb-4" style={{ breakInside: 'avoid' }}>
+          {summaryBox('Resumo da Folha', [
+            ['Total de proventos (bruto)', totals.receitas],
+            ['Total de descontos', totals.despesas],
+            ['Adiantamento salarial (incluso nos descontos)', totals.adiantamento],
+            ['Líquido a pagar', totals.liquido, true]
+          ])}
+          {summaryBox('Encargos e Recolhimentos', [
+            ['INSS descontado dos colaboradores', totals.inss],
+            ['IRRF retido', totals.irrf],
+            ['FGTS (8% pago pela empresa)', totals.fgts]
+          ])}
+          {summaryBox('Custo Total da Empresa', [
+            ['Proventos dos colaboradores (bruto)', totals.receitas],
+            ['FGTS', totals.fgts],
+            ['Benefícios (VA)', totals.beneficios],
+            ['Custo total do mês', totals.custo_empresa, true]
+          ])}
+        </div>
+
+        <h2 className="text-sm font-bold mb-1">Totais por Rubrica</h2>
+        <table className="w-full mb-4">
+          <thead>
+            <tr className="bg-slate-200">
+              <th className="text-left">Rubrica / Colaborador</th>
+              <th className="text-left">Referência</th>
+              <th className="text-center w-14">Colab.</th>
+              <th className="text-right w-28">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => (
+              <React.Fragment key={g.key}>
+                {g.key === 'INFO' && (
+                  <tr className="font-bold bg-slate-300">
+                    <td colSpan={3}>= Líquido a Pagar</td>
+                    <td className="text-right">{brl(sum(groups[0].rows) - sum(groups[1].rows))}</td>
+                  </tr>
+                )}
+                {(g.key !== 'INFO' || g.rows.length > 0) && (
+                  <tr className="font-bold bg-slate-200 uppercase">
+                    <td colSpan={3}>{g.label}</td>
+                    <td className="text-right">{brl(sum(g.rows))}</td>
+                  </tr>
+                )}
+                {g.rows.map((r) => (
+                  <React.Fragment key={r.item_id}>
+                    <tr className="font-semibold bg-slate-50">
+                      <td style={{ paddingLeft: '12px' }}>{r.code} • {r.name}</td>
+                      <td />
+                      <td className="text-center">{r.employees}</td>
+                      <td className="text-right">{brl(r.total)}</td>
+                    </tr>
+                    {r.details.map((d) => (
+                      <tr key={`${r.item_id}-${d.employee_id}`}>
+                        <td style={{ paddingLeft: '28px' }}>
+                          {d.employee_name} <span className="text-slate-600">• {d.employee_role}</span>
+                          {d.source === 'MANUAL' && ' • manual'}
+                        </td>
+                        <td>{d.reference || ''}</td>
+                        <td />
+                        <td className="text-right">{brl(d.amount)}</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+
+        <h2 className="text-sm font-bold mb-1">Totais por Cargo</h2>
+        <table className="w-full">
+          <thead>
+            <tr className="bg-slate-200">
+              <th className="text-left">Cargo</th>
+              <th className="text-center">Colab.</th>
+              <th className="text-right">Proventos</th>
+              <th className="text-right">Descontos</th>
+              <th className="text-right">Líquido</th>
+              <th className="text-right">FGTS</th>
+              <th className="text-right">Custo Empresa</th>
+            </tr>
+          </thead>
+          <tbody>
+            {roleTotals.map((r) => (
+              <tr key={r.role}>
+                <td className="font-semibold">{r.role}</td>
+                <td className="text-center">{r.headcount}</td>
+                <td className="text-right">{brl(r.receitas)}</td>
+                <td className="text-right">{brl(r.despesas)}</td>
+                <td className="text-right font-semibold">{brl(r.liquido)}</td>
+                <td className="text-right">{brl(r.fgts)}</td>
+                <td className="text-right">{brl(r.receitas + r.fgts + r.beneficios)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-bold bg-slate-100">
+              <td>Total</td>
+              <td className="text-center">{totals.headcount || 0}</td>
+              <td className="text-right">{brl(totals.receitas)}</td>
+              <td className="text-right">{brl(totals.despesas)}</td>
+              <td className="text-right">{brl(totals.liquido)}</td>
+              <td className="text-right">{brl(totals.fgts)}</td>
+              <td className="text-right">{brl(totals.custo_empresa)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
+  };
+
   const renderIncidence = (label, on) => (
     <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
       on ? 'bg-slate-800 text-slate-300 border-slate-700' : 'text-slate-600 border-slate-800 line-through'
@@ -742,7 +1029,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
         <div>
           <h4 className="text-sm font-bold text-white">Rubricas da Folha</h4>
           <p className="text-[11px] text-slate-400">
-            Receitas somam ao líquido e despesas descontam. Rubricas em uso ou do sistema não podem ser excluídas.
+            Proventos somam ao líquido e descontos subtraem. Rubricas em uso ou do sistema não podem ser excluídas.
           </p>
         </div>
         <button
@@ -787,7 +1074,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                       ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                       : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
                   }`}>
-                    {it.kind === 'RECEITA' ? 'Receita' : 'Despesa'}
+                    {it.kind === 'RECEITA' ? 'Provento' : 'Desconto'}
                   </span>
                   {!it.affects_net && <span className="ml-1 text-[9px] text-slate-500">informativa</span>}
                 </td>
@@ -881,8 +1168,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 onChange={(val) => !system && set({ kind: val })}
                 disabled={system}
                 options={[
-                  { value: 'RECEITA', label: 'Receita (provento)' },
-                  { value: 'DESPESA', label: 'Despesa (desconto)' }
+                  { value: 'RECEITA', label: 'Provento (soma ao líquido)' },
+                  { value: 'DESPESA', label: 'Desconto (subtrai do líquido)' }
                 ]}
               />
             </div>
@@ -1017,7 +1304,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 options={selectableItems.map((it) => ({
                   value: it.id,
                   label: `${it.code} • ${it.name}`,
-                  subtitle: it.kind === 'RECEITA' ? 'Receita' : 'Despesa'
+                  subtitle: it.kind === 'RECEITA' ? 'Provento' : 'Desconto'
                 }))}
               />
             </div>
@@ -1067,14 +1354,14 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   return (
     <div className="space-y-5">
       {/* Barra de Ferramentas */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="print:hidden bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Wallet className="text-indigo-400" size={18} />
             Folha de Pagamento • {MONTH_NAMES[selectedMonth - 1]}/{selectedYear}
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Receitas e despesas por colaborador, com horas extras, faltas e benefícios vindos da jornada.
+            Proventos e descontos por colaborador, com horas extras, faltas e benefícios vindos da jornada.
           </p>
         </div>
 
@@ -1106,6 +1393,16 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             </button>
           </div>
 
+          {view !== 'rubricas' && !loading && (
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+              title={view === 'folha' ? 'Imprime o resumo e o detalhamento por colaborador' : 'Imprime os totais com todas as rubricas expandidas'}
+            >
+              <Printer size={13} /> Imprimir {view === 'folha' ? 'Folha' : 'Totais'}
+            </button>
+          )}
+
           {msg && <span className="text-xs font-medium text-emerald-400">{msg}</span>}
         </div>
       </div>
@@ -1115,7 +1412,15 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
           <RefreshCw size={18} className="animate-spin mx-auto mb-2" />
           Carregando folha...
         </div>
-      ) : view === 'folha' ? renderFolha() : view === 'totais' ? renderTotais() : renderRubricas()}
+      ) : (
+        <>
+          <div className="print:hidden">
+            {view === 'folha' ? renderFolha() : view === 'totais' ? renderTotais() : renderRubricas()}
+          </div>
+          {view === 'folha' && renderPrintFolha()}
+          {view === 'totais' && renderPrintTotais()}
+        </>
+      )}
 
       {itemModal && renderItemModal()}
       {entryModal && renderEntryModal()}
