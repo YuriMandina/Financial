@@ -216,18 +216,52 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                             {dadosAgrupados.map((grupo, gIdx) => (
                               <React.Fragment key={gIdx}>
                                 {grupo.contas.map((conta, cIdx) => (
-                                  <tr key={`${gIdx}-${cIdx}`} className={`border-b border-slate-700/30 print:border-slate-300 text-slate-400 print:text-slate-800 text-xs hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}>
-                                    <td className="py-3 print:py-1 px-5 print:px-2 text-center">{formatarDataComDia(conta.data_emissao)}</td>
-                                    <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[200px] print:max-w-none">{conta.desc_categoria}</td>
-                                    <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[250px] print:max-w-none font-medium text-slate-300 print:text-slate-900">{conta.nome_fornecedor}</td>
-                                    <td className="py-3 print:py-1 px-5 print:px-2 text-center font-medium text-slate-300 print:text-slate-800">{menuAtivo === 'contas-pagas' ? formatarDataComDia(conta.data_pagamento_br) : formatarDataComDia(conta.data_previsao_br)}</td>
-                                    {menuAtivo === 'contas-pagas' && <td className="py-3 print:py-1 px-5 print:px-2 text-slate-300 truncate max-w-[150px] print:max-w-none">{conta.conta_corrente}</td>}
-                                    <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_documento_fiscal}</td>
-                                    <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_parcela}</td>
-                                    <td className="py-3 print:py-1 px-5 print:px-2 text-right font-bold text-slate-200 print:text-slate-900">
-                                      R$ {(menuAtivo === 'contas-pagas' ? conta.valor_pago : conta.saldo_devedor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    </td>
-                                  </tr>
+                                  <React.Fragment key={`${gIdx}-${cIdx}`}>
+                                    <tr className={`border-b border-slate-700/30 print:border-slate-300 text-slate-400 print:text-slate-800 text-xs hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}>
+                                      <td className="py-3 print:py-1 px-5 print:px-2 text-center">{formatarDataComDia(conta.data_emissao)}</td>
+                                      <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[200px] print:max-w-none font-medium text-slate-200 print:text-slate-900">{conta.desc_categoria}</td>
+                                      <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[250px] print:max-w-none font-medium text-slate-300 print:text-slate-900">{conta.nome_fornecedor}</td>
+                                      <td className="py-3 print:py-1 px-5 print:px-2 text-center font-medium text-slate-300 print:text-slate-800">{menuAtivo === 'contas-pagas' ? formatarDataComDia(conta.data_pagamento_br) : formatarDataComDia(conta.data_previsao_br)}</td>
+                                      {menuAtivo === 'contas-pagas' && <td className="py-3 print:py-1 px-5 print:px-2 text-slate-300 truncate max-w-[150px] print:max-w-none">{conta.conta_corrente}</td>}
+                                      <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_documento_fiscal}</td>
+                                      <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_parcela}</td>
+                                      <td className="py-3 print:py-1 px-5 print:px-2 text-right font-bold text-slate-200 print:text-slate-900">
+                                        R$ {(menuAtivo === 'contas-pagas' ? conta.valor_pago : conta.saldo_devedor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                      </td>
+                                    </tr>
+
+                                    {/* --- [BLOCO: Detalhamento de Múltiplas Categorias em Containers] --- */}
+                                    {Array.isArray(conta.categorias) && conta.categorias.length > 1 && (
+                                      <tr className={`border-b border-slate-700/20 print:border-slate-300 bg-slate-900/40 ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}>
+                                        <td colSpan={menuAtivo === 'contas-pagas' ? 7 : 6} className="py-1.5 print:py-1 px-5 print:px-2">
+                                          <div className="flex flex-wrap items-center gap-2 print:gap-1.5 pl-6 print:pl-4 border-l-2 border-indigo-500/50 print:border-slate-400 ml-2 print:ml-1">
+                                            <span className="text-[11px] print:text-[10px] font-bold uppercase tracking-wider text-indigo-400 print:text-slate-600 mr-1 flex items-center gap-1">
+                                              <span>↳</span> Rateio:
+                                            </span>
+                                            {conta.categorias.map((catItem, catIdx) => (
+                                              <div
+                                                key={catIdx}
+                                                className="inline-flex items-center gap-1.5 bg-slate-800/90 print:bg-slate-100 border border-slate-700/60 print:border-slate-300 px-2 py-0.5 print:py-0 print:px-1.5 rounded print:rounded-xs text-xs print:text-[10px] shadow-xs print:shadow-none"
+                                              >
+                                                <span className="text-slate-300 print:text-slate-700 font-medium">
+                                                  {catItem.desc_categoria}
+                                                </span>
+                                                <span className="text-emerald-400 print:text-slate-900 font-bold bg-slate-900/60 print:bg-transparent px-1 py-0.5 print:p-0 rounded text-[11px] print:text-[10px]">
+                                                  R$ {Number(catItem.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                </span>
+                                                {catItem.percentual > 0 && (
+                                                  <span className="text-slate-500 print:text-slate-500 text-[10px] print:text-[9px]">
+                                                    ({Number(catItem.percentual).toFixed(1)}%)
+                                                  </span>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </td>
+                                        <td className="py-1.5 print:py-1 px-5 print:px-2 text-right"></td>
+                                      </tr>
+                                    )}
+                                  </React.Fragment>
                                 ))}
                                 <tr className="bg-slate-800/60 print:bg-slate-100 print:!bg-slate-100 border-b-2 border-slate-600 print:border-slate-400">
                                   <td colSpan={menuAtivo === 'contas-pagas' ? "7" : "6"} className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-slate-300 print:text-slate-900 text-xs uppercase">

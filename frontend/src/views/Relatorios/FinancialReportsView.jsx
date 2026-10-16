@@ -255,13 +255,29 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
   const agruparPorCategoria = (contas, tipoRelatorio) => {
     const campoValor = tipoRelatorio === 'contas-pagas' ? 'valor_pago' : 'saldo_devedor';
     const resumo = contas.reduce((acc, conta) => {
-      const cat = conta.desc_categoria || 'Sem Categoria';
-      if (!acc[cat]) acc[cat] = { total: 0, contasCorrentes: {} };
-      acc[cat].total += conta[campoValor];
-      if (tipoRelatorio === 'contas-pagas' || tipoRelatorio === 'recebimentos') {
-        const cc = conta.conta_corrente || 'Conta Não Identificada';
-        if (!acc[cat].contasCorrentes[cc]) acc[cat].contasCorrentes[cc] = 0;
-        acc[cat].contasCorrentes[cc] += conta[campoValor];
+      // Se a conta possuir categorias múltiplas detalhadas, soma individualmente cada uma
+      if (Array.isArray(conta.categorias) && conta.categorias.length > 0) {
+        conta.categorias.forEach(catItem => {
+          const cat = catItem.desc_categoria || 'Sem Categoria';
+          const val = Number(catItem.valor) || 0;
+          if (!acc[cat]) acc[cat] = { total: 0, contasCorrentes: {} };
+          acc[cat].total += val;
+          if (tipoRelatorio === 'contas-pagas' || tipoRelatorio === 'recebimentos') {
+            const cc = conta.conta_corrente || 'Conta Não Identificada';
+            if (!acc[cat].contasCorrentes[cc]) acc[cat].contasCorrentes[cc] = 0;
+            acc[cat].contasCorrentes[cc] += val;
+          }
+        });
+      } else {
+        const cat = conta.desc_categoria || 'Sem Categoria';
+        const val = Number(conta[campoValor]) || 0;
+        if (!acc[cat]) acc[cat] = { total: 0, contasCorrentes: {} };
+        acc[cat].total += val;
+        if (tipoRelatorio === 'contas-pagas' || tipoRelatorio === 'recebimentos') {
+          const cc = conta.conta_corrente || 'Conta Não Identificada';
+          if (!acc[cat].contasCorrentes[cc]) acc[cat].contasCorrentes[cc] = 0;
+          acc[cat].contasCorrentes[cc] += val;
+        }
       }
       return acc;
     }, {});

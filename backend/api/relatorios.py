@@ -309,6 +309,40 @@ def obter_dados_tela(data_inicio: str, data_fim: str, current_user: models.User 
             val_cat = row.get("codigo_categoria")
             id_cat = str(val_cat).strip() if pd.notna(val_cat) else ""
 
+            # Extração de categorias (quando houver rateio múltiplo > 1)
+            raw_cats = row.get("categorias")
+            categorias_lista = []
+            if isinstance(raw_cats, list) and len(raw_cats) > 1:
+                saldo_total_doc = float(row.get("saldo_devedor", 0.0))
+                valor_doc_orig = float(row.get("valor_documento", 0.0)) or saldo_total_doc or 1.0
+                fator_saldo = saldo_total_doc / valor_doc_orig if valor_doc_orig > 0 else 1.0
+
+                for c_item in raw_cats:
+                    if not isinstance(c_item, dict):
+                        continue
+                    c_cod = str(c_item.get("codigo_categoria", "")).strip()
+                    c_val_orig = float(c_item.get("valor", 0.0))
+                    # Ajusta proporcionalmente caso o saldo em aberto seja parcial
+                    c_val = round(c_val_orig * fator_saldo, 2)
+                    c_desc = dict_cat_str.get(c_cod, c_cod or "Sem Categoria")
+                    categorias_lista.append({
+                        "codigo_categoria": c_cod,
+                        "desc_categoria": c_desc,
+                        "valor": c_val,
+                        "percentual": float(c_item.get("percentual", 0.0))
+                    })
+
+            desc_cat_final = dict_cat_str.get(id_cat, tratar_vazio(val_cat))
+            # Se a categoria principal for vazia/traço mas tiver 1 categoria na lista bruta
+            if (not desc_cat_final or desc_cat_final == "-") and isinstance(raw_cats, list) and len(raw_cats) == 1:
+                unica_cat = raw_cats[0]
+                if isinstance(unica_cat, dict):
+                    cod_u = str(unica_cat.get("codigo_categoria", "")).strip()
+                    desc_cat_final = dict_cat_str.get(cod_u, cod_u or "-")
+
+            if (not desc_cat_final or desc_cat_final == "-") and len(categorias_lista) > 1:
+                desc_cat_final = f"Múltiplas Categorias ({len(categorias_lista)})"
+
             contas_lista.append(
                 {
                     "data_previsao_br": tratar_vazio(row.get("data_previsao_br")),
@@ -320,7 +354,8 @@ def obter_dados_tela(data_inicio: str, data_fim: str, current_user: models.User 
                     "nome_fornecedor": dict_forn_str.get(
                         id_forn, tratar_vazio(val_forn)
                     ),
-                    "desc_categoria": dict_cat_str.get(id_cat, tratar_vazio(val_cat)),
+                    "desc_categoria": desc_cat_final,
+                    "categorias": categorias_lista,
                     "saldo_devedor": float(row.get("saldo_devedor", 0.0)),
                 }
             )
