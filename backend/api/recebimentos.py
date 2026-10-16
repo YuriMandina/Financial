@@ -54,11 +54,24 @@ class PagamentoItem(BaseModel):
     valor: float
     desconto: float = 0.0
     juros: float = 0.0
+    numero_documento_fiscal: str | None = None
+    numero_parcela: str | None = None
+    data_vencimento: str | None = None
+    data_emissao: str | None = None
+
+class TotaisRecibo(BaseModel):
+    totalOriginal: float = 0.0
+    totalDesconto: float = 0.0
+    totalJuros: float = 0.0
+    totalPago: float = 0.0
 
 class BaixaLoteRequest(BaseModel):
     id_conta_corrente: int
     data_pagamento: str
     pagamentos: list[PagamentoItem]
+    cliente: str | None = None
+    banco: str | None = None
+    totais: TotaisRecibo | None = None
 
 class RecebimentoReciboCreate(BaseModel):
     cliente: str
@@ -260,17 +273,67 @@ def bg_baixar_recebimentos_lote(task_id: str, req_dict: dict, org_id: int):
             except Exception as e:
                 print("Erro ao atualizar cache local:", e)
                 
+        recibo_criado_id = None
+        if baixas_sucesso and req.cliente:
+            try:
+                # Mapear apenas notas que tiveram sucesso na Omie para o recibo
+                notas_recibo = []
+                sucesso_map = {b["codigo_lancamento"]: b["codigo_baixa"] for b in baixas_sucesso}
+                for pag in req.pagamentos:
+                    if pag.codigo_lancamento in sucesso_map:
+                        pag_dict = pag.dict()
+                        pag_dict["codigo_baixa"] = sucesso_map[pag.codigo_lancamento]
+                        notas_recibo.append(pag_dict)
+
+                totais_orig = req.totais.totalOriginal if req.totais else sum(p.valor for p in req.pagamentos if p.codigo_lancamento in sucesso_map)
+                totais_desc = req.totais.totalDesconto if req.totais else sum(p.desconto for p in req.pagamentos if p.codigo_lancamento in sucesso_map)
+                totais_juros = req.totais.totalJuros if req.totais else sum(p.juros for p in req.pagamentos if p.codigo_lancamento in sucesso_map)
+                totais_pago = req.totais.totalPago if req.totais else sum((p.valor - p.desconto + p.juros) for p in req.pagamentos if p.codigo_lancamento in sucesso_map)
+
+                novo_recibo = models.PaymentReceipt(
+                    cliente=req.cliente,
+                    banco=req.banco,
+                    data_pagamento=req.data_pagamento,
+                    total_original=totais_orig,
+                    total_desconto=totais_desc,
+                    total_juros=totais_juros,
+                    total_pago=totais_pago,
+                    notas=notas_recibo,
+                    organization_id=org_id
+                )
+                db.add(novo_recibo)
+                db.commit()
+                db.refresh(novo_recibo)
+                recibo_criado_id = novo_recibo.id
+                print(f"[Recebimentos] Recibo #{recibo_criado_id} salvo com sucesso para {req.cliente} ({len(notas_recibo)} títulos).")
+            except Exception as e_recibo:
+                print("Erro ao persistir recibo no banco:", e_recibo)
+
         db.close()
 
+        result_payload = {
+            "baixas": baixas_sucesso,
+            "recibo_id": recibo_criado_id,
+            "erros": erros
+        }
+
         if erros:
-            TaskManager.update_task(task_id, log="Concluído com erros: " + " | ".join(erros), status="error")
+            msg_erros = " | ".join(erros[:3])
+            if len(erros) > 3:
+                msg_erros += f" (+{len(erros)-3} outros)"
+            TaskManager.update_task(
+                task_id, 
+                log=f"Concluído parcialmente: {len(baixas_sucesso)} baixas efetuadas, {len(erros)} falhas. Recibo #{recibo_criado_id or '-'} gerado. Detalhes: {msg_erros}", 
+                status="completed" if baixas_sucesso else "error",
+                result=result_payload
+            )
         else:
             TaskManager.update_task(
                 task_id, 
                 progress=100.0, 
-                log="Recebimentos efetuados com sucesso!", 
+                log=f"Recebimentos efetuados com sucesso! Recibo #{recibo_criado_id or '-'} salvo no histórico.", 
                 status="completed", 
-                result={"baixas": baixas_sucesso}
+                result=result_payload
             )
             
     except Exception as e:
