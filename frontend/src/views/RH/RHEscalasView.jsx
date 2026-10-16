@@ -830,9 +830,94 @@ export default function RHEscalasView({ token }) {
     shifts.find((s) => s.is_default) ||
     shifts[0];
 
+  // Situação do dia para o mural. Faltas e atestados NÃO são expostos: aparecem
+  // como dia normal de trabalho no turno previsto (o mural é público).
+  const getMuralDay = (emp, day) => {
+    const jd = workDays[emp.id]?.[day];
+    const gridInfo = localGrid[emp.id]?.TRANSPORTE?.[day];
+    const planned = resolveEmpShift(emp, jd?.shift || gridInfo?.shift);
+    const plannedDay = (fromJornada) => ({
+      kind: 'WORK',
+      shift: planned,
+      start: planned?.start_time,
+      end: planned?.end_time,
+      lunchStart: planned?.lunch_start,
+      lunchEnd: planned?.lunch_end,
+      special: false,
+      fromJornada
+    });
+
+    if (jd) {
+      switch (jd.status) {
+        case 'TRABALHO': {
+          const shift = shifts.find((s) => s.id === jd.shift_id) || planned;
+          const start = jd.start_time || shift?.start_time;
+          const end = jd.end_time || shift?.end_time;
+          return {
+            kind: 'WORK',
+            shift,
+            start,
+            end,
+            lunchStart: jd.lunch_start ?? shift?.lunch_start,
+            lunchEnd: jd.lunch_end ?? shift?.lunch_end,
+            special: !!shift && (start !== shift.start_time || end !== shift.end_time),
+            fromJornada: true
+          };
+        }
+        case 'FALTA':
+        case 'ATESTADO':
+          return plannedDay(true);
+        case 'FOLGA_BH':
+          return { kind: 'BH', fromJornada: true };
+        case 'FERIADO':
+          return { kind: 'FER', fromJornada: true };
+        case 'FERIAS':
+          return { kind: 'FE', fromJornada: true };
+        default:
+          return { kind: 'OFF', fromJornada: true };
+      }
+    }
+
+    switch (gridInfo?.status) {
+      case 'X':
+        return plannedDay(false);
+      case 'BH':
+        return { kind: 'BH', fromJornada: false };
+      case 'F':
+        return { kind: 'FER', fromJornada: false };
+      case 'FE':
+        return { kind: 'FE', fromJornada: false };
+      default:
+        return { kind: 'OFF', fromJornada: false };
+    }
+  };
+
+  const MURAL_KIND_LABELS = {
+    BH: { short: 'BH', label: 'Folga (banco de horas)' },
+    OFF: { short: '-', label: 'Folga' },
+    FER: { short: 'F', label: 'Feriado' },
+    FE: { short: 'FE', label: 'Férias' }
+  };
+
   const renderSundayScheduleWall = () => {
     const pad = (n) => String(n).padStart(2, '0');
     const mm = pad(selectedMonth);
+
+    // Grade do mês já resolvida + lista de horários especiais por colaborador
+    const muralRows = employees.map((emp) => {
+      const days = {};
+      const specials = [];
+      daysList.forEach((day) => {
+        const info = getMuralDay(emp, day);
+        days[day] = info;
+        if (info.kind === 'WORK' && info.special) specials.push({ day, ...info });
+      });
+      return { emp, days, specials };
+    });
+    const rowsWithSpecials = muralRows.filter((r) => r.specials.length > 0);
+
+    const formatTimes = (info) =>
+      `${info.start}–${info.end}${info.lunchStart ? ` (alm ${info.lunchStart}–${info.lunchEnd})` : ''}`;
 
     return (
       <div className="space-y-6">
@@ -907,7 +992,7 @@ export default function RHEscalasView({ token }) {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((emp) => (
+                {muralRows.map(({ emp, days }) => (
                   <tr key={emp.id} className="break-inside-avoid">
                     <td className="px-1.5 py-1 border border-slate-500">
                       <div className="font-bold text-[10px] whitespace-nowrap">{emp.name}</div>
@@ -915,18 +1000,19 @@ export default function RHEscalasView({ token }) {
                     </td>
                     {daysList.map((day) => {
                       const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
-                      const info = localGrid[emp.id]?.TRANSPORTE?.[day] || { status: 'OFF', shift: null };
-                      const isWorking = info.status === 'X';
-                      const shift = isWorking ? resolveEmpShift(emp, info.shift) : null;
-                      const conf = STATUS_CONFIG[info.status] || STATUS_CONFIG.OFF;
+                      const info = days[day];
+                      const isWork = info.kind === 'WORK';
+                      const isBH = info.kind === 'BH';
                       return (
                         <td
                           key={day}
                           className={`px-0 py-1.5 text-center border border-slate-500 whitespace-nowrap ${
-                            weekday === 0 || holidays[day] ? 'bg-red-50' : ''
-                          } ${isWorking ? 'font-bold' : 'italic text-slate-500'}`}
+                            isBH ? 'bg-slate-300 font-bold' : weekday === 0 || holidays[day] ? 'bg-red-50' : ''
+                          } ${isWork ? 'font-bold' : isBH ? '' : 'italic text-slate-500'}`}
                         >
-                          {isWorking ? (shift?.code || 'X').slice(0, 3) : conf.short}
+                          {isWork
+                            ? `${(info.shift?.code || 'X').slice(0, 3)}${info.special ? '*' : ''}`
+                            : MURAL_KIND_LABELS[info.kind].short}
                         </td>
                       );
                     })}
@@ -935,24 +1021,37 @@ export default function RHEscalasView({ token }) {
               </tbody>
             </table>
             <p className="hidden print:block text-[9px] text-slate-700 mt-2">
-              Legenda: {Object.entries(STATUS_CONFIG).filter(([k]) => k !== 'X').map(([, c]) => `${c.short} = ${c.label}`).join(' · ')}
+              Legenda: {Object.values(MURAL_KIND_LABELS).map((c) => `${c.short} = ${c.label}`).join(' · ')} · * = horário especial (ver abaixo)
               {Object.keys(holidays).length > 0 && ` · Feriados: ${Object.entries(holidays).map(([d, n]) => `${pad(d)}/${mm} ${n}`).join(', ')}`}
             </p>
+            {rowsWithSpecials.length > 0 && (
+              <div className="hidden print:block mt-2 text-[9px] text-black break-inside-avoid">
+                <div className="font-bold mb-0.5">* Horários especiais</div>
+                <ul className="space-y-0.5">
+                  {rowsWithSpecials.map(({ emp, specials }) => (
+                    <li key={emp.id}>
+                      <span className="font-bold">{emp.name}:</span>{' '}
+                      {specials.map((s) => `${pad(s.day)}/${mm} ${formatTimes(s)}`).join(' · ')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="space-y-6 print:hidden">
               {monthWeeks.map((week, wIdx) => (
                 <section key={wIdx}>
-                  <h4 className="text-sm font-bold text-slate-200 mb-2 print:text-black">
+                  <h4 className="text-sm font-bold text-slate-200 mb-2">
                     Semana {wIdx + 1}
-                    <span className="ml-2 text-xs font-normal text-slate-400 print:text-slate-700">
+                    <span className="ml-2 text-xs font-normal text-slate-400">
                       {pad(week[0].day)}/{mm} a {pad(week[week.length - 1].day)}/{mm}
                     </span>
                   </h4>
-                  <div className="overflow-x-auto rounded-lg border border-slate-800 print:border-slate-500 print:overflow-visible">
+                  <div className="overflow-x-auto rounded-lg border border-slate-800">
                     <table className="w-full text-xs border-collapse table-fixed">
                       <thead>
-                        <tr className="bg-slate-950 print:bg-slate-200">
-                          <th className="w-40 text-left px-2 py-1.5 text-slate-300 font-semibold border-r border-slate-800 print:text-black print:border-slate-500">
+                        <tr className="bg-slate-950">
+                          <th className="w-40 text-left px-2 py-1.5 text-slate-300 font-semibold border-r border-slate-800">
                             Colaborador
                           </th>
                           {week.map(({ day, weekday }) => {
@@ -960,66 +1059,74 @@ export default function RHEscalasView({ token }) {
                             return (
                               <th
                                 key={day}
-                                className={`px-1 py-1.5 text-center font-semibold border-r border-slate-800 print:border-slate-500 print:text-black ${
-                                  weekday === 0 || holidayName ? 'text-red-300 bg-red-950/20 print:bg-red-50' : 'text-slate-300'
+                                className={`px-1 py-1.5 text-center font-semibold border-r border-slate-800 ${
+                                  weekday === 0 || holidayName ? 'text-red-300 bg-red-950/20' : 'text-slate-300'
                                 }`}
                               >
                                 <div>{WEEKDAY_LABELS[weekday]} {pad(day)}/{mm}</div>
-                                {holidayName && <div className="text-[9px] font-normal text-sky-400 print:text-blue-800 truncate">{holidayName}</div>}
+                                {holidayName && <div className="text-[9px] font-normal text-sky-400 truncate">{holidayName}</div>}
                               </th>
                             );
                           })}
                         </tr>
                       </thead>
                       <tbody>
-                        {employees.map((emp) => (
-                          <tr key={emp.id} className="border-t border-slate-800 print:border-slate-400">
-                            <td className="px-2 py-1.5 border-r border-slate-800 print:border-slate-500 align-top">
-                              <div className="font-semibold text-white print:text-black truncate">{emp.name}</div>
-                              <div className="text-[10px] text-slate-500 print:text-slate-700 truncate">{emp.role || 'Geral'}</div>
+                        {muralRows.map(({ emp, days }) => (
+                          <tr key={emp.id} className="border-t border-slate-800">
+                            <td className="px-2 py-1.5 border-r border-slate-800 align-top">
+                              <div className="font-semibold text-white truncate">{emp.name}</div>
+                              <div className="text-[10px] text-slate-500 truncate">{emp.role || 'Geral'}</div>
                             </td>
                             {week.map(({ day, weekday }) => {
-                              const info = localGrid[emp.id]?.TRANSPORTE?.[day] || { status: 'OFF', shift: null };
-                              const isWorking = info.status === 'X';
-                              const shift = isWorking ? resolveEmpShift(emp, info.shift) : null;
-                              const conf = STATUS_CONFIG[info.status] || STATUS_CONFIG.OFF;
+                              const info = days[day];
                               return (
                                 <td
                                   key={day}
-                                  className={`px-1 py-1 text-center align-top border-r border-slate-800 print:border-slate-500 ${
-                                    weekday === 0 ? 'bg-red-950/10 print:bg-red-50' : ''
+                                  className={`px-1 py-1 text-center align-top border-r border-slate-800 ${
+                                    info.kind === 'BH' ? 'bg-amber-500/10' : weekday === 0 ? 'bg-red-950/10' : ''
                                   }`}
                                 >
-                                  {isWorking && shift ? (
+                                  {info.kind === 'WORK' ? (
                                     <div className="space-y-0.5">
-                                      <select
-                                        value={info.shift || shift.code}
-                                        onChange={(e) => {
-                                          const sObj = shifts.find((s) => s.code === e.target.value);
-                                          handleShiftChange(emp.id, day, 'TRANSPORTE', e.target.value, sObj?.id);
-                                          handleShiftChange(emp.id, day, 'ALIMENTACAO', e.target.value, sObj?.id);
-                                        }}
-                                        className="w-full bg-slate-800 border border-slate-700 rounded text-[10px] text-indigo-200 px-0.5 py-0.5 focus:outline-none focus:border-indigo-500 font-bold print:hidden"
-                                      >
-                                        {shifts.map((s) => (
-                                          <option key={s.id} value={s.code}>{s.code}</option>
-                                        ))}
-                                      </select>
-                                      <div className="hidden print:block font-bold text-black">{shift.code}</div>
-                                      <div className="font-mono text-[10px] text-slate-200 print:text-black leading-tight">
-                                        {shift.start_time}–{shift.end_time}
-                                      </div>
-                                      {shift.lunch_start && (
-                                        <div className="font-mono text-[9px] text-slate-400 print:text-slate-700 leading-tight">
-                                          alm {shift.lunch_start}–{shift.lunch_end}
+                                      {info.fromJornada || shifts.length === 0 ? (
+                                        <div
+                                          className="font-bold text-[10px] text-indigo-200"
+                                          title={info.fromJornada ? 'Definido na Grade de Jornada' : undefined}
+                                        >
+                                          {info.shift?.code || 'Trabalho'}
+                                        </div>
+                                      ) : (
+                                        <select
+                                          value={info.shift?.code || ''}
+                                          onChange={(e) => {
+                                            const sObj = shifts.find((s) => s.code === e.target.value);
+                                            handleShiftChange(emp.id, day, 'TRANSPORTE', e.target.value, sObj?.id);
+                                            handleShiftChange(emp.id, day, 'ALIMENTACAO', e.target.value, sObj?.id);
+                                          }}
+                                          className="w-full bg-slate-800 border border-slate-700 rounded text-[10px] text-indigo-200 px-0.5 py-0.5 focus:outline-none focus:border-indigo-500 font-bold"
+                                        >
+                                          {shifts.map((s) => (
+                                            <option key={s.id} value={s.code}>{s.code}</option>
+                                          ))}
+                                        </select>
+                                      )}
+                                      {info.start && (
+                                        <div className={`font-mono text-[10px] leading-tight ${info.special ? 'text-amber-300 font-bold' : 'text-slate-200'}`}>
+                                          {info.start}–{info.end}
                                         </div>
                                       )}
+                                      {info.lunchStart && (
+                                        <div className="font-mono text-[9px] text-slate-400 leading-tight">
+                                          alm {info.lunchStart}–{info.lunchEnd}
+                                        </div>
+                                      )}
+                                      {info.special && (
+                                        <div className="text-[9px] text-amber-400 font-semibold">horário especial</div>
+                                      )}
                                     </div>
-                                  ) : isWorking ? (
-                                    <span className="text-[10px] text-emerald-300 print:text-black font-semibold">Trabalho</span>
                                   ) : (
-                                    <span className={`text-[10px] italic font-medium ${info.status === 'OFF' ? 'text-slate-500' : 'text-amber-300'} print:text-slate-700`}>
-                                      {conf.label}
+                                    <span className={`text-[10px] font-medium ${info.kind === 'BH' ? 'text-amber-300 font-bold' : 'italic text-slate-500'}`}>
+                                      {MURAL_KIND_LABELS[info.kind].label}
                                     </span>
                                   )}
                                 </td>
