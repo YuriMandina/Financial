@@ -48,6 +48,7 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS hours_display_format VARCHAR DEFAULT 'HHMM';"))
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS base_salary FLOAT DEFAULT 0;"))
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS dependents INTEGER DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS admission_date DATE;"))
     except Exception as e:
         print(f"Warning during auto-migration: {e}")
 

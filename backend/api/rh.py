@@ -90,6 +90,7 @@ class RHEmployeeCreate(BaseModel):
     work_days_per_week: int = 6
     base_salary: float = 0.0
     dependents: int = 0
+    admission_date: Optional[date] = None
     active: bool = True
 
 class RHEmployeeUpdate(BaseModel):
@@ -105,6 +106,7 @@ class RHEmployeeUpdate(BaseModel):
     work_days_per_week: Optional[int] = None
     base_salary: Optional[float] = None
     dependents: Optional[int] = None
+    admission_date: Optional[date] = None
     active: Optional[bool] = None
 
 class RHHolidayCreate(BaseModel):
@@ -472,6 +474,7 @@ def list_employees(
             "work_days_per_week": emp.work_days_per_week or 6,
             "base_salary": emp.base_salary or 0.0,
             "dependents": emp.dependents or 0,
+            "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "active": emp.active
         })
     return result
@@ -502,6 +505,7 @@ def create_employee(
         work_days_per_week=payload.work_days_per_week or 6,
         base_salary=round(payload.base_salary or 0.0, 2),
         dependents=payload.dependents or 0,
+        admission_date=payload.admission_date,
         active=payload.active
     )
     db.add(emp)
@@ -549,6 +553,8 @@ def update_employee(
         emp.base_salary = round(payload.base_salary, 2)
     if payload.dependents is not None:
         emp.dependents = payload.dependents
+    if "admission_date" in payload.model_fields_set:
+        emp.admission_date = payload.admission_date
     if payload.active is not None:
         emp.active = payload.active
 
@@ -893,7 +899,8 @@ def get_monthly_schedule(
                     "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0),
                     "work_days_per_week": emp.work_days_per_week or 6,
                     "base_salary": emp.base_salary or 0.0,
-                    "dependents": emp.dependents or 0
+                    "dependents": emp.dependents or 0,
+                    "admission_date": emp.admission_date.isoformat() if emp.admission_date else None
                 }
                 for emp in employees
             ],

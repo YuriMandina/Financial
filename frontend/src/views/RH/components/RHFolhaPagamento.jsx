@@ -119,9 +119,19 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   const handleSaveItem = async (e) => {
     e.preventDefault();
     const { id, data, system } = itemModal;
-    const payload = system
-      ? { code: data.code, name: data.name, active: data.active }
-      : { ...data, default_value: parseMoney(data.default_value) };
+    const payload = !system
+      ? { ...data, default_value: parseMoney(data.default_value) }
+      : data.configurable
+        ? {
+          code: data.code,
+          name: data.name,
+          active: data.active,
+          default_value: parseMoney(data.default_value),
+          incide_inss: data.incide_inss,
+          incide_irrf: data.incide_irrf,
+          incide_fgts: data.incide_fgts
+        }
+        : { code: data.code, name: data.name, active: data.active };
     try {
       await request(id ? `/api/rh/payroll/items/${id}` : '/api/rh/payroll/items', {
         method: id ? 'PUT' : 'POST',
@@ -233,6 +243,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   const employees = payroll?.employees || [];
   const hasEntries = employees.some((e) => e.entries.length > 0);
   const missingSalary = employees.filter((e) => !e.base_salary);
+  const missingAdmission = employees.filter((e) => !e.admission_date);
 
   const renderKpi = (label, value, Icon, tone) => (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
@@ -260,6 +271,15 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
           <span>
             {missingSalary.length} colaborador(es) sem salário base cadastrado: {missingSalary.map((e) => e.employee_name).join(', ')}.
             Cadastre em "Equipe, Cargos & Parâmetros" e recalcule a folha.
+          </span>
+        </div>
+      )}
+
+      {missingAdmission.length > 0 && (
+        <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300">
+          <AlertCircle size={14} className="mt-0.5 shrink-0 text-slate-400" />
+          <span>
+            {missingAdmission.length} colaborador(es) sem data de admissão (triênio não calculado): {missingAdmission.map((e) => e.employee_name).join(', ')}.
           </span>
         </div>
       )}
@@ -476,7 +496,9 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   {!it.affects_net && <span className="ml-1 text-[9px] text-slate-500">informativa</span>}
                 </td>
                 <td className="py-2 px-3 text-slate-300">
-                  {it.system_key
+                  {it.configurable
+                    ? `${Number(it.default_value).toLocaleString('pt-BR')}% por triênio`
+                    : it.system_key
                     ? <span className="text-slate-500">Automático</span>
                     : it.calc_type === 'PERCENT'
                       ? `${Number(it.default_value).toLocaleString('pt-BR')}% do salário`
@@ -538,7 +560,9 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
           {system && (
             <div className="flex items-start gap-2 bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-slate-400">
               <Lock size={13} className="mt-0.5 shrink-0" />
-              Rubrica calculada automaticamente pelo sistema: apenas código, nome e situação podem ser alterados.
+              {data.configurable
+                ? 'Rubrica calculada automaticamente: código, nome, percentual, incidências e situação podem ser alterados.'
+                : 'Rubrica calculada automaticamente pelo sistema: apenas código, nome e situação podem ser alterados.'}
             </div>
           )}
 
@@ -579,6 +603,28 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               />
             </div>
           </div>
+
+          {system && data.configurable && (
+            <>
+              <div>
+                <label className="block text-slate-400 mb-1">Percentual por triênio (% do salário base)</label>
+                <input
+                  inputMode="decimal"
+                  value={data.default_value}
+                  onChange={(e) => set({ default_value: e.target.value.replace(/[^0-9.,]/g, '') })}
+                  className={inputCls}
+                />
+                <span className="text-[10px] text-slate-500">
+                  Acumulativo: aplicado uma vez para cada 3 anos completos desde a admissão (ex: 7 anos = 2 triênios).
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <StyledCheckbox checked={data.incide_inss} onChange={(c) => set({ incide_inss: c })} label="Incide INSS" />
+                <StyledCheckbox checked={data.incide_irrf} onChange={(c) => set({ incide_irrf: c })} label="Incide IRRF" />
+                <StyledCheckbox checked={data.incide_fgts} onChange={(c) => set({ incide_fgts: c })} label="Incide FGTS" />
+              </div>
+            </>
+          )}
 
           {!system && (
             <>

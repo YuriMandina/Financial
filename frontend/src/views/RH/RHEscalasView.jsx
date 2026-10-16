@@ -66,6 +66,19 @@ const STATUS_CONFIG = {
 
 const STATUS_KEYS = ['X', 'BH', 'F', 'FE', 'OFF'];
 
+// Tempo de casa e triênios completos a partir da data de admissão (YYYY-MM-DD)
+const describeTenure = (admissionDate) => {
+  const [y, m, d] = String(admissionDate).split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const now = new Date();
+  let years = now.getFullYear() - y;
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) years -= 1;
+  if (years < 0) return '';
+  const triennia = Math.floor(years / 3);
+  const tenure = years === 0 ? 'Menos de 1 ano de casa' : `${years} ${years === 1 ? 'ano' : 'anos'} de casa`;
+  return triennia > 0 ? `${tenure} • ${triennia} triênio(s)` : tenure;
+};
+
 // Aceita "3.000,50", "3000,50" e "3000.50"
 const parseMoney = (value) => {
   const str = String(value ?? '').trim();
@@ -112,6 +125,7 @@ export default function RHEscalasView({ token }) {
     weekly_actual_hours: 44.0,
     base_salary: '0,00',
     dependents: 0,
+    admission_date: '',
     work_days_per_week: 6,
     active: true
   });
@@ -386,6 +400,7 @@ export default function RHEscalasView({ token }) {
         work_days_per_week: parseInt(employeeFormData.work_days_per_week, 10) || 6,
         base_salary: parseMoney(employeeFormData.base_salary),
         dependents: parseInt(employeeFormData.dependents, 10) || 0,
+        admission_date: employeeFormData.admission_date || null,
         active: employeeFormData.active
       };
 
@@ -579,6 +594,7 @@ export default function RHEscalasView({ token }) {
                 weekly_actual_hours: 44.0,
                 base_salary: '0,00',
                 dependents: 0,
+                admission_date: '',
                 active: true
               });
               setEmployeeModalOpen(true);
@@ -1006,6 +1022,7 @@ export default function RHEscalasView({ token }) {
                 weekly_actual_hours: 44.0,
                 base_salary: '0,00',
                 dependents: 0,
+                admission_date: '',
                 active: true
               });
               setEmployeeModalOpen(true);
@@ -1082,6 +1099,7 @@ export default function RHEscalasView({ token }) {
                             weekly_actual_hours: emp.weekly_actual_hours || emp.weekly_contract_hours || 44.0,
                             base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
                             dependents: emp.dependents || 0,
+                            admission_date: emp.admission_date || '',
                             work_days_per_week: emp.work_days_per_week || 6,
                             active: true
                           });
@@ -1548,6 +1566,7 @@ export default function RHEscalasView({ token }) {
               weekly_actual_hours: emp.weekly_actual_hours || emp.weekly_contract_hours || 44.0,
               base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
               dependents: emp.dependents || 0,
+              admission_date: emp.admission_date || '',
               work_days_per_week: emp.work_days_per_week || 6,
               active: true
             });
@@ -1586,15 +1605,30 @@ export default function RHEscalasView({ token }) {
               {editingEmployee ? 'Editar Colaborador' : 'Novo Colaborador'}
             </h3>
             <form onSubmit={handleSaveEmployee} className="space-y-3.5 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Nome Completo</label>
-                <input
-                  type="text"
-                  required
-                  value={employeeFormData.name}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, name: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                />
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-slate-400 mb-1">Nome Completo</label>
+                  <input
+                    type="text"
+                    required
+                    value={employeeFormData.name}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, name: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Data de Admissão</label>
+                  <input
+                    type="date"
+                    value={employeeFormData.admission_date || ''}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, admission_date: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
+                  />
+                  {employeeFormData.admission_date && (
+                    <span className="text-[10px] text-slate-500">{describeTenure(employeeFormData.admission_date)}</span>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

@@ -56,6 +56,7 @@ SYSTEM_ITEMS = {
     "SALARIO": ("001", "Salário Base", "RECEITA", True, True, True, True),
     "HE50": ("002", "Horas Extras 50%", "RECEITA", True, True, True, True),
     "DSR_HE": ("003", "DSR sobre Horas Extras", "RECEITA", True, True, True, True),
+    "TRIENIO": ("004", "Triênio", "RECEITA", True, True, True, True),
     "FALTAS": ("101", "Faltas", "DESPESA", True, True, True, True),
     "DSR_FALTA": ("102", "DSR sobre Faltas", "DESPESA", True, True, True, True),
     "VT": ("103", "Vale Transporte (6%)", "DESPESA", False, False, False, True),
@@ -66,6 +67,9 @@ SYSTEM_ITEMS = {
 }
 
 TAX_KEYS = {"INSS", "IRRF", "FGTS"}
+
+# Rubricas do sistema com percentual configurável: system_key -> % padrão
+CONFIGURABLE_PERCENT_ITEMS = {"TRIENIO": 4.0}
 
 
 def ensure_system_items(db: Session, organization_id: int) -> Dict[str, models.RHPayrollItem]:
@@ -82,7 +86,8 @@ def ensure_system_items(db: Session, organization_id: int) -> Dict[str, models.R
             continue
         item = models.RHPayrollItem(
             organization_id=organization_id, code=code, name=name, kind=kind,
-            calc_type="FIXED", default_value=0.0, recurring=False,
+            calc_type="PERCENT" if key in CONFIGURABLE_PERCENT_ITEMS else "FIXED",
+            default_value=CONFIGURABLE_PERCENT_ITEMS.get(key, 0.0), recurring=False,
             incide_inss=inss, incide_irrf=irrf, incide_fgts=fgts,
             system_key=key, affects_net=affects_net, active=True
         )
@@ -126,6 +131,16 @@ def calc_irrf(gross_taxable: float, inss: float, dependents: int) -> float:
         reduction = IRRF_REDUCTION_PARTIAL_BASE - IRRF_REDUCTION_PARTIAL_FACTOR * gross_taxable
         tax -= min(tax, max(0.0, reduction))
     return round(max(0.0, tax), 2)
+
+
+def completed_triennia(admission: Optional[date], reference: date) -> int:
+    """Quantidade de triênios (3 anos completos de contrato) até a data de referência."""
+    if not admission or admission > reference:
+        return 0
+    years = reference.year - admission.year
+    if (reference.month, reference.day) < (admission.month, admission.day):
+        years -= 1
+    return max(0, years) // 3
 
 
 def _fmt_hours(minutes: int) -> str:
@@ -222,6 +237,14 @@ def calculate_payroll(
         daily_rate = salary / 30
 
         add_auto(system_items["SALARIO"], salary)
+
+        # Triênio: % do salário base para cada 3 anos completos até o fim do mês
+        triennium_item = system_items["TRIENIO"]
+        triennia = completed_triennia(emp.admission_date, date(schedule.year, schedule.month, num_days))
+        if triennia > 0 and triennium_item.active:
+            pct = float(triennium_item.default_value or 0.0)
+            add_auto(triennium_item, salary * pct / 100 * triennia,
+                     f"{triennia} triênio(s) x {pct:g}%")
 
         # Horas extras: saldo positivo do banco de horas do mês
         balance_min = int(summary.get("final_balance_minutes") or 0)
@@ -347,6 +370,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "employee_role": (emp.role_obj.name if emp.role_obj else emp.role) or "Geral",
             "base_salary": emp.base_salary or 0.0,
             "dependents": emp.dependents or 0,
+            "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "entries": [entry_to_dict(e) for e in emp_entries],
             "totals": totals,
         })

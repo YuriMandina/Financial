@@ -3,7 +3,8 @@ from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import models
-from services.rh_payroll_service import calc_inss, calc_irrf, calculate_payroll, get_payroll_month
+from datetime import date
+from services.rh_payroll_service import calc_inss, calc_irrf, calculate_payroll, get_payroll_month, completed_triennia
 
 
 class TestPayrollTaxes(unittest.TestCase):
@@ -106,6 +107,29 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(len(bonus_lines), 1)
         self.assertEqual(bonus_lines[0]["amount"], 500.0)
         self.assertEqual(self._by_key(row)["INSS"]["amount"], calc_inss(3500.0))
+
+    def test_completed_triennia(self):
+        ref = date(2026, 10, 31)
+        self.assertEqual(completed_triennia(None, ref), 0)
+        self.assertEqual(completed_triennia(date(2024, 1, 10), ref), 0)
+        self.assertEqual(completed_triennia(date(2023, 10, 31), ref), 1)  # completa 3 anos no último dia
+        self.assertEqual(completed_triennia(date(2023, 11, 1), ref), 0)
+        self.assertEqual(completed_triennia(date(2019, 5, 2), ref), 2)  # 7 anos
+
+    def test_triennium_is_cumulative_and_configurable(self):
+        self.emp.admission_date = date(2019, 5, 2)  # 7 anos em out/2026 = 2 triênios
+        self.db.commit()
+        lines = self._by_key(self._calc())
+        self.assertEqual(lines["TRIENIO"]["amount"], 240.0)  # 3000 x 4% x 2
+        self.assertEqual(lines["INSS"]["amount"], calc_inss(3240.0))
+
+        trienio = self.db.query(models.RHPayrollItem).filter_by(system_key="TRIENIO").first()
+        trienio.default_value = 5.0
+        trienio.incide_inss = False
+        self.db.commit()
+        lines = self._by_key(self._calc())
+        self.assertEqual(lines["TRIENIO"]["amount"], 300.0)
+        self.assertEqual(lines["INSS"]["amount"], calc_inss(3000.0))
 
     def test_recalculate_is_idempotent(self):
         first = self._calc()

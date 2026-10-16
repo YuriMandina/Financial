@@ -11,7 +11,8 @@ from services.rh_payroll_service import (
     ensure_system_items,
     calculate_payroll,
     get_payroll_month,
-    entry_to_dict
+    entry_to_dict,
+    CONFIGURABLE_PERCENT_ITEMS
 )
 
 router = APIRouter(prefix="/api/rh/payroll", tags=["rh-payroll"])
@@ -73,6 +74,9 @@ VALID_CALC_TYPES = {"FIXED", "PERCENT"}
 # Campos que definem o comportamento do cálculo automático: bloqueados nas rubricas do sistema
 SYSTEM_LOCKED_FIELDS = {"kind", "calc_type", "default_value", "recurring", "incide_inss", "incide_irrf", "incide_fgts"}
 
+# Rubricas do sistema que permitem ajustar o percentual e as incidências (ex: Triênio)
+SYSTEM_CONFIGURABLE_FIELDS = {"default_value", "incide_inss", "incide_irrf", "incide_fgts"}
+
 
 def _get_or_create_schedule(db: Session, organization_id: int, year: int, month: int) -> models.RHMonthlySchedule:
     schedule = db.query(models.RHMonthlySchedule).filter(
@@ -128,6 +132,7 @@ def _item_to_dict(item: models.RHPayrollItem, usage_count: int) -> dict:
         "incide_irrf": bool(item.incide_irrf),
         "incide_fgts": bool(item.incide_fgts),
         "system_key": item.system_key,
+        "configurable": item.system_key in CONFIGURABLE_PERCENT_ITEMS,
         "affects_net": bool(item.affects_net),
         "active": bool(item.active),
         "usage_count": usage_count,
@@ -199,6 +204,8 @@ def update_item(
     changes = payload.model_dump(exclude_unset=True)
     if item.system_key:
         locked = SYSTEM_LOCKED_FIELDS & changes.keys()
+        if item.system_key in CONFIGURABLE_PERCENT_ITEMS:
+            locked -= SYSTEM_CONFIGURABLE_FIELDS
         locked = {f for f in locked if changes[f] != getattr(item, f)}
         if locked:
             raise HTTPException(status_code=400, detail="Rubricas do sistema só permitem alterar código e nome")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Float, Boolean, BigInteger
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, UniqueConstraint, Float, Boolean, BigInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
@@ -245,6 +245,7 @@ class RHEmployee(Base):
     work_days_per_week = Column(Integer, default=6) # 5 ou 6 dias de trabalho por semana
     base_salary = Column(Float, default=0.0) # Salário base mensal (folha de pagamento)
     dependents = Column(Integer, default=0) # Dependentes para dedução do IRRF
+    admission_date = Column(Date, nullable=True) # Data de admissão (tempo de casa / triênio)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
