@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Clock, Printer, Edit2, Users, AlertCircle, CheckCircle2, 
-  HelpCircle, Calendar, FileText, ChevronRight, Sparkles, Filter, Eye
+  HelpCircle, Calendar, FileText, ChevronRight, Sparkles, Filter, Eye, X
 } from 'lucide-react';
 import Skeleton from '../../../components/common/Skeleton';
+import SelectDropdown from '../../../components/common/SelectDropdown';
+import StyledCheckbox from '../../../components/common/StyledCheckbox';
 
 // ==============================================================================
 // --- [BLOCO: DIAS DA SEMANA E MESES] ---
@@ -14,6 +16,17 @@ const MONTH_NAMES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
 ];
+
+function useEscapeToClose(open, onClose) {
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+}
 
 export default function RHJornadasTab({
   loading,
@@ -31,6 +44,8 @@ export default function RHJornadasTab({
 }) {
   // Estado para modal da folha de ponto
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const closePrintModal = React.useCallback(() => setPrintModalOpen(false), []);
+  useEscapeToClose(printModalOpen, closePrintModal);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('ALL'); // 'ALL' ou id do empregado
   const [showShiftGuide, setShowShiftGuide] = useState(false); // pré-preencher marca d'água com horários previstos
   const [filterRole, setFilterRole] = useState('ALL');
@@ -193,16 +208,17 @@ export default function RHJornadasTab({
           <div className="flex items-center gap-2">
             <Filter size={15} className="text-slate-400" />
             <span className="text-xs font-semibold text-slate-300">Filtrar por Cargo:</span>
-            <select
-              value={filterRole}
-              onChange={(e) => setFilterRole(e.target.value)}
-              className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:border-indigo-500"
-            >
-              <option value="ALL">Todos os Cargos ({employees.length})</option>
-              {rolesList.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
+            <div className="w-56">
+              <SelectDropdown
+                size="sm"
+                value={filterRole}
+                onChange={(val) => setFilterRole(val)}
+                options={[
+                  { value: 'ALL', label: `Todos os Cargos (${employees.length})` },
+                  ...rolesList.map((r) => ({ value: r, label: r }))
+                ]}
+              />
+            </div>
           </div>
 
           <span className="text-[11px] text-slate-500">
@@ -332,56 +348,65 @@ export default function RHJornadasTab({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl my-auto text-slate-200 max-h-[92vh] flex flex-col">
             {/* Barra Superior do Modal (não sai na impressão) */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3 mb-4 print:hidden">
-              <div className="flex items-center gap-2">
-                <FileText className="text-indigo-400" size={22} />
-                <div>
-                  <h3 className="font-bold text-white text-base">Folha de Ponto Manual (Portaria 671 / CLT)</h3>
-                  <p className="text-[11px] text-slate-400">
-                    Competência: {MONTH_NAMES[selectedMonth - 1]} de {selectedYear}
-                  </p>
+            <div className="border-b border-slate-800 pb-3 mb-4 space-y-3 print:hidden">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="text-indigo-400 shrink-0" size={22} />
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-white text-base">Folha de Ponto Manual (Portaria 671 / CLT)</h3>
+                    <p className="text-[11px] text-slate-400">
+                      Competência: {MONTH_NAMES[selectedMonth - 1]} de {selectedYear}
+                    </p>
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-2 text-xs">
-                  <label className="text-slate-400">Exibir:</label>
-                  <select
-                    value={selectedEmployeeId}
-                    onChange={(e) => setSelectedEmployeeId(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
-                    className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1 text-white text-xs focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="ALL">Todos os Colaboradores ({employees.length})</option>
-                    {employees.map((e) => (
-                      <option key={e.id} value={e.id}>{e.name} ({e.role || 'Geral'})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showShiftGuide}
-                    onChange={(e) => setShowShiftGuide(e.target.checked)}
-                    className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-0"
-                  />
-                  <span>Guia pontilhado de turno</span>
-                </label>
-
-                <button
-                  onClick={handlePrint}
-                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors"
-                >
-                  <Printer size={15} />
-                  Imprimir / Gerar PDF
-                </button>
-
                 <button
                   onClick={() => setPrintModalOpen(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  title="Fechar (Esc)"
+                  aria-label="Fechar"
                 >
-                  Fechar
+                  <X size={18} />
                 </button>
+              </div>
+
+              <div className="flex flex-col md:flex-row md:items-center gap-3 text-xs">
+                <div className="flex items-center gap-2 md:w-80">
+                  <span className="text-slate-400 shrink-0">Exibir:</span>
+                  <div className="flex-1">
+                    <SelectDropdown
+                      size="sm"
+                      value={selectedEmployeeId}
+                      searchable={employees.length > 6}
+                      onChange={(val) => setSelectedEmployeeId(val === 'ALL' ? 'ALL' : Number(val))}
+                      options={[
+                        { value: 'ALL', label: `Todos os Colaboradores (${employees.length})` },
+                        ...employees.map((e) => ({ value: e.id, label: e.name, subtitle: e.role || 'Geral' }))
+                      ]}
+                    />
+                  </div>
+                </div>
+
+                <StyledCheckbox
+                  checked={showShiftGuide}
+                  onChange={(checked) => setShowShiftGuide(checked)}
+                  label="Guia pontilhado de turno"
+                />
+
+                <div className="flex items-center gap-2 md:ml-auto">
+                  <button
+                    onClick={() => setPrintModalOpen(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={handlePrint}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-colors whitespace-nowrap"
+                  >
+                    <Printer size={15} />
+                    Imprimir / Gerar PDF
+                  </button>
+                </div>
               </div>
             </div>
 
