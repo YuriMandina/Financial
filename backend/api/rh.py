@@ -979,18 +979,10 @@ def update_work_days_batch(
         if rec:
             if item.status is not None:
                 rec.status = item.status
-            if item.shift_id is not None:
-                rec.shift_id = item.shift_id
-            if item.shift is not None:
-                rec.shift = item.shift
-            if item.start_time is not None:
-                rec.start_time = item.start_time
-            if item.lunch_start is not None:
-                rec.lunch_start = item.lunch_start
-            if item.lunch_end is not None:
-                rec.lunch_end = item.lunch_end
-            if item.end_time is not None:
-                rec.end_time = item.end_time
+            # Turno e horários aceitam null explícito (ex: jornada sem intervalo de almoço)
+            for field in ("shift_id", "shift", "start_time", "lunch_start", "lunch_end", "end_time"):
+                if field in item.model_fields_set:
+                    setattr(rec, field, getattr(item, field))
             if item.worked_minutes is not None:
                 rec.worked_minutes = item.worked_minutes
                 rec.raw_minutes = item.worked_minutes
@@ -1022,8 +1014,8 @@ def update_work_days_batch(
                 lunch_start=item.lunch_start,
                 lunch_end=item.lunch_end,
                 end_time=item.end_time,
-                raw_minutes=item.worked_minutes or 480,
-                worked_minutes=item.worked_minutes or 480,
+                raw_minutes=item.worked_minutes if item.worked_minutes is not None else 480,
+                worked_minutes=item.worked_minutes if item.worked_minutes is not None else 480,
                 vt_tickets_override=item.vt_tickets_override,
                 va_override=item.va_override,
                 benefit_note=item.benefit_note,
