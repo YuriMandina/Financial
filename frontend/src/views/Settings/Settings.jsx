@@ -1,8 +1,55 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck, Zap, Shield } from 'lucide-react';
+import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck, Zap, Shield, Building2 } from 'lucide-react';
 
-export const Settings = ({ token }) => {
-  const [activeTab, setActiveTab] = useState('omie');
+// Máscaras dos dados da empresa
+const formatCnpjCpf = (value) => {
+  const d = String(value).replace(/\D/g, '').slice(0, 14);
+  if (d.length <= 11) {
+    return d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  }
+  return d.replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1/$2').replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+};
+const formatCep = (value) => String(value).replace(/\D/g, '').slice(0, 8).replace(/(\d{5})(\d)/, '$1-$2');
+
+const COMPANY_FIELDS = [
+  { key: 'razao_social', label: 'Razão Social', span: 'md:col-span-6', required: true },
+  { key: 'nome_fantasia', label: 'Nome Fantasia', span: 'md:col-span-3' },
+  { key: 'cnpj', label: 'CNPJ / CPF', span: 'md:col-span-3', mask: formatCnpjCpf, placeholder: '00.000.000/0000-00', required: true },
+  { key: 'inscricao_estadual', label: 'Inscrição Estadual', span: 'md:col-span-3' },
+  { key: 'telefone', label: 'Telefone', span: 'md:col-span-3' },
+  { key: 'endereco', label: 'Endereço (rua, número, bairro)', span: 'md:col-span-6' },
+  { key: 'cidade', label: 'Cidade', span: 'md:col-span-3' },
+  { key: 'uf', label: 'UF', span: 'md:col-span-1', mask: (v) => v.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2) },
+  { key: 'cep', label: 'CEP', span: 'md:col-span-2', mask: formatCep, placeholder: '00000-000' },
+  { key: 'email', label: 'E-mail', span: 'md:col-span-3' },
+  { key: 'responsavel', label: 'Responsável / RH', span: 'md:col-span-3' }
+];
+
+// Organização: vale para todos os membros. Pessoal: só para quem está logado, neste navegador.
+const SETTINGS_GROUPS = [
+  {
+    label: 'Organização',
+    hint: 'Compartilhado com todos os membros',
+    tabs: [
+      { id: 'company', label: 'Dados da Empresa', icon: Building2 },
+      { id: 'omie', label: 'Integração Omie', icon: Key },
+      { id: 'invites', label: 'Membros e Convites', icon: Users },
+      { id: 'security', label: 'Segurança', icon: Shield }
+    ]
+  },
+  {
+    label: 'Pessoal',
+    hint: 'Somente você, neste navegador',
+    tabs: [{ id: 'preferences', label: 'Minhas Preferências', icon: Zap }]
+  }
+];
+const ORG_TABS = SETTINGS_GROUPS[0].tabs.map((t) => t.id);
+
+export const Settings = ({ token, initialTab }) => {
+  const [activeTab, setActiveTab] = useState(initialTab || 'omie');
+
+  // Dados da empresa
+  const [company, setCompany] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -36,6 +83,11 @@ export const Settings = ({ token }) => {
         const data = await res.json();
         setAppKey(data.app_key || '');
         setAppSecret(data.app_secret || '');
+      } else if (activeTab === 'company') {
+        const res = await fetch('http://localhost:8000/api/settings/company', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        setCompany(await res.json());
       } else if (activeTab === 'invites') {
         const res = await fetch('http://localhost:8000/api/invites/list', {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -74,6 +126,30 @@ export const Settings = ({ token }) => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Erro ao salvar as chaves');
       setSuccess('Chaves da Omie atualizadas com sucesso!');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveCompany = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('http://localhost:8000/api/settings/company', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(company)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Erro ao salvar os dados da empresa');
+      setSuccess('Dados da empresa atualizados com sucesso!');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -188,42 +264,85 @@ export const Settings = ({ token }) => {
           <SettingsIcon size={24} className="text-slate-300" />
         </div>
         <div>
-          <h2 className="text-3xl font-bold text-white mb-1">Configurações da Conta</h2>
-          <p className="text-slate-400">Gerencie a integração com a Omie e os convites da sua equipe</p>
+          <h2 className="text-3xl font-bold text-white mb-1">Configurações</h2>
+          <p className="text-slate-400">Dados e integrações da organização, compartilhados com toda a equipe, e suas preferências pessoais</p>
         </div>
       </div>
 
       <div className="bg-slate-900/80 border border-white/[0.05] rounded-2xl overflow-hidden flex flex-col md:flex-row">
         <div className="md:w-64 bg-slate-950/50 p-6 flex flex-col gap-2 border-r border-white/[0.05]">
-          <button 
-            onClick={() => setActiveTab('omie')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === 'omie' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
-          >
-            <Key size={18} /> Integração Omie
-          </button>
-          <button 
-            onClick={() => setActiveTab('invites')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === 'invites' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
-          >
-            <Users size={18} /> Membros e Convites
-          </button>
-          <button 
-            onClick={() => setActiveTab('security')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === 'security' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
-          >
-            <Shield size={18} /> Segurança
-          </button>
-          <button 
-            onClick={() => setActiveTab('preferences')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === 'preferences' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
-          >
-            <Zap size={18} /> Preferências
-          </button>
+          {SETTINGS_GROUPS.map((group) => (
+            <div key={group.label} className="flex flex-col gap-2 mb-4 last:mb-0">
+              <div className="px-1">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{group.label}</div>
+                <div className="text-[11px] text-slate-600">{group.hint}</div>
+              </div>
+              {group.tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-colors ${activeTab === tab.id ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+                >
+                  <tab.icon size={18} /> {tab.label}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
 
         <div className="flex-1 p-8">
           {error && <div className="bg-red-500/10 text-red-400 border border-red-500/20 p-4 rounded-xl mb-6 font-medium text-sm">{error}</div>}
           {success && <div className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 p-4 rounded-xl mb-6 font-medium text-sm">{success}</div>}
+          {ORG_TABS.includes(activeTab) ? (
+            <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 mb-6">
+              <Users size={14} className="text-indigo-400 shrink-0" />
+              Configuração da organização: as alterações valem para todos os membros.
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 mb-6">
+              <Zap size={14} className="text-amber-400 shrink-0" />
+              Preferência pessoal: vale apenas para você, neste navegador.
+            </div>
+          )}
+
+          {activeTab === 'company' && (
+            <form onSubmit={handleSaveCompany} className="space-y-6 max-w-2xl">
+              <div>
+                <h3 className="text-xl font-bold text-white mb-2">Dados da Empresa</h3>
+                <p className="text-sm text-slate-400">
+                  Identificação do empregador usada nos documentos do sistema, como o cabeçalho da folha de ponto e a ficha cadastral.
+                  O nome fantasia (ou a razão social) também passa a ser o nome da organização.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                {COMPANY_FIELDS.map((f) => (
+                  <div key={f.key} className={f.span}>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">
+                      {f.label}{f.required && <span className="text-rose-400"> *</span>}
+                    </label>
+                    <input
+                      type="text"
+                      required={f.required}
+                      placeholder={f.placeholder}
+                      value={company[f.key] || ''}
+                      onChange={(e) => setCompany({ ...company, [f.key]: f.mask ? f.mask(e.target.value) : e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50"
+              >
+                {loading && <Loader2 size={18} className="animate-spin" />}
+                Salvar Dados da Empresa
+              </button>
+            </form>
+          )}
 
           {activeTab === 'omie' && (
             <form onSubmit={handleSaveOmie} className="space-y-6 max-w-xl">

@@ -979,7 +979,9 @@ def get_monthly_schedule(
                 "absence_dsr_mode": settings.absence_dsr_mode or "ONE",
                 "overtime_policy": settings.overtime_policy or "BANK",
                 "overtime_rate": settings.overtime_rate if settings.overtime_rate is not None else 50.0,
-                "overtime_fixed_value": settings.overtime_fixed_value or 0.0
+                "overtime_fixed_value": settings.overtime_fixed_value or 0.0,
+                "company": (db.query(models.Organization).get(current_user.organization_id).company or {})
+                           if current_user.organization_id else {}
             },
             "roles": [_role_to_dict(db, r) for r in roles],
             "shifts": [

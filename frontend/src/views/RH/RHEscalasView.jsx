@@ -97,7 +97,7 @@ const MONTH_NAMES = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
 ];
 
-export default function RHEscalasView({ token }) {
+export default function RHEscalasView({ token, onOpenCompanySettings }) {
   // ==============================================================================
   // --- [BLOCO: ESTADOS PRINCIPAIS] ---
   // ==============================================================================
@@ -1800,6 +1800,8 @@ export default function RHEscalasView({ token }) {
           holidays={holidays}
           grid={localGrid}
           workDays={workDays}
+          company={scheduleData?.settings?.company || {}}
+          onOpenCompanySettings={onOpenCompanySettings}
           onEditEmployee={(emp) => {
             setEditingEmployee(emp);
             setEmployeeFormData({
@@ -2278,7 +2280,7 @@ export default function RHEscalasView({ token }) {
       {/* Modal de Configurações de RH */}
       {settingsModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 shadow-xl space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 shadow-xl space-y-4">
             <h3 className="text-base font-bold text-white">Regras de RH & Parâmetros da Empresa</h3>
             <form onSubmit={handleSaveSettings} className="space-y-3.5 text-xs">
               <div>

@@ -40,7 +40,8 @@ export default function RHJornadasTab({
   grid = {},
   workDays = {},
   onEditEmployee,
-  organizationName = 'EMPRESA'
+  company = {},
+  onOpenCompanySettings
 }) {
   // Estado para modal da folha de ponto
   const [printModalOpen, setPrintModalOpen] = useState(false);
@@ -410,6 +411,24 @@ export default function RHJornadasTab({
               </div>
             </div>
 
+            {(!company.razao_social || !company.cnpj) && (
+              <div className="flex items-center justify-between gap-3 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-200">
+                <span className="flex items-center gap-2">
+                  <AlertCircle size={14} className="shrink-0" />
+                  Razão social e CNPJ da empresa não cadastrados em Configurações da Conta: o cabeçalho sairá com linhas em branco.
+                </span>
+                {onOpenCompanySettings && (
+                  <button
+                    type="button"
+                    onClick={() => { setPrintModalOpen(false); onOpenCompanySettings(); }}
+                    className="shrink-0 px-2.5 py-1 rounded-md font-semibold bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40"
+                  >
+                    Cadastrar dados da empresa
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Conteúdo Imprimível */}
             <div className="overflow-y-auto pr-1 flex-1 space-y-8 bg-slate-950/40 p-3 sm:p-5 rounded-lg border border-slate-800/80 timesheets-container">
               {employees
@@ -419,6 +438,15 @@ export default function RHJornadasTab({
                   const contractHours = Number(emp.weekly_contract_hours) || 44.0;
                   const actualHours = Number(emp.weekly_actual_hours) || contractHours;
                   const empGridTransport = grid[emp.id]?.TRANSPORTE || {};
+                  const docs = emp.profile?.documentos || {};
+                  const contrato = emp.profile?.contrato || {};
+                  const ctps = [docs.ctps_numero, docs.ctps_serie && `Série ${docs.ctps_serie}`, docs.ctps_uf].filter(Boolean).join(' / ');
+                  const admission = emp.admission_date ? emp.admission_date.split('-').reverse().join('/') : '';
+                  const companyAddress = [
+                    company.endereco,
+                    [company.cidade, company.uf].filter(Boolean).join('/'),
+                    company.cep && `CEP ${company.cep}`
+                  ].filter(Boolean).join(' - ');
 
                   return (
                     <div
@@ -430,6 +458,25 @@ export default function RHJornadasTab({
                     >
                       {/* Cabeçalho da Folha de Ponto */}
                       <div className="border-2 border-black p-3 mb-3">
+                        {/* Identificação do Empregador */}
+                        <div className="grid grid-cols-6 gap-x-3 gap-y-1 text-[10px] border-b border-black pb-2 mb-2">
+                          <div className="col-span-4">
+                            <span className="font-bold text-gray-600 block text-[9px] uppercase">Empregador:</span>
+                            <span className="font-bold text-black uppercase">
+                              {company.razao_social || '________________________________'}
+                            </span>
+                            {company.nome_fantasia && <span className="text-gray-700"> ({company.nome_fantasia})</span>}
+                          </div>
+                          <div className="col-span-2">
+                            <span className="font-bold text-gray-600 block text-[9px] uppercase">CNPJ / CPF:</span>
+                            <span className="font-semibold text-black">{company.cnpj || '____________________'}</span>
+                          </div>
+                          <div className="col-span-6">
+                            <span className="font-bold text-gray-600 text-[9px] uppercase">Endereço: </span>
+                            <span className="text-black">{companyAddress || '__________________________________________________'}</span>
+                          </div>
+                        </div>
+
                         <div className="flex justify-between items-start border-b border-black pb-2 mb-2">
                           <div>
                             <h2 className="text-sm font-black uppercase tracking-wide">
@@ -445,6 +492,28 @@ export default function RHJornadasTab({
                             </span>
                             <span className="text-[10px] text-gray-600">
                               Emissão: {new Date().toLocaleDateString('pt-BR')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Identificação do Empregado */}
+                        <div className="grid grid-cols-4 gap-x-3 gap-y-1 text-[10px] mb-2 pb-2 border-b border-gray-300">
+                          <div>
+                            <span className="font-bold text-gray-600 block text-[9px] uppercase">CPF:</span>
+                            <span className="font-semibold text-black">{docs.cpf || '___.___.___-__'}</span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-gray-600 block text-[9px] uppercase">CTPS (nº / série / UF):</span>
+                            <span className="font-semibold text-black">{ctps || '__________'}</span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-gray-600 block text-[9px] uppercase">PIS / PASEP / NIT:</span>
+                            <span className="font-semibold text-black">{docs.pis || '__________'}</span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-gray-600 block text-[9px] uppercase">Matrícula / Admissão:</span>
+                            <span className="font-semibold text-black">
+                              {[contrato.matricula, admission].filter(Boolean).join(' • ') || '__________'}
                             </span>
                           </div>
                         </div>
@@ -496,7 +565,7 @@ export default function RHJornadasTab({
                             <th className="border border-black p-1 w-16">Saída Int.</th>
                             <th className="border border-black p-1 w-16">Retorno Int.</th>
                             <th className="border border-black p-1 w-16">Saída 2</th>
-                            <th className="border border-black p-1 w-24">Rubrica Empregado</th>
+                            <th className="border border-black p-1 w-[30%]">Rubrica do Empregado</th>
                             <th className="border border-black p-1">Ocorrência / Observação</th>
                           </tr>
                         </thead>

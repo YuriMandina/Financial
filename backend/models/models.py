@@ -12,6 +12,9 @@ class Organization(Base):
     omie_app_key = Column(String, nullable=True)
     omie_app_secret = Column(String, nullable=True)
     session_timeout_minutes = Column(Integer, default=120)
+    # Dados cadastrais da empresa (documentos como a folha de ponto):
+    # {razao_social, nome_fantasia, cnpj, inscricao_estadual, endereco, cidade, uf, cep, telefone, email, responsavel}
+    company = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     users = relationship("User", back_populates="organization")

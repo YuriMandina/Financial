@@ -13,6 +13,7 @@ import RHEscalasView from '../../views/RH/RHEscalasView';
 export default function AppLayout() {
   // --- [BLOCO: Estado de Navegação e Layout Base] ---
   const [menuAtivo, setMenuAtivo] = useState('dashboard');
+  const [settingsTab, setSettingsTab] = useState(null); // aba inicial ao abrir Configurações por atalho
   const { token, userName, handleLogout } = useAuth();
   const { handleGlobalTaskStart, globalRefreshCounter } = useTaskSync();
 
@@ -20,7 +21,7 @@ export default function AppLayout() {
   const renderCurrentView = () => {
     switch (menuAtivo) {
       case 'configuracoes':
-        return <Settings token={token} />;
+        return <Settings token={token} initialTab={settingsTab} />;
       case 'desossa':
         return (
           <RateioECusteio
@@ -38,7 +39,15 @@ export default function AppLayout() {
           />
         );
       case 'rh-escalas':
-        return <RHEscalasView token={token} />;
+        return (
+          <RHEscalasView
+            token={token}
+            onOpenCompanySettings={() => {
+              setSettingsTab('company');
+              setMenuAtivo('configuracoes');
+            }}
+          />
+        );
       default:
         return (
           <FinancialReportsView
@@ -52,7 +61,13 @@ export default function AppLayout() {
   return (
     <div className="flex h-screen bg-slate-950 font-sans overflow-hidden print:!block print:bg-white print:text-slate-900 print:!h-auto print:!overflow-visible">
       {/* Barra Lateral de Navegação */}
-      <Sidebar menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} />
+      <Sidebar
+        menuAtivo={menuAtivo}
+        setMenuAtivo={(id) => {
+          setSettingsTab(null);
+          setMenuAtivo(id);
+        }}
+      />
 
       {/* Área de Conteúdo Principal */}
       <main className="flex-1 flex flex-col relative overflow-y-auto overflow-x-hidden bg-slate-950 print:!block print:!h-auto print:!overflow-visible">
