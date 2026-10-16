@@ -145,7 +145,8 @@ export default function RHEscalasView({ token }) {
     compensatory_days_per_month: 2,
     time_rounding_minutes: 0,
     time_rounding_mode: 'NEAREST',
-    clt_tolerance_enabled: true
+    clt_tolerance_enabled: true,
+    absence_dsr_mode: 'ONE'
   });
 
   // Modal para Ajuste Rápido de Célula (Turno do Dia e Quantidade de Vales)
@@ -155,6 +156,32 @@ export default function RHEscalasView({ token }) {
   // ==============================================================================
   // --- [BLOCO: CARREGAMENTO DE DADOS (FETCH SEGURO)] ---
   // ==============================================================================
+
+  // Edições da grade de jornada ainda não salvas (evita perdê-las ao trocar de aba ou mês)
+  const [jornadaDirty, setJornadaDirty] = useState(false);
+
+  const confirmDiscardJornada = () => {
+    if (!jornadaDirty) return true;
+    const ok = window.confirm('Há alterações não salvas na Grade de Jornada (ex: faltas ou turnos). Descartar e continuar?');
+    if (ok) setJornadaDirty(false);
+    return ok;
+  };
+
+  const handleTabChange = (tab) => {
+    if (tab === activeTab) return;
+    if (activeTab === 'jornada' && !confirmDiscardJornada()) return;
+    setActiveTab(tab);
+  };
+
+  useEffect(() => {
+    if (!jornadaDirty) return undefined;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [jornadaDirty]);
 
   // Mês já carregado: recargas (após salvar) acontecem em segundo plano, sem esqueleto,
   // para não desmontar a tela e preservar a posição do scroll
@@ -197,7 +224,8 @@ export default function RHEscalasView({ token }) {
           default_transport_cost: Number(data.settings.default_transport_cost || 9.40).toFixed(2).replace('.', ','),
           time_rounding_minutes: data.settings.time_rounding_minutes ?? 0,
           time_rounding_mode: data.settings.time_rounding_mode || 'NEAREST',
-          clt_tolerance_enabled: data.settings.clt_tolerance_enabled ?? true
+          clt_tolerance_enabled: data.settings.clt_tolerance_enabled ?? true,
+          absence_dsr_mode: data.settings.absence_dsr_mode || 'ONE'
         });
       }
     } catch (err) {
@@ -515,7 +543,8 @@ export default function RHEscalasView({ token }) {
         compensatory_days_per_month: parseInt(settingsFormData.compensatory_days_per_month, 10) || 2,
         time_rounding_minutes: parseInt(settingsFormData.time_rounding_minutes, 10) || 0,
         time_rounding_mode: settingsFormData.time_rounding_mode || 'NEAREST',
-        clt_tolerance_enabled: !!settingsFormData.clt_tolerance_enabled
+        clt_tolerance_enabled: !!settingsFormData.clt_tolerance_enabled,
+        absence_dsr_mode: settingsFormData.absence_dsr_mode || 'ONE'
       };
       const res = await fetch(`${API_BASE}/api/rh/settings`, {
         method: 'POST',
@@ -1281,6 +1310,7 @@ export default function RHEscalasView({ token }) {
           <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg p-1">
             <button
               onClick={() => {
+                if (!confirmDiscardJornada()) return;
                 if (selectedMonth === 1) {
                   setSelectedMonth(12);
                   setSelectedYear((y) => y - 1);
@@ -1298,6 +1328,7 @@ export default function RHEscalasView({ token }) {
             </span>
             <button
               onClick={() => {
+                if (!confirmDiscardJornada()) return;
                 if (selectedMonth === 12) {
                   setSelectedMonth(1);
                   setSelectedYear((y) => y + 1);
@@ -1386,7 +1417,7 @@ export default function RHEscalasView({ token }) {
       {/* Navegação por Abas de Alta Coesão */}
       <div className="flex border-b border-slate-800 space-x-1 print:hidden">
         <button
-          onClick={() => setActiveTab('jornada')}
+          onClick={() => handleTabChange('jornada')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'jornada'
               ? 'border-indigo-500 text-white bg-slate-900/60'
@@ -1398,7 +1429,7 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
-          onClick={() => setActiveTab('transporte')}
+          onClick={() => handleTabChange('transporte')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'transporte'
               ? 'border-indigo-500 text-white bg-slate-900/60'
@@ -1410,7 +1441,7 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
-          onClick={() => setActiveTab('alimentacao')}
+          onClick={() => handleTabChange('alimentacao')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'alimentacao'
               ? 'border-emerald-500 text-white bg-slate-900/60'
@@ -1422,7 +1453,7 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
-          onClick={() => setActiveTab('resumo')}
+          onClick={() => handleTabChange('resumo')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'resumo'
               ? 'border-indigo-500 text-white bg-slate-900/60'
@@ -1434,7 +1465,7 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
-          onClick={() => setActiveTab('folha_ponto')}
+          onClick={() => handleTabChange('folha_ponto')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'folha_ponto'
               ? 'border-indigo-500 text-white bg-slate-900/60'
@@ -1446,7 +1477,7 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
-          onClick={() => setActiveTab('mural')}
+          onClick={() => handleTabChange('mural')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'mural'
               ? 'border-indigo-500 text-white bg-slate-900/60'
@@ -1458,7 +1489,7 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
-          onClick={() => setActiveTab('equipe')}
+          onClick={() => handleTabChange('equipe')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'equipe'
               ? 'border-indigo-500 text-white bg-slate-900/60'
@@ -1470,7 +1501,7 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
-          onClick={() => setActiveTab('feriados')}
+          onClick={() => handleTabChange('feriados')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'feriados'
               ? 'border-indigo-500 text-white bg-slate-900/60'
@@ -1482,7 +1513,7 @@ export default function RHEscalasView({ token }) {
         </button>
 
         <button
-          onClick={() => setActiveTab('folha')}
+          onClick={() => handleTabChange('folha')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'folha'
               ? 'border-indigo-500 text-white bg-slate-900/60'
@@ -1497,6 +1528,8 @@ export default function RHEscalasView({ token }) {
       {/* Renderização do Conteúdo da Aba */}
       {activeTab === 'jornada' && (
         <RHJornadaGrid
+          key={`${selectedYear}-${selectedMonth}`}
+          onDirtyChange={setJornadaDirty}
           employees={employees}
           shifts={shifts}
           workDays={workDays}
@@ -2003,6 +2036,20 @@ export default function RHEscalasView({ token }) {
                     label="Aplicar tolerância legal da CLT"
                     description="Variações de até 10 minutos diários não são computadas como horas extras ou faltas"
                   />
+                </div>
+
+                <div className="mt-3">
+                  <label className="block text-slate-400 mb-1">Desconto de DSR por Falta Injustificada</label>
+                  <SelectDropdown
+                    value={settingsFormData.absence_dsr_mode || 'ONE'}
+                    onChange={(val) => setSettingsFormData({ ...settingsFormData, absence_dsr_mode: val })}
+                    options={[
+                      { value: 'ONE', label: '1 DSR por semana com falta', subtitle: 'Regra atual (Lei 605/1949)' },
+                      { value: 'SCHEDULE', label: 'DSRs da escala na semana', subtitle: 'Ex: 5x2 com 2 DSR = desconta 2' },
+                      { value: 'NONE', label: 'Não descontar DSR', subtitle: 'Desconta apenas o dia da falta' }
+                    ]}
+                  />
+                  <span className="text-[10px] text-slate-500">Aplicado no cálculo da folha de pagamento.</span>
                 </div>
               </div>
 

@@ -315,6 +315,7 @@ class RHSettings(Base):
     time_rounding_mode = Column(String, default="NEAREST") # NEAREST, DOWN, UP
     clt_tolerance_enabled = Column(Boolean, default=True) # Art. 58 §1º CLT
     hours_display_format = Column(String, default="HHMM") # HHMM ou DECIMAL
+    absence_dsr_mode = Column(String, default="ONE") # Desconto de DSR por falta: NONE, ONE ou SCHEDULE
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     organization = relationship("Organization")

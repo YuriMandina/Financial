@@ -143,6 +143,39 @@ def completed_triennia(admission: Optional[date], reference: date) -> int:
     return max(0, years) // 3
 
 
+def count_lost_dsr(
+    absence_days: List[int],
+    work_days: Dict[int, Any],
+    schedule: models.RHMonthlySchedule,
+    num_days: int,
+    mode: str
+) -> int:
+    """
+    Quantidade de DSR perdidos pelas faltas injustificadas do mês (Lei 605/1949, art. 6º).
+    - NONE: empregador não desconta o DSR
+    - ONE: 1 DSR por semana com falta (regra vigente: um repouso semanal)
+    - SCHEDULE: todos os dias marcados como DSR na escala nas semanas com falta (mín. 1)
+    """
+    if mode == "NONE" or not absence_days:
+        return 0
+
+    def week_of(day: int) -> int:
+        return date(schedule.year, schedule.month, day).isocalendar()[1]
+
+    weeks = {week_of(d) for d in absence_days}
+    if mode != "SCHEDULE":
+        return len(weeks)
+
+    total = 0
+    for wk in weeks:
+        dsr_in_week = sum(
+            1 for d in range(1, num_days + 1)
+            if week_of(d) == wk and getattr(work_days.get(d), "status", None) == "DSR"
+        )
+        total += max(1, dsr_in_week)
+    return total
+
+
 def _fmt_hours(minutes: int) -> str:
     return f"{minutes // 60}h{minutes % 60:02d}"
 
@@ -194,6 +227,7 @@ def calculate_payroll(
     holidays = get_effective_holidays_map(db, organization_id, schedule.year, schedule.month)
     holiday_days = {int(d.split("-")[2]) for d in holidays.keys()}
     rest_days = len(sundays | holiday_days)
+    dsr_mode = getattr(settings, "absence_dsr_mode", None) or "ONE"
     business_days = max(1, num_days - rest_days)
 
     for emp in employees:
@@ -259,9 +293,8 @@ def calculate_payroll(
         absence_days = [d for d, wd in work_days.items() if wd.status == "FALTA"]
         if absence_days:
             add_auto(system_items["FALTAS"], len(absence_days) * daily_rate, f"{len(absence_days)} dia(s)")
-            weeks_with_absence = {date(schedule.year, schedule.month, d).isocalendar()[1] for d in absence_days}
-            add_auto(system_items["DSR_FALTA"], len(weeks_with_absence) * daily_rate,
-                     f"{len(weeks_with_absence)} DSR")
+            dsr_lost = count_lost_dsr(absence_days, work_days, schedule, num_days, dsr_mode)
+            add_auto(system_items["DSR_FALTA"], dsr_lost * daily_rate, f"{dsr_lost} DSR")
 
         # Vale transporte: desconto limitado a 6% do salário base
         vt_amount = float(summary.get("total_vt_amount") or 0.0)
@@ -310,6 +343,33 @@ def calculate_payroll(
 
     db.commit()
     return len(employees)
+
+
+def sync_payroll_if_calculated(db: Session, organization_id: int, schedule_id: int) -> bool:
+    """
+    Mantém a folha em sincronia com a escala: se a folha do mês já foi calculada,
+    recalcula os lançamentos automáticos (faltas, horas extras, VT/VA, encargos).
+    Falhas aqui não devem impedir o salvamento da escala.
+    """
+    schedule = db.query(models.RHMonthlySchedule).filter(
+        models.RHMonthlySchedule.id == schedule_id,
+        models.RHMonthlySchedule.organization_id == organization_id
+    ).first()
+    if not schedule:
+        return False
+    has_payroll = db.query(models.RHPayrollEntry.id).filter(
+        models.RHPayrollEntry.schedule_id == schedule.id,
+        models.RHPayrollEntry.source == "AUTO"
+    ).first() is not None
+    if not has_payroll:
+        return False
+    try:
+        calculate_payroll(db, organization_id, schedule)
+        return True
+    except Exception as e:
+        db.rollback()
+        print(f"Aviso: falha ao sincronizar folha do mês {schedule.month}/{schedule.year}: {e}")
+        return False
 
 
 # ==============================================================================

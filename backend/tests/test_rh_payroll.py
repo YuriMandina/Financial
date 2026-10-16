@@ -131,6 +131,55 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(lines["TRIENIO"]["amount"], 300.0)
         self.assertEqual(lines["INSS"]["amount"], calc_inss(3000.0))
 
+    def _absence_week_5x2(self):
+        # Semana 5-11/out/2026: falta na quarta (7), sábado (10) e domingo (11) como DSR
+        for day, status in [(7, "FALTA"), (10, "DSR"), (11, "DSR")]:
+            self.db.add(models.RHWorkDay(schedule_id=self.schedule.id, employee_id=self.emp.id, day=day,
+                                         status=status, worked_minutes=0, raw_minutes=0))
+        self.db.commit()
+
+    def _set_dsr_mode(self, mode):
+        settings = self.db.query(models.RHSettings).first()
+        settings.absence_dsr_mode = mode
+        self.db.commit()
+
+    def test_dsr_mode_one_discounts_single_dsr(self):
+        self._absence_week_5x2()
+        lines = self._by_key(self._calc())
+        self.assertEqual(lines["FALTAS"]["amount"], 100.0)
+        self.assertEqual(lines["DSR_FALTA"]["amount"], 100.0)
+
+    def test_dsr_mode_schedule_discounts_all_dsr_of_week(self):
+        self._absence_week_5x2()
+        self._set_dsr_mode("SCHEDULE")
+        lines = self._by_key(self._calc())
+        self.assertEqual(lines["DSR_FALTA"]["amount"], 200.0)
+        self.assertEqual(lines["DSR_FALTA"]["reference"], "2 DSR")
+
+    def test_dsr_mode_none_discounts_only_the_day(self):
+        self._absence_week_5x2()
+        self._set_dsr_mode("NONE")
+        lines = self._by_key(self._calc())
+        self.assertEqual(lines["FALTAS"]["amount"], 100.0)
+        self.assertNotIn("DSR_FALTA", lines)
+
+    def test_absence_saved_in_schedule_syncs_calculated_payroll(self):
+        from services.rh_payroll_service import sync_payroll_if_calculated
+        with patch("services.rh_payroll_service.get_effective_holidays_map", return_value={}):
+            # Folha ainda não calculada: escala salva não gera folha
+            self.assertFalse(sync_payroll_if_calculated(self.db, self.org_id, self.schedule.id))
+            calculate_payroll(self.db, self.org_id, self.schedule)
+
+            self.db.add(models.RHWorkDay(schedule_id=self.schedule.id, employee_id=self.emp.id, day=7,
+                                         status="FALTA", worked_minutes=0, raw_minutes=0, is_manual=True))
+            self.db.commit()
+            self.assertTrue(sync_payroll_if_calculated(self.db, self.org_id, self.schedule.id))
+
+        row = get_payroll_month(self.db, self.org_id, self.schedule)["employees"][0]
+        lines = self._by_key(row)
+        self.assertEqual(lines["FALTAS"]["amount"], 100.0)
+        self.assertEqual(lines["FALTAS"]["reference"], "1 dia(s)")
+
     def test_recalculate_is_idempotent(self):
         first = self._calc()
         second = self._calc()

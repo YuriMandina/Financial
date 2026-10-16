@@ -62,9 +62,16 @@ export default function RHJornadaGrid({
   token,
   apiBase,
   onRefresh,
-  summaries = []
+  summaries = [],
+  onDirtyChange
 }) {
   const [dirty, setDirty] = useState(false);
+
+  // Informa a tela principal sobre edições pendentes (aviso ao trocar de aba/mês)
+  React.useEffect(() => {
+    if (onDirtyChange) onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+  React.useEffect(() => () => { if (onDirtyChange) onDirtyChange(false); }, [onDirtyChange]);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [fillDrawerOpen, setFillDrawerOpen] = useState(false);

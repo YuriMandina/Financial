@@ -18,6 +18,7 @@ from services.rh_engine import (
     derive_day_benefits
 )
 from services.rh_schedule_service import apply_shift_fill, clear_or_reset_schedule
+from services.rh_payroll_service import sync_payroll_if_calculated
 from services.rh_holidays_service import get_effective_holidays_map, list_all_holidays_for_organization
 
 router = APIRouter(prefix="/api/rh", tags=["rh"])
@@ -38,6 +39,7 @@ class RHSettingsSchema(BaseModel):
     time_rounding_mode: str = "NEAREST"
     clt_tolerance_enabled: bool = True
     hours_display_format: str = "HHMM"
+    absence_dsr_mode: str = "ONE"  # NONE, ONE ou SCHEDULE
 
     @field_validator(
         "transport_ticket_unit_price",
@@ -404,7 +406,8 @@ def get_rh_settings(
             time_rounding_minutes=0,
             time_rounding_mode="NEAREST",
             clt_tolerance_enabled=True,
-            hours_display_format="HHMM"
+            hours_display_format="HHMM",
+            absence_dsr_mode="ONE"
         )
         db.add(settings)
         db.commit()
@@ -437,6 +440,9 @@ def update_rh_settings(
     settings.time_rounding_mode = payload.time_rounding_mode
     settings.clt_tolerance_enabled = payload.clt_tolerance_enabled
     settings.hours_display_format = payload.hours_display_format
+    if payload.absence_dsr_mode not in ("NONE", "ONE", "SCHEDULE"):
+        raise HTTPException(status_code=400, detail="Modo de desconto de DSR inválido")
+    settings.absence_dsr_mode = payload.absence_dsr_mode
 
     db.commit()
     db.refresh(settings)
@@ -868,7 +874,8 @@ def get_monthly_schedule(
                 "time_rounding_minutes": settings.time_rounding_minutes or 0,
                 "time_rounding_mode": settings.time_rounding_mode or "NEAREST",
                 "clt_tolerance_enabled": settings.clt_tolerance_enabled if settings.clt_tolerance_enabled is not None else True,
-                "hours_display_format": settings.hours_display_format or "HHMM"
+                "hours_display_format": settings.hours_display_format or "HHMM",
+                "absence_dsr_mode": settings.absence_dsr_mode or "ONE"
             },
             "roles": [{"id": r.id, "name": r.name, "description": r.description} for r in roles],
             "shifts": [
@@ -941,6 +948,7 @@ def fill_schedule_shifts(
             overwrite_manual=payload.overwrite_manual,
             clear_unselected=payload.clear_unselected
         )
+        sync_payroll_if_calculated(db, current_user.organization_id, payload.schedule_id)
         return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -961,6 +969,7 @@ def clear_schedule_shifts_endpoint(
             mode=payload.mode,
             overwrite_manual=payload.overwrite_manual
         )
+        sync_payroll_if_calculated(db, current_user.organization_id, payload.schedule_id)
         return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1038,6 +1047,7 @@ def update_work_days_batch(
             updated += 1
 
     db.commit()
+    sync_payroll_if_calculated(db, current_user.organization_id, schedule.id)
     return {"message": f"{updated} registros atualizados com sucesso"}
 
 @router.post("/schedules/benefits/override")
@@ -1064,6 +1074,7 @@ def override_day_benefit(
         rec.benefit_note = payload.benefit_note
 
     db.commit()
+    sync_payroll_if_calculated(db, current_user.organization_id, payload.schedule_id)
     return {"message": "Benefício ajustado com sucesso"}
 
 @router.post("/schedules/benefits/reset")
@@ -1091,6 +1102,7 @@ def reset_day_benefits(
             r.benefit_note = None
 
     db.commit()
+    sync_payroll_if_calculated(db, current_user.organization_id, payload.schedule_id)
     return {"message": f"{len(recs)} registros restaurados para o valor calculado"}
 
 @router.get("/schedules/{schedule_id}/benefit-adjustments")
@@ -1122,6 +1134,7 @@ def create_benefit_adjustment(
     db.add(adj)
     db.commit()
     db.refresh(adj)
+    sync_payroll_if_calculated(db, current_user.organization_id, payload.schedule_id)
     return adj
 
 @router.delete("/schedules/benefit-adjustments/{adj_id}")
@@ -1135,8 +1148,10 @@ def delete_benefit_adjustment(
     ).first()
     if not adj:
         raise HTTPException(status_code=404, detail="Ajuste não encontrado")
+    schedule_id = adj.schedule_id
     db.delete(adj)
     db.commit()
+    sync_payroll_if_calculated(db, current_user.organization_id, schedule_id)
     return {"message": "Ajuste removido com sucesso"}
 
 # ==============================================================================
@@ -1237,6 +1252,7 @@ def batch_save_schedule_days(
             db.add(new_wd)
 
     db.commit()
+    sync_payroll_if_calculated(db, current_user.organization_id, schedule.id)
     return {"message": "Escala atualizada com sucesso", "count": len(payload.entries)}
 
 @router.post("/schedules/auto-fill-standard")
@@ -1332,4 +1348,5 @@ def auto_fill_standard_schedule(
                     ))
 
     db.commit()
+    sync_payroll_if_calculated(db, current_user.organization_id, schedule.id)
     return {"message": "Escala padrão preenchida com sucesso!"}
