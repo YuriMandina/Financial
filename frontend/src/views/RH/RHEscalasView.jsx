@@ -132,8 +132,8 @@ export default function RHEscalasView({ token }) {
   });
 
   const [roleModalOpen, setRoleModalOpen] = useState(false);
-  const [salaryModalTarget, setSalaryModalTarget] = useState(null); // id do colaborador ou 'ALL'
-  const [roleFormData, setRoleFormData] = useState({ name: '', description: '' });
+  const [salaryModalTarget, setSalaryModalTarget] = useState(null); // id do cargo ou 'ALL'
+  const [roleFormData, setRoleFormData] = useState({ name: '', description: '', base_salary: '' });
 
   const [shiftModalOpen, setShiftModalOpen] = useState(false);
 
@@ -435,7 +435,6 @@ export default function RHEscalasView({ token }) {
         weekly_contract_hours: parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         weekly_actual_hours: parseFloat(employeeFormData.weekly_actual_hours) || parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         work_days_per_week: parseInt(employeeFormData.work_days_per_week, 10) || 6,
-        ...(editingEmployee ? {} : { base_salary: parseMoney(employeeFormData.base_salary) }),
         dependents: parseInt(employeeFormData.dependents, 10) || 0,
         admission_date: employeeFormData.admission_date || null,
         active: employeeFormData.active
@@ -484,12 +483,12 @@ export default function RHEscalasView({ token }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(roleFormData)
+        body: JSON.stringify({ ...roleFormData, base_salary: parseMoney(roleFormData.base_salary) })
       });
       if (!res.ok) throw new Error('Erro ao criar cargo');
       const newRole = await res.json();
       setRoleModalOpen(false);
-      setRoleFormData({ name: '', description: '' });
+      setRoleFormData({ name: '', description: '', base_salary: '' });
       await fetchSchedule();
       if (employeeModalOpen) {
         setEmployeeFormData((prev) => ({ ...prev, role_id: newRole.id }));
@@ -507,11 +506,12 @@ export default function RHEscalasView({ token }) {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error('Erro ao excluir cargo');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Erro ao excluir cargo');
       await fetchSchedule();
     } catch (err) {
       console.error(err);
-      alert('Erro ao excluir cargo.');
+      alert(err.message);
     }
   };
 
@@ -1049,11 +1049,11 @@ export default function RHEscalasView({ token }) {
           </button>
           <button
             onClick={() => setSalaryModalTarget('ALL')}
-            disabled={employees.length === 0}
+            disabled={roles.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 transition-colors disabled:opacity-50"
           >
             <TrendingUp size={14} />
-            Aumento Salarial
+            Salários por Cargo
           </button>
           <button
             onClick={() => {
@@ -1161,9 +1161,15 @@ export default function RHEscalasView({ token }) {
                         <Edit2 size={15} />
                       </button>
                       <button
-                        onClick={() => setSalaryModalTarget(emp.id)}
+                        onClick={() => {
+                          if (!emp.role_id) {
+                            alert('Colaborador sem cargo: o salário é definido pelo cargo. Defina o cargo primeiro.');
+                            return;
+                          }
+                          setSalaryModalTarget(emp.role_id);
+                        }}
                         className="p-1.5 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition-colors"
-                        title="Aumento salarial e histórico"
+                        title="Salário do cargo: aumento e histórico"
                       >
                         <TrendingUp size={15} />
                       </button>
@@ -1207,15 +1213,27 @@ export default function RHEscalasView({ token }) {
                 <div key={r.id} className="flex items-center justify-between py-1.5 px-2 rounded bg-slate-950 text-xs">
                   <div>
                     <span className="font-semibold text-slate-200">{r.name}</span>
-                    {r.description && <span className="text-slate-500 text-[11px] block">{r.description}</span>}
+                    <span className="text-slate-500 text-[11px] block">
+                      {Number(r.base_salary || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} • {r.employee_count || 0} colaborador(es)
+                    </span>
                   </div>
-                  <button
-                    onClick={() => handleDeleteRole(r.id)}
-                    className="text-slate-500 hover:text-red-400 p-1"
-                    title="Remover cargo"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <div className="flex items-center">
+                    <button
+                      onClick={() => setSalaryModalTarget(r.id)}
+                      className="text-slate-500 hover:text-emerald-400 p-1"
+                      title="Salário do cargo: aumento e histórico"
+                    >
+                      <TrendingUp size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteRole(r.id)}
+                      disabled={r.employee_count > 0}
+                      className="text-slate-500 hover:text-red-400 p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={r.employee_count > 0 ? 'Cargo em uso: altere o cargo dos colaboradores antes de excluir' : 'Remover cargo'}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -1662,7 +1680,7 @@ export default function RHEscalasView({ token }) {
         <RHSalaryModal
           token={token}
           apiBase={API_BASE}
-          employees={employees}
+          roles={roles}
           target={salaryModalTarget}
           onClose={() => setSalaryModalTarget(null)}
           onSaved={async (message) => {
@@ -1812,33 +1830,29 @@ export default function RHEscalasView({ token }) {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Salário Base Mensal</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      readOnly={!!editingEmployee}
-                      value={employeeFormData.base_salary ?? ''}
-                      onChange={(e) => setEmployeeFormData({ ...employeeFormData, base_salary: e.target.value.replace(/[^0-9.,]/g, '') })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white focus:outline-none focus:border-indigo-500 read-only:opacity-60 read-only:cursor-not-allowed"
-                    />
-                  </div>
-                  {editingEmployee ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEmployeeModalOpen(false);
-                        setSalaryModalTarget(editingEmployee.id);
-                      }}
-                      className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold"
-                    >
-                      Registrar aumento salarial →
-                    </button>
-                  ) : (
-                    <span className="text-[10px] text-slate-500">Salário inicial; aumentos depois, com data de vigência</span>
-                  )}
+                  <label className="block text-slate-400 mb-1">Salário (definido pelo cargo)</label>
+                  {(() => {
+                    const selectedRole = roles.find((r) => String(r.id) === String(employeeFormData.role_id));
+                    return (
+                      <>
+                        <div className="w-full bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-semibold">
+                          {selectedRole ? Number(selectedRole.base_salary || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Selecione o cargo'}
+                        </div>
+                        {selectedRole && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEmployeeModalOpen(false);
+                              setSalaryModalTarget(selectedRole.id);
+                            }}
+                            className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold"
+                          >
+                            Aumento do cargo {selectedRole.name} →
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div>
@@ -1939,6 +1953,22 @@ export default function RHEscalasView({ token }) {
                   onChange={(e) => setRoleFormData({ ...roleFormData, name: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Salário do Cargo</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0,00"
+                    value={roleFormData.base_salary ?? ''}
+                    onChange={(e) => setRoleFormData({ ...roleFormData, base_salary: e.target.value.replace(/[^0-9.,]/g, '') })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-500">Mesmo salário para todos do cargo; aumentos depois, com data de vigência</span>
               </div>
 
               <div>

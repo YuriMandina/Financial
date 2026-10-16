@@ -50,6 +50,17 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS dependents INTEGER DEFAULT 0;"))
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS admission_date DATE;"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS absence_dsr_mode VARCHAR DEFAULT 'ONE';"))
+            conn.execute(text("ALTER TABLE rh_roles ADD COLUMN IF NOT EXISTS base_salary FLOAT DEFAULT 0;"))
+            # Salário passa a ser do cargo: herda o maior salário já cadastrado nos colaboradores do cargo
+            conn.execute(text("""
+                UPDATE rh_roles r SET base_salary = sub.salary
+                FROM (
+                    SELECT role_id, MAX(base_salary) AS salary FROM rh_employees
+                    WHERE role_id IS NOT NULL AND base_salary > 0 GROUP BY role_id
+                ) sub
+                WHERE r.id = sub.role_id AND COALESCE(r.base_salary, 0) = 0
+                  AND NOT EXISTS (SELECT 1 FROM rh_role_salary_changes c WHERE c.role_id = r.id);
+            """))
     except Exception as e:
         print(f"Warning during auto-migration: {e}")
 

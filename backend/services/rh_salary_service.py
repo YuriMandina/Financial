@@ -1,7 +1,8 @@
 """
-Service de Histórico Salarial
-Aumentos salariais com data de vigência: cada mês da folha usa o salário vigente naquele período,
-com cálculo proporcional (base 30 dias) quando o aumento começa no meio do mês.
+Service de Histórico Salarial por Cargo
+O salário é definido pelo cargo (isonomia: mesmo cargo, mesmo salário). Aumentos têm data de
+vigência; cada mês da folha usa o salário vigente do cargo, com cálculo proporcional (base 30 dias)
+quando o aumento começa no meio do mês.
 """
 
 from typing import List, Optional, Tuple
@@ -10,16 +11,20 @@ from sqlalchemy.orm import Session
 from models import models
 
 
-def get_salary_history(db: Session, employee_id: int) -> List[models.RHSalaryChange]:
-    """Histórico em ordem cronológica; o registro inicial (sem data) vem primeiro."""
+def get_salary_history(db: Session, role_id: Optional[int]) -> List[models.RHSalaryChange]:
+    """Histórico do cargo em ordem cronológica; o registro inicial (sem data) vem primeiro."""
+    if not role_id:
+        return []
     changes = db.query(models.RHSalaryChange).filter(
-        models.RHSalaryChange.employee_id == employee_id
+        models.RHSalaryChange.role_id == role_id
     ).all()
     return sorted(changes, key=lambda c: (c.effective_date is not None, c.effective_date or date.min, c.id))
 
 
-def salary_on(emp: models.RHEmployee, history: List[models.RHSalaryChange], day: date) -> float:
-    """Salário vigente em uma data. Sem histórico, usa o salário do cadastro."""
+def salary_on(role: Optional[models.RHRole], history: List[models.RHSalaryChange], day: date) -> float:
+    """Salário do cargo vigente em uma data. Sem histórico, usa o salário cadastrado no cargo."""
+    if role is None:
+        return 0.0
     current = None
     for change in history:
         if change.effective_date is None or change.effective_date <= day:
@@ -27,16 +32,23 @@ def salary_on(emp: models.RHEmployee, history: List[models.RHSalaryChange], day:
         else:
             break
     if current is None:
-        current = history[0].salary if history else emp.base_salary
+        current = history[0].salary if history else role.base_salary
     return float(current or 0.0)
 
 
+def current_role_salary(db: Session, role: Optional[models.RHRole]) -> float:
+    if role is None:
+        return 0.0
+    return salary_on(role, get_salary_history(db, role.id), date.today())
+
+
 def current_salary(db: Session, emp: models.RHEmployee) -> float:
-    return salary_on(emp, get_salary_history(db, emp.id), date.today())
+    """Salário atual do colaborador = salário vigente hoje do seu cargo."""
+    return current_role_salary(db, emp.role_obj)
 
 
 def salary_for_month(
-    emp: models.RHEmployee,
+    role: Optional[models.RHRole],
     history: List[models.RHSalaryChange],
     year: int,
     month: int,
@@ -46,10 +58,9 @@ def salary_for_month(
     Salário do mês respeitando aumentos no meio do período (mês comercial de 30 dias).
     Retorna (valor do mês, referência descritiva ou None, salário vigente no fim do mês).
     """
-    end_salary = salary_on(emp, history, date(year, month, num_days))
-    start_salary = salary_on(emp, history, date(year, month, 1))
+    end_salary = salary_on(role, history, date(year, month, num_days))
+    start_salary = salary_on(role, history, date(year, month, 1))
 
-    # Aumentos que começam depois do dia 1 dentro do mês
     changes_in_month = [
         c for c in history
         if c.effective_date and c.effective_date.year == year and c.effective_date.month == month
@@ -72,14 +83,14 @@ def salary_for_month(
     return round(total, 2), reference, end_salary
 
 
-def ensure_initial_salary(db: Session, emp: models.RHEmployee) -> None:
-    """Antes do primeiro aumento, registra o salário atual como salário inicial (vale desde sempre)."""
+def ensure_initial_salary(db: Session, role: models.RHRole) -> None:
+    """Antes do primeiro aumento, registra o salário atual do cargo como inicial (vale desde sempre)."""
     has_history = db.query(models.RHSalaryChange.id).filter(
-        models.RHSalaryChange.employee_id == emp.id
+        models.RHSalaryChange.role_id == role.id
     ).first() is not None
     if not has_history:
         db.add(models.RHSalaryChange(
-            employee_id=emp.id, effective_date=None, salary=round(float(emp.base_salary or 0.0), 2),
+            role_id=role.id, effective_date=None, salary=round(float(role.base_salary or 0.0), 2),
             reason="Salário inicial"
         ))
         db.flush()
@@ -87,20 +98,20 @@ def ensure_initial_salary(db: Session, emp: models.RHEmployee) -> None:
 
 def apply_salary_change(
     db: Session,
-    emp: models.RHEmployee,
+    role: models.RHRole,
     effective_date: date,
     new_salary: Optional[float] = None,
     percent: Optional[float] = None,
     reason: Optional[str] = None
 ) -> models.RHSalaryChange:
-    """Registra um aumento (valor novo ou percentual sobre o salário vigente na data)."""
-    ensure_initial_salary(db, emp)
-    history = get_salary_history(db, emp.id)
+    """Registra um aumento do cargo (novo valor ou percentual sobre o salário vigente na data)."""
+    ensure_initial_salary(db, role)
+    history = get_salary_history(db, role.id)
 
     if new_salary is None:
         if percent is None:
             raise ValueError("Informe o novo salário ou o percentual de aumento")
-        new_salary = salary_on(emp, history, effective_date) * (1 + percent / 100)
+        new_salary = salary_on(role, history, effective_date) * (1 + percent / 100)
     if new_salary < 0:
         raise ValueError("Salário não pode ser negativo")
 
@@ -111,16 +122,16 @@ def apply_salary_change(
         change = existing
     else:
         change = models.RHSalaryChange(
-            employee_id=emp.id, effective_date=effective_date,
+            role_id=role.id, effective_date=effective_date,
             salary=round(new_salary, 2), reason=reason
         )
         db.add(change)
 
     db.flush()
-    sync_current_salary(db, emp)
+    sync_current_salary(db, role)
     return change
 
 
-def sync_current_salary(db: Session, emp: models.RHEmployee) -> None:
-    """Mantém o campo de cadastro com o salário vigente hoje (exibição e compatibilidade)."""
-    emp.base_salary = round(current_salary(db, emp), 2)
+def sync_current_salary(db: Session, role: models.RHRole) -> None:
+    """Mantém o campo do cargo com o salário vigente hoje (exibição e compatibilidade)."""
+    role.base_salary = round(current_role_salary(db, role), 2)

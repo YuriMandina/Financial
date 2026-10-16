@@ -256,8 +256,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
         <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-200">
           <AlertCircle size={14} className="mt-0.5 shrink-0" />
           <span>
-            {missingSalary.length} colaborador(es) sem salário base cadastrado: {missingSalary.map((e) => e.employee_name).join(', ')}.
-            Cadastre em "Equipe, Cargos & Parâmetros".
+            {missingSalary.length} colaborador(es) sem salário (sem cargo ou cargo sem salário): {missingSalary.map((e) => e.employee_name).join(', ')}.
+            Defina o cargo e o salário do cargo em "Equipe, Cargos & Parâmetros".
           </span>
         </div>
       )}

@@ -266,9 +266,9 @@ def calculate_payroll(
                 return
             lines.append((item, amount, reference))
 
-        # Salário vigente no mês (histórico salarial, proporcional se o aumento for no meio do mês)
+        # Salário do cargo vigente no mês (proporcional se o aumento for no meio do mês)
         salary, salary_reference, end_salary = salary_for_month(
-            emp, get_salary_history(db, emp.id), schedule.year, schedule.month, num_days
+            emp.role_obj, get_salary_history(db, emp.role_id), schedule.year, schedule.month, num_days
         )
         weekly_hours = float(emp.weekly_contract_hours or 44.0)
         hourly_rate = end_salary / (weekly_hours * 5) if weekly_hours else 0.0  # divisor CLT (220h para 44h)
@@ -433,7 +433,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "employee_id": emp.id,
             "employee_name": emp.name,
             "employee_role": (emp.role_obj.name if emp.role_obj else emp.role) or "Geral",
-            "base_salary": salary_on(emp, get_salary_history(db, emp.id), month_end),
+            "base_salary": salary_on(emp.role_obj, get_salary_history(db, emp.role_id), month_end),
             "dependents": emp.dependents or 0,
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "entries": [entry_to_dict(e) for e in emp_entries],

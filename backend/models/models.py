@@ -192,7 +192,10 @@ class RHRole(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    base_salary = Column(Float, default=0.0) # Salário do cargo vigente hoje (isonomia salarial)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    salary_changes = relationship("RHSalaryChange", back_populates="role", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint('organization_id', 'name', name='uq_org_role_name'),
@@ -255,21 +258,20 @@ class RHEmployee(Base):
     schedule_days = relationship("RHScheduleDay", back_populates="employee", cascade="all, delete-orphan")
     work_days = relationship("RHWorkDay", back_populates="employee", cascade="all, delete-orphan")
     payroll_entries = relationship("RHPayrollEntry", back_populates="employee", cascade="all, delete-orphan")
-    salary_changes = relationship("RHSalaryChange", back_populates="employee", cascade="all, delete-orphan")
 
 
 class RHSalaryChange(Base):
-    """Histórico salarial: salário vigente a partir da data (sem data = salário inicial)."""
-    __tablename__ = "rh_salary_changes"
+    """Histórico salarial do cargo: salário vigente a partir da data (sem data = salário inicial)."""
+    __tablename__ = "rh_role_salary_changes"
 
     id = Column(Integer, primary_key=True, index=True)
-    employee_id = Column(Integer, ForeignKey("rh_employees.id"), nullable=False, index=True)
+    role_id = Column(Integer, ForeignKey("rh_roles.id"), nullable=False, index=True)
     effective_date = Column(Date, nullable=True)
     salary = Column(Float, nullable=False)
     reason = Column(String, nullable=True) # Ex: "Dissídio 2026", "Promoção"
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    employee = relationship("RHEmployee", back_populates="salary_changes")
+    role = relationship("RHRole", back_populates="salary_changes")
 
 
 class RHPayrollItem(Base):

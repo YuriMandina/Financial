@@ -52,8 +52,11 @@ class TestCalculatePayroll(unittest.TestCase):
         self.db.add(models.RHSettings(organization_id=org.id))
         self.schedule = models.RHMonthlySchedule(organization_id=org.id, year=2026, month=10)
         self.db.add(self.schedule)
+        self.role = models.RHRole(organization_id=org.id, name="Açougueiro", base_salary=3000.0)
+        self.db.add(self.role)
+        self.db.flush()
         self.emp = models.RHEmployee(
-            organization_id=org.id, name="Fulano", base_salary=3000.0, dependents=0,
+            organization_id=org.id, name="Fulano", role_id=self.role.id, dependents=0,
             weekly_contract_hours=40.0, weekly_actual_hours=40.0, work_days_per_week=5,
             default_daily_transport_tickets=0, daily_meal_cost=0, active=True
         )
@@ -182,7 +185,7 @@ class TestCalculatePayroll(unittest.TestCase):
 
     def _raise(self, effective, **kw):
         from services.rh_salary_service import apply_salary_change
-        apply_salary_change(self.db, self.emp, effective, **kw)
+        apply_salary_change(self.db, self.role, effective, **kw)
         self.db.commit()
 
     def _calc_month(self, year, month):
@@ -209,10 +212,32 @@ class TestCalculatePayroll(unittest.TestCase):
     def test_initial_salary_preserved_before_first_raise(self):
         from services.rh_salary_service import get_salary_history
         self._raise(date(2027, 1, 1), new_salary=4000.0)
-        history = get_salary_history(self.db, self.emp.id)
+        history = get_salary_history(self.db, self.role.id)
         self.assertIsNone(history[0].effective_date)
         self.assertEqual(history[0].salary, 3000.0)
         self.assertEqual(self._calc_month(2026, 10)["SALARIO"]["amount"], 3000.0)
+
+    def test_same_role_same_salary_and_role_change(self):
+        other = models.RHEmployee(organization_id=self.org_id, name="Ciclano", role_id=self.role.id,
+                                  weekly_contract_hours=40.0, work_days_per_week=5,
+                                  default_daily_transport_tickets=0, daily_meal_cost=0, active=True)
+        senior = models.RHRole(organization_id=self.org_id, name="Açougueiro II", base_salary=4000.0)
+        self.db.add_all([other, senior])
+        self.db.commit()
+        self._raise(date(2026, 10, 1), percent=10)
+        with patch("services.rh_payroll_service.get_effective_holidays_map", return_value={}):
+            calculate_payroll(self.db, self.org_id, self.schedule)
+        rows = get_payroll_month(self.db, self.org_id, self.schedule)["employees"]
+        self.assertEqual({r["base_salary"] for r in rows}, {3300.0})
+
+        # Promoção: o salário acompanha o novo cargo
+        other.role_id = senior.id
+        self.db.commit()
+        with patch("services.rh_payroll_service.get_effective_holidays_map", return_value={}):
+            calculate_payroll(self.db, self.org_id, self.schedule)
+        rows = {r["employee_name"]: r for r in get_payroll_month(self.db, self.org_id, self.schedule)["employees"]}
+        self.assertEqual(rows["Ciclano"]["base_salary"], 4000.0)
+        self.assertEqual(rows["Fulano"]["base_salary"], 3300.0)
 
     def test_recalculate_is_idempotent(self):
         first = self._calc()
