@@ -13,7 +13,8 @@ from api.tasks import TaskManager, TaskQueue
 from services.omie_dicionarios import (
     extrair_dicionario_contas_correntes, 
     extrair_dicionario_fornecedores, 
-    extrair_dicionario_categorias
+    extrair_dicionario_categorias,
+    consultar_cliente_pontual_omie
 )
 from services.omie_financeiro import extrair_contas_receber_abertas
 
@@ -23,7 +24,9 @@ def bg_sync_recebimentos(task_id: str, org_id: int):
     try:
         TaskManager.update_task(task_id, progress=5.0, log="Atualizando lista de bancos e contas...")
         extrair_dicionario_contas_correntes(force_sync=True)
-        TaskManager.update_task(task_id, progress=15.0, log="Iniciando extração de títulos em aberto...")
+        TaskManager.update_task(task_id, progress=12.0, log="Atualizando cadastro de clientes...")
+        extrair_dicionario_fornecedores(force_sync=True)
+        TaskManager.update_task(task_id, progress=25.0, log="Iniciando extração de títulos em aberto...")
         extrair_contas_receber_abertas(task_id=task_id, force_sync=True)
         TaskManager.update_task(task_id, progress=100.0, log="Sincronização concluída com sucesso!", status="completed")
     except Exception as e:
@@ -113,7 +116,16 @@ def obter_recebimentos_abertos(data_inicio: str = None, data_fim: str = None, fo
             id_cat = str(c.get("codigo_categoria", ""))
             id_conta = str(c.get("id_conta_corrente", ""))
 
-            nome_cli = dict_cli_str.get(id_cli, tratar_vazio(id_cli))
+            nome_cli = dict_cli_str.get(id_cli)
+            if not nome_cli or nome_cli == id_cli:
+                # Fallback sob demanda caso o cliente seja novo e ainda não esteja no cache
+                nome_pontual = consultar_cliente_pontual_omie(id_cli)
+                if nome_pontual:
+                    nome_cli = nome_pontual
+                    dict_cli_str[id_cli] = nome_pontual
+                else:
+                    nome_cli = tratar_vazio(id_cli)
+
             desc_cat = dict_cat_str.get(id_cat, tratar_vazio(id_cat))
             nome_conta = dict_contas.get(id_conta, f"Conta {id_conta}")
 

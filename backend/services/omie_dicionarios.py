@@ -34,12 +34,37 @@ def _omie_extrair_dicionario_fornecedores():
 
     return dicionario
 
-def extrair_dicionario_fornecedores():
+def extrair_dicionario_fornecedores(force_sync=False):
     return obter_global_db(
         "dicionario_fornecedores",
         "Dicionário Fornecedores",
-        _omie_extrair_dicionario_fornecedores
+        _omie_extrair_dicionario_fornecedores,
+        force_sync=force_sync
     )
+
+def consultar_cliente_pontual_omie(codigo_cliente: int | str):
+    """Consulta pontualmente um cliente no Omie caso ele não esteja no cache."""
+    try:
+        url = "https://app.omie.com.br/api/v1/geral/clientes/"
+        payload = {
+            "call": "ConsultarCliente",
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
+            "param": [{"codigo_cliente_omie": int(codigo_cliente)}],
+        }
+        res = requests.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        ).json()
+        if "faultstring" not in res:
+            nome = res.get("nome_fantasia") or res.get("razao_social")
+            if nome:
+                return nome.strip()
+    except Exception as e:
+        print(f"[Omie] Erro ao consultar cliente pontual {codigo_cliente}: {e}")
+    return None
 
 
 def _omie_extrair_dicionario_categorias():
