@@ -34,7 +34,7 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
               <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-10 gap-4 print:hidden">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                    <p className="text-emerald-400 font-bold text-lg xl:text-xl">Global a {menuAtivo === 'recebimentos' ? 'Receber' : 'Pagar'}: R$ {totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-emerald-400 font-bold text-lg xl:text-xl">Global a {menuAtivo === 'recebimentos' ? 'Receber' : 'Pagar'}: R$ {Number(totalGeral || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                   </div>
 
                   <div className="flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2">
@@ -103,23 +103,23 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                           <div className="flex flex-col bg-amber-500/10 border border-amber-500/30 rounded-xl print:rounded print:border-amber-400 px-4 py-3 print:px-3 print:py-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 print:text-amber-700">+ 30 dias em aberto</span>
                             <span className="text-xl font-black text-amber-300 print:text-slate-900 print:text-sm mt-1">
-                              R$ {metricsVencimento.totalAcima30.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              R$ {Number(metricsVencimento?.totalAcima30 || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </span>
-                            <span className="text-[10px] text-amber-500/70 print:text-slate-500">{metricsVencimento.acima30} título(s)</span>
+                            <span className="text-[10px] text-amber-500/70 print:text-slate-500">{metricsVencimento?.acima30 || 0} título(s)</span>
                           </div>
                           <div className="flex flex-col bg-orange-500/10 border border-orange-500/30 rounded-xl print:rounded print:border-orange-400 px-4 py-3 print:px-3 print:py-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400 print:text-orange-700">+ 60 dias em aberto</span>
                             <span className="text-xl font-black text-orange-300 print:text-slate-900 print:text-sm mt-1">
-                              R$ {metricsVencimento.totalAcima60.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              R$ {Number(metricsVencimento?.totalAcima60 || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </span>
-                            <span className="text-[10px] text-orange-500/70 print:text-slate-500">{metricsVencimento.acima60} título(s)</span>
+                            <span className="text-[10px] text-orange-500/70 print:text-slate-500">{metricsVencimento?.acima60 || 0} título(s)</span>
                           </div>
                           <div className="flex flex-col bg-red-500/10 border border-red-500/30 rounded-xl print:rounded print:border-red-400 px-4 py-3 print:px-3 print:py-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-red-400 print:text-red-700">+ 90 dias em aberto</span>
                             <span className="text-xl font-black text-red-400 print:text-slate-900 print:text-sm mt-1">
-                              R$ {metricsVencimento.totalAcima90.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              R$ {Number(metricsVencimento?.totalAcima90 || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </span>
-                            <span className="text-[10px] text-red-500/70 print:text-slate-500">{metricsVencimento.acima90} título(s)</span>
+                            <span className="text-[10px] text-red-500/70 print:text-slate-500">{metricsVencimento?.acima90 || 0} título(s)</span>
                           </div>
                         </div>
 
@@ -135,7 +135,7 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                           </div>
                           <div className="text-right">
                             <p className="text-3xl font-black text-emerald-400 print:text-slate-900 print:text-xl">
-                              R$ {totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              R$ {Number(totalGeral || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </p>
                           </div>
                         </div>
@@ -166,17 +166,17 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                                   <tr className={`border-b border-slate-700/30 print:border-slate-300 text-slate-300 print:text-slate-800 hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}>
                                     <td className="py-3 print:py-1 px-5 print:px-2 font-bold">{item.categoria}</td>
                                     <td className="py-3 print:py-1 px-5 print:px-2 text-right font-bold text-slate-200 print:text-slate-900">
-                                      R$ {item.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                      R$ {Number(item.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                     </td>
                                   </tr>
 
-                                  {menuAtivo === 'contas-pagas' && item.contasCorrentes.map((ccItem, ccIdx) => (
+                                  {menuAtivo === 'contas-pagas' && Array.isArray(item.contasCorrentes) && item.contasCorrentes.map((ccItem, ccIdx) => (
                                     <tr key={`cc-${idx}-${ccIdx}`} className="border-b border-slate-700/10 print:border-slate-200 bg-slate-900/40 print:bg-transparent">
                                       <td className="py-2 print:py-1 px-5 print:px-2 pl-12 text-slate-400 print:text-slate-600 text-xs flex items-center gap-2 border-l-2 border-indigo-500/30 ml-4">
                                         <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 print:bg-slate-400"></div> {ccItem.cc}
                                       </td>
                                       <td className="py-2 print:py-1 px-5 print:px-2 text-right text-slate-400 print:text-slate-600 text-xs">
-                                        R$ {ccItem.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                        R$ {Number(ccItem.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                       </td>
                                     </tr>
                                   ))}
@@ -187,7 +187,7 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                                   Total Geral
                                 </td>
                                 <td className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-emerald-400 print:text-slate-900 text-lg">
-                                  R$ {totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                  R$ {Number(totalGeral || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                 </td>
                               </tr>
                             </tbody>
@@ -226,7 +226,7 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                                       <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_documento_fiscal}</td>
                                       <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_parcela}</td>
                                       <td className="py-3 print:py-1 px-5 print:px-2 text-right font-bold text-slate-200 print:text-slate-900">
-                                        R$ {(menuAtivo === 'contas-pagas' ? conta.valor_pago : conta.saldo_devedor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                        R$ {Number((menuAtivo === 'contas-pagas' ? conta.valor_pago : conta.saldo_devedor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                       </td>
                                     </tr>
 
@@ -247,11 +247,11 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                                                   {catItem.desc_categoria}
                                                 </span>
                                                 <span className="text-emerald-400 print:text-slate-900 font-bold bg-slate-900/60 print:bg-transparent px-1 py-0.5 print:p-0 rounded text-[11px] print:text-[10px]">
-                                                  R$ {Number(catItem.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                  R$ {Number(catItem.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                                 </span>
                                                 {catItem.percentual > 0 && (
                                                   <span className="text-slate-500 print:text-slate-500 text-[10px] print:text-[9px]">
-                                                    ({Number(catItem.percentual).toFixed(1)}%)
+                                                    ({Number(catItem.percentual || 0).toFixed(1)}%)
                                                   </span>
                                                 )}
                                               </div>
@@ -268,7 +268,7 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                                     Subtotal de {grupo.dataReferencia}
                                   </td>
                                   <td className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-emerald-400 print:text-slate-900">
-                                    R$ {grupo.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    R$ {Number(grupo.subtotal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                   </td>
                                 </tr>
                               </React.Fragment>
