@@ -805,112 +805,240 @@ export default function RHEscalasView({ token }) {
   // --- [BLOCO: RENDERIZAÇÃO DA ABA RESUMO FINANCEIRO & RECIBOS] ---
   // ==============================================================================
 
-  const renderSundayScheduleWall = () => (
-    <div className="space-y-6">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-base font-semibold text-white flex items-center gap-2">
-              <Clock className="text-indigo-400" size={20} />
-              Mural Operacional de Horários & Turnos
-            </h3>
-            <p className="text-xs text-slate-400">
-              Programação com horários de entrada, almoço e saída para exibição no mural da empresa.
+  const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const MONTH_LABELS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+  // Agrupa os dias do mês em semanas (segunda a domingo)
+  const monthWeeks = useMemo(() => {
+    const weeks = [];
+    let current = [];
+    daysList.forEach((day) => {
+      const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
+      current.push({ day, weekday });
+      if (weekday === 0) {
+        weeks.push(current);
+        current = [];
+      }
+    });
+    if (current.length) weeks.push(current);
+    return weeks;
+  }, [daysList, selectedYear, selectedMonth]);
+
+  const resolveEmpShift = (emp, shiftCode) =>
+    shifts.find((s) => s.code === shiftCode) ||
+    shifts.find((s) => s.id === emp.default_shift_id) ||
+    shifts.find((s) => s.is_default) ||
+    shifts[0];
+
+  const renderSundayScheduleWall = () => {
+    const pad = (n) => String(n).padStart(2, '0');
+    const mm = pad(selectedMonth);
+
+    return (
+      <div className="space-y-6">
+        <style>{'@media print { @page { size: A4 landscape; margin: 8mm; } }'}</style>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm print:bg-white print:border-0 print:shadow-none print:p-0">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-base font-semibold text-white flex items-center gap-2 print:text-black print:text-xl">
+                <Clock className="text-indigo-400 print:hidden" size={20} />
+                Mural de Horários & Turnos — {MONTH_LABELS[selectedMonth - 1]} / {selectedYear}
+              </h3>
+              <p className="text-xs text-slate-400 print:text-slate-700">
+                Programação diária de entrada, almoço e saída de todos os colaboradores.
+              </p>
+            </div>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors print:hidden"
+            >
+              <Printer size={15} />
+              Imprimir Mural
+            </button>
+          </div>
+
+          {/* Legenda de turnos */}
+          <div className="mb-5">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2 print:text-black">Turnos</h4>
+            {shifts.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => setShiftModalOpen(true)}
+                className="text-[11px] text-amber-400 hover:text-amber-300 bg-amber-950/60 border border-amber-800/80 px-2 py-1 rounded font-medium transition print:hidden"
+              >
+                + Cadastrar Turno
+              </button>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {shifts.map((s) => (
+                  <div key={s.id} className="text-[11px] px-2 py-1 rounded border border-slate-700 bg-slate-950 text-slate-300 print:bg-white print:border-slate-400 print:text-black">
+                    <span className="font-bold text-indigo-300 print:text-black">{s.code}</span><span className="hidden print:inline font-bold"> ({s.code.slice(0, 3)})</span> · {s.name}:{' '}
+                    <span className="font-mono">{s.start_time}–{s.end_time}</span>
+                    {s.lunch_start && <span className="font-mono"> (almoço {s.lunch_start}–{s.lunch_end})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {employees.length === 0 ? (
+            <div className="text-center py-6 text-slate-500 italic">Sem colaboradores cadastrados.</div>
+          ) : (
+            <>
+            {/* Versão compacta para impressão: mês inteiro em uma grade */}
+            <table className="hidden print:table w-full border-collapse table-fixed text-[9px] leading-tight text-black" style={{ wordBreak: 'keep-all', overflowWrap: 'normal' }}>
+              <colgroup>
+                <col style={{ width: '40mm' }} />
+                {daysList.map((day) => <col key={day} />)}
+              </colgroup>
+              <thead>
+                <tr className="bg-slate-200">
+                  <th className="text-left px-1.5 py-1 border border-slate-500 whitespace-nowrap">Colaborador</th>
+                  {daysList.map((day) => {
+                    const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
+                    const isRed = weekday === 0 || holidays[day];
+                    return (
+                      <th key={day} className={`px-0.5 py-1 text-center whitespace-nowrap border border-slate-500 font-semibold ${isRed ? 'bg-red-100' : ''}`}>
+                        <div>{WEEKDAY_LABELS[weekday].charAt(0)}</div>
+                        <div className="text-[10px]">{pad(day)}</div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {employees.map((emp) => (
+                  <tr key={emp.id} className="break-inside-avoid">
+                    <td className="px-1.5 py-1 border border-slate-500">
+                      <div className="font-bold text-[10px] whitespace-nowrap">{emp.name}</div>
+                      <div className="text-[8px] text-slate-600 whitespace-nowrap">{emp.role || 'Geral'}</div>
+                    </td>
+                    {daysList.map((day) => {
+                      const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
+                      const info = localGrid[emp.id]?.TRANSPORTE?.[day] || { status: 'OFF', shift: null };
+                      const isWorking = info.status === 'X';
+                      const shift = isWorking ? resolveEmpShift(emp, info.shift) : null;
+                      const conf = STATUS_CONFIG[info.status] || STATUS_CONFIG.OFF;
+                      return (
+                        <td
+                          key={day}
+                          className={`px-0 py-1.5 text-center border border-slate-500 whitespace-nowrap ${
+                            weekday === 0 || holidays[day] ? 'bg-red-50' : ''
+                          } ${isWorking ? 'font-bold' : 'italic text-slate-500'}`}
+                        >
+                          {isWorking ? (shift?.code || 'X').slice(0, 3) : conf.short}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="hidden print:block text-[9px] text-slate-700 mt-2">
+              Legenda: {Object.entries(STATUS_CONFIG).filter(([k]) => k !== 'X').map(([, c]) => `${c.short} = ${c.label}`).join(' · ')}
+              {Object.keys(holidays).length > 0 && ` · Feriados: ${Object.entries(holidays).map(([d, n]) => `${pad(d)}/${mm} ${n}`).join(', ')}`}
             </p>
-          </div>
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors print:hidden"
-          >
-            <Printer size={15} />
-            Imprimir Mural
-          </button>
+
+            <div className="space-y-6 print:hidden">
+              {monthWeeks.map((week, wIdx) => (
+                <section key={wIdx}>
+                  <h4 className="text-sm font-bold text-slate-200 mb-2 print:text-black">
+                    Semana {wIdx + 1}
+                    <span className="ml-2 text-xs font-normal text-slate-400 print:text-slate-700">
+                      {pad(week[0].day)}/{mm} a {pad(week[week.length - 1].day)}/{mm}
+                    </span>
+                  </h4>
+                  <div className="overflow-x-auto rounded-lg border border-slate-800 print:border-slate-500 print:overflow-visible">
+                    <table className="w-full text-xs border-collapse table-fixed">
+                      <thead>
+                        <tr className="bg-slate-950 print:bg-slate-200">
+                          <th className="w-40 text-left px-2 py-1.5 text-slate-300 font-semibold border-r border-slate-800 print:text-black print:border-slate-500">
+                            Colaborador
+                          </th>
+                          {week.map(({ day, weekday }) => {
+                            const holidayName = holidays[day];
+                            return (
+                              <th
+                                key={day}
+                                className={`px-1 py-1.5 text-center font-semibold border-r border-slate-800 print:border-slate-500 print:text-black ${
+                                  weekday === 0 || holidayName ? 'text-red-300 bg-red-950/20 print:bg-red-50' : 'text-slate-300'
+                                }`}
+                              >
+                                <div>{WEEKDAY_LABELS[weekday]} {pad(day)}/{mm}</div>
+                                {holidayName && <div className="text-[9px] font-normal text-sky-400 print:text-blue-800 truncate">{holidayName}</div>}
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {employees.map((emp) => (
+                          <tr key={emp.id} className="border-t border-slate-800 print:border-slate-400">
+                            <td className="px-2 py-1.5 border-r border-slate-800 print:border-slate-500 align-top">
+                              <div className="font-semibold text-white print:text-black truncate">{emp.name}</div>
+                              <div className="text-[10px] text-slate-500 print:text-slate-700 truncate">{emp.role || 'Geral'}</div>
+                            </td>
+                            {week.map(({ day, weekday }) => {
+                              const info = localGrid[emp.id]?.TRANSPORTE?.[day] || { status: 'OFF', shift: null };
+                              const isWorking = info.status === 'X';
+                              const shift = isWorking ? resolveEmpShift(emp, info.shift) : null;
+                              const conf = STATUS_CONFIG[info.status] || STATUS_CONFIG.OFF;
+                              return (
+                                <td
+                                  key={day}
+                                  className={`px-1 py-1 text-center align-top border-r border-slate-800 print:border-slate-500 ${
+                                    weekday === 0 ? 'bg-red-950/10 print:bg-red-50' : ''
+                                  }`}
+                                >
+                                  {isWorking && shift ? (
+                                    <div className="space-y-0.5">
+                                      <select
+                                        value={info.shift || shift.code}
+                                        onChange={(e) => {
+                                          const sObj = shifts.find((s) => s.code === e.target.value);
+                                          handleShiftChange(emp.id, day, 'TRANSPORTE', e.target.value, sObj?.id);
+                                          handleShiftChange(emp.id, day, 'ALIMENTACAO', e.target.value, sObj?.id);
+                                        }}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded text-[10px] text-indigo-200 px-0.5 py-0.5 focus:outline-none focus:border-indigo-500 font-bold print:hidden"
+                                      >
+                                        {shifts.map((s) => (
+                                          <option key={s.id} value={s.code}>{s.code}</option>
+                                        ))}
+                                      </select>
+                                      <div className="hidden print:block font-bold text-black">{shift.code}</div>
+                                      <div className="font-mono text-[10px] text-slate-200 print:text-black leading-tight">
+                                        {shift.start_time}–{shift.end_time}
+                                      </div>
+                                      {shift.lunch_start && (
+                                        <div className="font-mono text-[9px] text-slate-400 print:text-slate-700 leading-tight">
+                                          alm {shift.lunch_start}–{shift.lunch_end}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : isWorking ? (
+                                    <span className="text-[10px] text-emerald-300 print:text-black font-semibold">Trabalho</span>
+                                  ) : (
+                                    <span className={`text-[10px] italic font-medium ${info.status === 'OFF' ? 'text-slate-500' : 'text-amber-300'} print:text-slate-700`}>
+                                      {conf.label}
+                                    </span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ))}
+            </div>
+            </>
+          )}
         </div>
-
-        {sundays.length === 0 ? (
-          <div className="text-center py-6 text-slate-500 italic">Nenhum domingo neste mês.</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {sundays.map((sunDay) => {
-              const holidayName = holidays[sunDay];
-              return (
-                <div key={sunDay} className="bg-slate-950 border border-slate-800 rounded-lg p-4 shadow-sm">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
-                    <span className="font-bold text-slate-200 text-sm">Domingo, {sunDay}/{selectedMonth}</span>
-                    {holidayName && (
-                      <span className="text-[10px] bg-sky-950 text-sky-400 border border-sky-800 px-1.5 py-0.5 rounded">
-                        {holidayName}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="space-y-2.5">
-                    {employees.length === 0 ? (
-                      <div className="text-[11px] text-slate-600 italic">Sem colaboradores</div>
-                    ) : (
-                      employees.map((emp) => {
-                        const empDayInfo = localGrid[emp.id]?.TRANSPORTE?.[sunDay] || { status: 'OFF', shift: null };
-                        const isWorking = empDayInfo.status === 'X';
-                        const currentShift = shifts.find((s) => s.code === empDayInfo.shift) || shifts.find((s) => s.is_default) || shifts[0];
-
-                        return (
-                          <div key={emp.id} className="p-2 rounded bg-slate-900/60 border border-slate-800/80 text-xs space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className={`font-semibold ${isWorking ? 'text-white' : 'text-slate-500'}`}>
-                                {emp.name}
-                              </span>
-                              {isWorking ? (
-                                shifts.length === 0 ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setShiftModalOpen(true)}
-                                    className="text-[10px] text-amber-400 hover:text-amber-300 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded font-medium transition"
-                                  >
-                                    + Cadastrar Turno
-                                  </button>
-                                ) : (
-                                  <select
-                                    value={empDayInfo.shift || currentShift?.code || ''}
-                                    onChange={(e) => {
-                                      const sObj = shifts.find((s) => s.code === e.target.value);
-                                      handleShiftChange(emp.id, sunDay, 'TRANSPORTE', e.target.value, sObj?.id);
-                                      handleShiftChange(emp.id, sunDay, 'ALIMENTACAO', e.target.value, sObj?.id);
-                                    }}
-                                    className="bg-slate-800 border border-slate-700 rounded text-[11px] text-slate-200 px-1.5 py-0.5 focus:outline-none focus:border-indigo-500 font-medium"
-                                  >
-                                    {shifts.map((s) => (
-                                      <option key={s.id} value={s.code}>
-                                        {s.code}: {s.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )
-                              ) : (
-                                <span className="text-[11px] text-slate-500 font-medium italic">Folga</span>
-                              )}
-                            </div>
-
-                            {isWorking && currentShift && (
-                              <div className="text-[10px] text-indigo-300 font-mono bg-indigo-950/40 px-1.5 py-0.5 rounded border border-indigo-900/40">
-                                ⏰ {currentShift.start_time} às {currentShift.end_time}
-                                {currentShift.lunch_start && (
-                                  <span className="text-slate-400"> (alm: {currentShift.lunch_start}-{currentShift.lunch_end})</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   // ==============================================================================
   // --- [BLOCO: RENDERIZAÇÃO DA ABA EQUIPE, CARGOS & PARÂMETROS] ---
