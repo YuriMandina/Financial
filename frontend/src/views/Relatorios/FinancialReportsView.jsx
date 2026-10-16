@@ -224,10 +224,10 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
           }
         });
 
-        if (menuAtivo === 'recebimentos' && listaBancos.length === 0) {
+        if (menuAtivo === 'recebimentos') {
           fetchWithAuth('http://localhost:8000/api/geral/bancos')
             .then(res => res.json())
-            .then(data => setListaBancos(data))
+            .then(data => setListaBancos(Array.isArray(data) ? data : []))
             .catch(e => console.error(e));
         }
       }
