@@ -39,7 +39,6 @@ const EMPTY_ITEM = {
 export default function RHFolhaPagamento({ token, apiBase, selectedYear, selectedMonth }) {
   const [view, setView] = useState('folha'); // 'folha' | 'rubricas'
   const [loading, setLoading] = useState(true);
-  const [calculating, setCalculating] = useState(false);
   const [payroll, setPayroll] = useState(null);
   const [items, setItems] = useState([]);
   const [expanded, setExpanded] = useState({});
@@ -92,22 +91,6 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   useEffect(() => {
     loadAll();
   }, [selectedYear, selectedMonth]);
-
-  const handleCalculate = async () => {
-    try {
-      setCalculating(true);
-      const res = await request('/api/rh/payroll/calculate', {
-        method: 'POST',
-        body: JSON.stringify({ year: selectedYear, month: selectedMonth })
-      });
-      await loadAll();
-      flash(res.message || 'Folha calculada!');
-    } catch (err) {
-      alert('Falha ao calcular a folha: ' + err.message);
-    } finally {
-      setCalculating(false);
-    }
-  };
 
   // ==============================================================================
   // --- [RUBRICAS] ---
@@ -246,7 +229,6 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
 
   const totals = payroll?.totals || {};
   const employees = payroll?.employees || [];
-  const hasEntries = employees.some((e) => e.entries.length > 0);
   const missingSalary = employees.filter((e) => !e.base_salary);
   const missingAdmission = employees.filter((e) => !e.admission_date);
 
@@ -275,7 +257,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
           <AlertCircle size={14} className="mt-0.5 shrink-0" />
           <span>
             {missingSalary.length} colaborador(es) sem salário base cadastrado: {missingSalary.map((e) => e.employee_name).join(', ')}.
-            Cadastre em "Equipe, Cargos & Parâmetros" e recalcule a folha.
+            Cadastre em "Equipe, Cargos & Parâmetros".
           </span>
         </div>
       )}
@@ -289,26 +271,18 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
         </div>
       )}
 
-      {!hasEntries ? (
+      {employees.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center space-y-3">
           <div className="w-12 h-12 rounded-full bg-indigo-600/20 text-indigo-400 mx-auto flex items-center justify-center">
             <Calculator size={24} />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-white">Folha de {MONTH_NAMES[selectedMonth - 1]} ainda não calculada</h3>
+            <h3 className="text-sm font-semibold text-white">Nenhum colaborador ativo</h3>
             <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-              O cálculo usa o salário base, a jornada do mês (horas extras e faltas), VT, VA e as rubricas recorrentes,
-              e aplica INSS, IRRF e FGTS.
+              Cadastre a equipe em "Equipe, Cargos & Parâmetros". A folha é calculada automaticamente a partir do salário,
+              da escala do mês, das rubricas e das configurações.
             </p>
           </div>
-          <button
-            onClick={handleCalculate}
-            disabled={calculating || employees.length === 0}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
-          >
-            {calculating ? <RefreshCw size={14} className="animate-spin" /> : <Calculator size={14} />}
-            Calcular Folha
-          </button>
         </div>
       ) : (
         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
@@ -802,18 +776,6 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               <ListChecks size={13} /> Rubricas
             </button>
           </div>
-
-          {view === 'folha' && hasEntries && (
-            <button
-              onClick={handleCalculate}
-              disabled={calculating}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
-              title="Recalcula os lançamentos automáticos; os manuais são mantidos"
-            >
-              {calculating ? <RefreshCw size={14} className="animate-spin" /> : <Calculator size={14} />}
-              Recalcular Folha
-            </button>
-          )}
 
           {msg && <span className="text-xs font-medium text-emerald-400">{msg}</span>}
         </div>

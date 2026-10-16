@@ -41,7 +41,7 @@ class TestCalculatePayroll(unittest.TestCase):
         needed = [
             models.Organization, models.RHRole, models.RHWorkShift, models.RHEmployee,
             models.RHMonthlySchedule, models.RHWorkDay, models.RHSettings, models.RHBenefitAdjustment,
-            models.RHPayrollItem, models.RHPayrollEntry
+            models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()
@@ -179,6 +179,40 @@ class TestCalculatePayroll(unittest.TestCase):
         lines = self._by_key(row)
         self.assertEqual(lines["FALTAS"]["amount"], 100.0)
         self.assertEqual(lines["FALTAS"]["reference"], "1 dia(s)")
+
+    def _raise(self, effective, **kw):
+        from services.rh_salary_service import apply_salary_change
+        apply_salary_change(self.db, self.emp, effective, **kw)
+        self.db.commit()
+
+    def _calc_month(self, year, month):
+        sched = self.db.query(models.RHMonthlySchedule).filter_by(year=year, month=month).first()
+        if not sched:
+            sched = models.RHMonthlySchedule(organization_id=self.org_id, year=year, month=month)
+            self.db.add(sched)
+            self.db.commit()
+        with patch("services.rh_payroll_service.get_effective_holidays_map", return_value={}):
+            calculate_payroll(self.db, self.org_id, sched)
+        return self._by_key(get_payroll_month(self.db, self.org_id, sched)["employees"][0])
+
+    def test_raise_applies_only_from_effective_date(self):
+        self._raise(date(2026, 12, 1), percent=10, reason="Dissídio")
+        self.assertEqual(self._calc_month(2026, 10)["SALARIO"]["amount"], 3000.0)
+        self.assertEqual(self._calc_month(2026, 12)["SALARIO"]["amount"], 3300.0)
+
+    def test_raise_mid_month_is_proportional(self):
+        self._raise(date(2026, 10, 16), new_salary=3600.0)
+        # 15 dias a 3000 + 15 dias a 3600 (mês comercial de 30 dias)
+        self.assertEqual(self._calc_month(2026, 10)["SALARIO"]["amount"], 3300.0)
+        self.assertEqual(self._calc_month(2026, 11)["SALARIO"]["amount"], 3600.0)
+
+    def test_initial_salary_preserved_before_first_raise(self):
+        from services.rh_salary_service import get_salary_history
+        self._raise(date(2027, 1, 1), new_salary=4000.0)
+        history = get_salary_history(self.db, self.emp.id)
+        self.assertIsNone(history[0].effective_date)
+        self.assertEqual(history[0].salary, 3000.0)
+        self.assertEqual(self._calc_month(2026, 10)["SALARIO"]["amount"], 3000.0)
 
     def test_recalculate_is_idempotent(self):
         first = self._calc()

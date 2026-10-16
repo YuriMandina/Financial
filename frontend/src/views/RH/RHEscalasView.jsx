@@ -3,7 +3,7 @@ import {
   Users, Bus, Utensils, AlertTriangle, Calendar, Printer, 
   Save, RefreshCw, Plus, Trash2, Edit2, CheckCircle2, Clock, 
   ChevronLeft, ChevronRight, ShieldAlert, Sparkles, FileSpreadsheet,
-  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays, Wallet
+  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays, Wallet, TrendingUp
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
 import RHShiftModal from './components/RHShiftModal';
@@ -12,6 +12,7 @@ import RHJornadaGrid from './components/RHJornadaGrid';
 import RHBeneficiosGrid from './components/RHBeneficiosGrid';
 import RHFeriadosView from './components/RHFeriadosView';
 import RHFolhaPagamento from './components/RHFolhaPagamento';
+import RHSalaryModal from './components/RHSalaryModal';
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
 
@@ -131,6 +132,7 @@ export default function RHEscalasView({ token }) {
   });
 
   const [roleModalOpen, setRoleModalOpen] = useState(false);
+  const [salaryModalTarget, setSalaryModalTarget] = useState(null); // id do colaborador ou 'ALL'
   const [roleFormData, setRoleFormData] = useState({ name: '', description: '' });
 
   const [shiftModalOpen, setShiftModalOpen] = useState(false);
@@ -433,7 +435,7 @@ export default function RHEscalasView({ token }) {
         weekly_contract_hours: parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         weekly_actual_hours: parseFloat(employeeFormData.weekly_actual_hours) || parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         work_days_per_week: parseInt(employeeFormData.work_days_per_week, 10) || 6,
-        base_salary: parseMoney(employeeFormData.base_salary),
+        ...(editingEmployee ? {} : { base_salary: parseMoney(employeeFormData.base_salary) }),
         dependents: parseInt(employeeFormData.dependents, 10) || 0,
         admission_date: employeeFormData.admission_date || null,
         active: employeeFormData.active
@@ -1046,6 +1048,14 @@ export default function RHEscalasView({ token }) {
             Regras de RH & VT Universal
           </button>
           <button
+            onClick={() => setSalaryModalTarget('ALL')}
+            disabled={employees.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 transition-colors disabled:opacity-50"
+          >
+            <TrendingUp size={14} />
+            Aumento Salarial
+          </button>
+          <button
             onClick={() => {
               setEditingEmployee(null);
               setEmployeeFormData({
@@ -1079,6 +1089,7 @@ export default function RHEscalasView({ token }) {
               <th className="py-3 px-4">Nome</th>
               <th className="py-3 px-4">Cargo</th>
               <th className="py-3 px-4">Contrato Semanal</th>
+              <th className="py-3 px-4 text-right">Salário</th>
               <th className="py-3 px-4">Turno Padrão</th>
               <th className="py-3 px-4 text-center">VT Diário</th>
               <th className="py-3 px-4 text-right">VA Diário</th>
@@ -1089,7 +1100,7 @@ export default function RHEscalasView({ token }) {
           <tbody className="divide-y divide-slate-800/60">
             {employees.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-slate-500">
+                <td colSpan={9} className="py-8 text-center text-slate-500">
                   Nenhum colaborador cadastrado. Clique no botão acima para adicionar.
                 </td>
               </tr>
@@ -1106,6 +1117,9 @@ export default function RHEscalasView({ token }) {
                     </td>
                     <td className="py-3 px-4 text-slate-400">
                       {emp.weekly_contract_hours}h semanais
+                    </td>
+                    <td className="py-3 px-4 text-right text-slate-200 font-medium whitespace-nowrap">
+                      {Number(emp.base_salary || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </td>
                     <td className="py-3 px-4 text-slate-300">
                       {shiftObj ? `${shiftObj.code} (${shiftObj.net_hours}h)` : 'Padrão (8h)'}
@@ -1145,6 +1159,13 @@ export default function RHEscalasView({ token }) {
                         title="Editar Colaborador"
                       >
                         <Edit2 size={15} />
+                      </button>
+                      <button
+                        onClick={() => setSalaryModalTarget(emp.id)}
+                        className="p-1.5 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition-colors"
+                        title="Aumento salarial e histórico"
+                      >
+                        <TrendingUp size={15} />
                       </button>
                       <button
                         onClick={() => handleDeleteEmployee(emp.id)}
@@ -1637,6 +1658,21 @@ export default function RHEscalasView({ token }) {
       {/* --- [BLOCO: MODAIS DE EDIÇÃO] --- */}
       {/* ============================================================================== */}
 
+      {salaryModalTarget !== null && (
+        <RHSalaryModal
+          token={token}
+          apiBase={API_BASE}
+          employees={employees}
+          target={salaryModalTarget}
+          onClose={() => setSalaryModalTarget(null)}
+          onSaved={async (message) => {
+            await fetchSchedule();
+            setSaveSuccessMsg(message);
+            setTimeout(() => setSaveSuccessMsg(''), 4000);
+          }}
+        />
+      )}
+
       {/* Modal de Colaborador */}
       {employeeModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
@@ -1783,12 +1819,26 @@ export default function RHEscalasView({ token }) {
                       type="text"
                       inputMode="decimal"
                       placeholder="0,00"
+                      readOnly={!!editingEmployee}
                       value={employeeFormData.base_salary ?? ''}
                       onChange={(e) => setEmployeeFormData({ ...employeeFormData, base_salary: e.target.value.replace(/[^0-9.,]/g, '') })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white focus:outline-none focus:border-indigo-500 read-only:opacity-60 read-only:cursor-not-allowed"
                     />
                   </div>
-                  <span className="text-[10px] text-slate-500">Base da folha, horas extras, faltas e encargos</span>
+                  {editingEmployee ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEmployeeModalOpen(false);
+                        setSalaryModalTarget(editingEmployee.id);
+                      }}
+                      className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold"
+                    >
+                      Registrar aumento salarial →
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-slate-500">Salário inicial; aumentos depois, com data de vigência</span>
+                  )}
                 </div>
 
                 <div>

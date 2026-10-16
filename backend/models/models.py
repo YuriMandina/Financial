@@ -255,6 +255,21 @@ class RHEmployee(Base):
     schedule_days = relationship("RHScheduleDay", back_populates="employee", cascade="all, delete-orphan")
     work_days = relationship("RHWorkDay", back_populates="employee", cascade="all, delete-orphan")
     payroll_entries = relationship("RHPayrollEntry", back_populates="employee", cascade="all, delete-orphan")
+    salary_changes = relationship("RHSalaryChange", back_populates="employee", cascade="all, delete-orphan")
+
+
+class RHSalaryChange(Base):
+    """Histórico salarial: salário vigente a partir da data (sem data = salário inicial)."""
+    __tablename__ = "rh_salary_changes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id"), nullable=False, index=True)
+    effective_date = Column(Date, nullable=True)
+    salary = Column(Float, nullable=False)
+    reason = Column(String, nullable=True) # Ex: "Dissídio 2026", "Promoção"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    employee = relationship("RHEmployee", back_populates="salary_changes")
 
 
 class RHPayrollItem(Base):

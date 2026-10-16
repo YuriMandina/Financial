@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from models import models
 from services.rh_engine import calculate_work_days_summary, get_month_calendar_info
 from services.rh_holidays_service import get_effective_holidays_map
+from services.rh_salary_service import get_salary_history, salary_for_month, salary_on
 
 # ==============================================================================
 # --- [BLOCO: TABELAS LEGAIS 2026] ---
@@ -265,12 +266,15 @@ def calculate_payroll(
                 return
             lines.append((item, amount, reference))
 
-        salary = float(emp.base_salary or 0.0)
+        # Salário vigente no mês (histórico salarial, proporcional se o aumento for no meio do mês)
+        salary, salary_reference, end_salary = salary_for_month(
+            emp, get_salary_history(db, emp.id), schedule.year, schedule.month, num_days
+        )
         weekly_hours = float(emp.weekly_contract_hours or 44.0)
-        hourly_rate = salary / (weekly_hours * 5) if weekly_hours else 0.0  # divisor CLT (220h para 44h)
-        daily_rate = salary / 30
+        hourly_rate = end_salary / (weekly_hours * 5) if weekly_hours else 0.0  # divisor CLT (220h para 44h)
+        daily_rate = end_salary / 30
 
-        add_auto(system_items["SALARIO"], salary)
+        add_auto(system_items["SALARIO"], salary, salary_reference)
 
         # Triênio: % do salário base para cada 3 anos completos até o fim do mês
         triennium_item = system_items["TRIENIO"]
@@ -407,6 +411,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
         by_emp.setdefault(e.employee_id, []).append(e)
 
     grand = {"receitas": 0.0, "despesas": 0.0, "liquido": 0.0, "fgts": 0.0, "beneficios": 0.0}
+    month_end = date(schedule.year, schedule.month, get_month_calendar_info(schedule.year, schedule.month)["num_days"])
     rows = []
     for emp in employees:
         emp_entries = sorted(by_emp.get(emp.id, []), key=lambda e: (e.item.kind != "RECEITA", e.item.code))
@@ -428,7 +433,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "employee_id": emp.id,
             "employee_name": emp.name,
             "employee_role": (emp.role_obj.name if emp.role_obj else emp.role) or "Geral",
-            "base_salary": emp.base_salary or 0.0,
+            "base_salary": salary_on(emp, get_salary_history(db, emp.id), month_end),
             "dependents": emp.dependents or 0,
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "entries": [entry_to_dict(e) for e in emp_entries],

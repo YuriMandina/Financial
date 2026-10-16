@@ -256,6 +256,10 @@ def get_payroll(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     schedule = _get_or_create_schedule(db, current_user.organization_id, year, month)
+    # A folha é sempre derivada do estado atual (escala, cadastro, rubricas e configurações).
+    # Folhas fechadas (status CLOSED) ficam congeladas.
+    if schedule.status != "CLOSED":
+        calculate_payroll(db, current_user.organization_id, schedule)
     return get_payroll_month(db, current_user.organization_id, schedule)
 
 

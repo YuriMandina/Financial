@@ -19,6 +19,9 @@ from services.rh_engine import (
 )
 from services.rh_schedule_service import apply_shift_fill, clear_or_reset_schedule
 from services.rh_payroll_service import sync_payroll_if_calculated
+from services.rh_salary_service import (
+    get_salary_history, current_salary, apply_salary_change, ensure_initial_salary, sync_current_salary
+)
 from services.rh_holidays_service import get_effective_holidays_map, list_all_holidays_for_organization
 
 router = APIRouter(prefix="/api/rh", tags=["rh"])
@@ -110,6 +113,18 @@ class RHEmployeeUpdate(BaseModel):
     dependents: Optional[int] = None
     admission_date: Optional[date] = None
     active: Optional[bool] = None
+
+class RHSalaryChangeCreate(BaseModel):
+    effective_date: date
+    new_salary: Optional[float] = None
+    percent: Optional[float] = None
+    reason: Optional[str] = None
+
+class RHSalaryChangeBulk(BaseModel):
+    employee_ids: Optional[List[int]] = None  # None = toda a equipe ativa
+    effective_date: date
+    percent: float
+    reason: Optional[str] = None
 
 class RHHolidayCreate(BaseModel):
     date: str # YYYY-MM-DD
@@ -478,7 +493,7 @@ def list_employees(
             "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
             "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0),
             "work_days_per_week": emp.work_days_per_week or 6,
-            "base_salary": emp.base_salary or 0.0,
+            "base_salary": current_salary(db, emp),
             "dependents": emp.dependents or 0,
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "active": emp.active
@@ -555,7 +570,11 @@ def update_employee(
         emp.weekly_actual_hours = payload.weekly_actual_hours
     if payload.work_days_per_week is not None:
         emp.work_days_per_week = payload.work_days_per_week
-    if payload.base_salary is not None:
+    # Com histórico salarial, alterações de salário só por aumento com data de vigência
+    has_salary_history = db.query(models.RHSalaryChange.id).filter(
+        models.RHSalaryChange.employee_id == emp.id
+    ).first() is not None
+    if payload.base_salary is not None and not has_salary_history:
         emp.base_salary = round(payload.base_salary, 2)
     if payload.dependents is not None:
         emp.dependents = payload.dependents
@@ -905,7 +924,7 @@ def get_monthly_schedule(
                     "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
                     "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0),
                     "work_days_per_week": emp.work_days_per_week or 6,
-                    "base_salary": emp.base_salary or 0.0,
+                    "base_salary": current_salary(db, emp),
                     "dependents": emp.dependents or 0,
                     "admission_date": emp.admission_date.isoformat() if emp.admission_date else None
                 }
@@ -1350,3 +1369,133 @@ def auto_fill_standard_schedule(
     db.commit()
     sync_payroll_if_calculated(db, current_user.organization_id, schedule.id)
     return {"message": "Escala padrão preenchida com sucesso!"}
+
+
+# ==============================================================================
+# --- [BLOCO: HISTÓRICO E AUMENTO SALARIAL] ---
+# ==============================================================================
+
+def _salary_change_to_dict(c: models.RHSalaryChange) -> Dict[str, Any]:
+    return {
+        "id": c.id,
+        "employee_id": c.employee_id,
+        "effective_date": c.effective_date.isoformat() if c.effective_date else None,
+        "salary": round(c.salary or 0.0, 2),
+        "reason": c.reason,
+        "is_initial": c.effective_date is None,
+    }
+
+
+def _get_org_employee(db: Session, organization_id: int, emp_id: int) -> models.RHEmployee:
+    emp = db.query(models.RHEmployee).filter(
+        models.RHEmployee.id == emp_id,
+        models.RHEmployee.organization_id == organization_id
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Colaborador não encontrado")
+    return emp
+
+
+@router.get("/employees/{emp_id}/salary-history")
+def list_salary_history(
+    emp_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    emp = _get_org_employee(db, current_user.organization_id, emp_id)
+    history = get_salary_history(db, emp.id)
+    if not history:
+        # Sem aumentos ainda: exibe o salário do cadastro como inicial
+        return [{
+            "id": None, "employee_id": emp.id, "effective_date": None,
+            "salary": round(emp.base_salary or 0.0, 2), "reason": "Salário inicial", "is_initial": True
+        }]
+    return [_salary_change_to_dict(c) for c in history]
+
+
+@router.post("/employees/{emp_id}/salary-changes")
+def create_salary_change(
+    emp_id: int,
+    payload: RHSalaryChangeCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    emp = _get_org_employee(db, current_user.organization_id, emp_id)
+    try:
+        change = apply_salary_change(
+            db, emp, payload.effective_date,
+            new_salary=payload.new_salary, percent=payload.percent, reason=payload.reason
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
+    db.refresh(change)
+    return _salary_change_to_dict(change)
+
+
+@router.post("/salary-changes/bulk")
+def create_bulk_salary_change(
+    payload: RHSalaryChangeBulk,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Aumento coletivo (ex: dissídio) em percentual para a equipe ou colaboradores selecionados."""
+    query = db.query(models.RHEmployee).filter(
+        models.RHEmployee.organization_id == current_user.organization_id,
+        models.RHEmployee.active == True
+    )
+    if payload.employee_ids:
+        query = query.filter(models.RHEmployee.id.in_(payload.employee_ids))
+    employees = query.all()
+
+    for emp in employees:
+        apply_salary_change(db, emp, payload.effective_date, percent=payload.percent, reason=payload.reason)
+    db.commit()
+    return {"message": f"Aumento de {payload.percent:g}% aplicado para {len(employees)} colaborador(es)."}
+
+
+@router.put("/salary-changes/{change_id}")
+def update_salary_change(
+    change_id: int,
+    payload: RHSalaryChangeCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    change = db.query(models.RHSalaryChange).join(models.RHEmployee).filter(
+        models.RHSalaryChange.id == change_id,
+        models.RHEmployee.organization_id == current_user.organization_id
+    ).first()
+    if not change:
+        raise HTTPException(status_code=404, detail="Registro salarial não encontrado")
+    if payload.new_salary is None or payload.new_salary < 0:
+        raise HTTPException(status_code=400, detail="Informe o salário")
+    change.salary = round(payload.new_salary, 2)
+    if change.effective_date is not None:
+        change.effective_date = payload.effective_date
+    change.reason = payload.reason or change.reason
+    db.flush()
+    sync_current_salary(db, change.employee)
+    db.commit()
+    return _salary_change_to_dict(change)
+
+
+@router.delete("/salary-changes/{change_id}")
+def delete_salary_change(
+    change_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    change = db.query(models.RHSalaryChange).join(models.RHEmployee).filter(
+        models.RHSalaryChange.id == change_id,
+        models.RHEmployee.organization_id == current_user.organization_id
+    ).first()
+    if not change:
+        raise HTTPException(status_code=404, detail="Registro salarial não encontrado")
+    if change.effective_date is None:
+        raise HTTPException(status_code=400, detail="O salário inicial não pode ser excluído; edite o valor")
+    emp = change.employee
+    db.delete(change)
+    db.flush()
+    sync_current_salary(db, emp)
+    db.commit()
+    return {"message": "Aumento salarial excluído"}
