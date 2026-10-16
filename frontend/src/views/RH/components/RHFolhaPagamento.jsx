@@ -53,6 +53,9 @@ const PRINT_FRAME_CSS = `
   table.print-page-frame > thead { display: table-header-group !important; }
   table.print-page-frame > tfoot { display: table-footer-group !important; }
   table.print-page-frame > tbody > tr { break-inside: auto !important; page-break-inside: auto !important; }
+  table.print-page-frame td.print-nowrap, table.print-page-frame th.print-nowrap {
+    white-space: nowrap !important; word-break: keep-all !important; overflow-wrap: normal !important;
+  }
 }`;
 
 const PrintFrame = ({ children }) => (
@@ -248,6 +251,13 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   // ==============================================================================
 
   const [advanceSaving, setAdvanceSaving] = useState(false);
+
+  // Impressão dos totais: detalhada (com colaboradores) ou resumida (só rubricas)
+  const [printDetailed, setPrintDetailed] = useState(true);
+  const printTotais = (detailed) => {
+    setPrintDetailed(detailed);
+    setTimeout(() => window.print(), 50);
+  };
 
   const handleToggleAdvance = async (employeeIds, enabled) => {
     if (employeeIds.length === 0) return;
@@ -791,8 +801,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                       <th className="text-left w-12">Cód.</th>
                       <th className="text-left">Rubrica</th>
                       <th className="text-left">Referência</th>
-                      <th className="text-right w-28">(+) Proventos</th>
-                      <th className="text-right w-28">(−) Descontos</th>
+                      <th className="text-right print-nowrap w-28">(+) Proventos</th>
+                      <th className="text-right print-nowrap w-28">(−) Descontos</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -807,8 +817,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                           {en.source === 'MANUAL' && ' • manual'}
                         </td>
                         <td>{en.reference || '-'}</td>
-                        <td className="text-right whitespace-nowrap">{en.kind === 'RECEITA' ? brl(en.amount) : ''}</td>
-                        <td className="text-right whitespace-nowrap">{en.kind === 'DESPESA' ? brl(en.amount) : ''}</td>
+                        <td className="text-right print-nowrap">{en.kind === 'RECEITA' ? brl(en.amount) : ''}</td>
+                        <td className="text-right print-nowrap">{en.kind === 'DESPESA' ? brl(en.amount) : ''}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -816,16 +826,16 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                     <tr className="bg-slate-100 font-semibold">
                       <td />
                       <td />
-                      <td className="text-right">Totais</td>
-                      <td className="text-right whitespace-nowrap">{brl(emp.totals.receitas)}</td>
-                      <td className="text-right whitespace-nowrap">{brl(emp.totals.despesas)}</td>
+                      <td className="text-right print-nowrap">Totais</td>
+                      <td className="text-right print-nowrap">{brl(emp.totals.receitas)}</td>
+                      <td className="text-right print-nowrap">{brl(emp.totals.despesas)}</td>
                     </tr>
                     <tr className="bg-slate-200 font-bold">
                       <td />
                       <td />
-                      <td className="text-right">(=) Líquido a receber</td>
+                      <td className="text-right print-nowrap">(=) Líquido a receber</td>
                       <td />
-                      <td className="text-right whitespace-nowrap">{brl(emp.totals.liquido)}</td>
+                      <td className="text-right print-nowrap">{brl(emp.totals.liquido)}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -847,12 +857,12 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               <tr className="bg-slate-200">
                 <th className="text-left">Colaborador</th>
                 <th className="text-left">Cargo</th>
-                <th className="text-right">Salário Base</th>
-                <th className="text-right">(+) Proventos</th>
-                <th className="text-right">(−) Descontos</th>
-                <th className="text-right">(−) Adiantamento</th>
-                <th className="text-right">(=) Líquido</th>
-                <th className="text-right">FGTS</th>
+                <th className="text-right print-nowrap">Salário Base</th>
+                <th className="text-right print-nowrap">(+) Proventos</th>
+                <th className="text-right print-nowrap">(−) Descontos</th>
+                <th className="text-right print-nowrap">(−) Adiantamento</th>
+                <th className="text-right print-nowrap">(=) Líquido</th>
+                <th className="text-right print-nowrap">FGTS</th>
               </tr>
             </thead>
             <tbody>
@@ -862,12 +872,12 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   <tr key={emp.employee_id}>
                     <td className="font-semibold">{emp.employee_name}</td>
                     <td>{emp.employee_role}</td>
-                    <td className="text-right">{brl(emp.base_salary)}</td>
-                    <td className="text-right">{brl(emp.totals.receitas)}</td>
-                    <td className="text-right">{brl(emp.totals.despesas - adv)}</td>
-                    <td className="text-right">{adv ? brl(adv) : '-'}</td>
-                    <td className="text-right font-bold">{brl(emp.totals.liquido)}</td>
-                    <td className="text-right">{brl(emp.totals.fgts)}</td>
+                    <td className="text-right print-nowrap">{brl(emp.base_salary)}</td>
+                    <td className="text-right print-nowrap">{brl(emp.totals.receitas)}</td>
+                    <td className="text-right print-nowrap">{brl(emp.totals.despesas - adv)}</td>
+                    <td className="text-right print-nowrap">{adv ? brl(adv) : '-'}</td>
+                    <td className="text-right print-nowrap font-bold">{brl(emp.totals.liquido)}</td>
+                    <td className="text-right print-nowrap">{brl(emp.totals.fgts)}</td>
                   </tr>
                 );
               })}
@@ -875,12 +885,12 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             <tfoot>
               <tr className="bg-slate-100 font-bold">
                 <td colSpan={2}>Total</td>
-                <td className="text-right">{brl(employees.reduce((acc, e) => acc + (e.base_salary || 0), 0))}</td>
-                <td className="text-right">{brl(totals.receitas)}</td>
-                <td className="text-right">{brl((totals.despesas || 0) - (totals.adiantamento || 0))}</td>
-                <td className="text-right">{brl(totals.adiantamento)}</td>
-                <td className="text-right">{brl(totals.liquido)}</td>
-                <td className="text-right">{brl(totals.fgts)}</td>
+                <td className="text-right print-nowrap">{brl(employees.reduce((acc, e) => acc + (e.base_salary || 0), 0))}</td>
+                <td className="text-right print-nowrap">{brl(totals.receitas)}</td>
+                <td className="text-right print-nowrap">{brl((totals.despesas || 0) - (totals.adiantamento || 0))}</td>
+                <td className="text-right print-nowrap">{brl(totals.adiantamento)}</td>
+                <td className="text-right print-nowrap">{brl(totals.liquido)}</td>
+                <td className="text-right print-nowrap">{brl(totals.fgts)}</td>
               </tr>
             </tfoot>
           </table>
@@ -911,7 +921,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
           {lines.map(([label, value, strong]) => (
             <tr key={label} className={strong ? 'font-bold bg-slate-100' : ''}>
               <td>{label}</td>
-              <td className="text-right whitespace-nowrap">{brl(value)}</td>
+              <td className="text-right print-nowrap">{brl(value)}</td>
             </tr>
           ))}
         </tbody>
@@ -920,7 +930,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
 
     return (
       <PrintFrame>
-        {printTitle(`Totais da folha • ${totals.headcount || 0} colaborador(es)`)}
+        {printTitle(`Totais da folha${printDetailed ? ' (detalhado por colaborador)' : ' (resumido)'} • ${totals.headcount || 0} colaborador(es)`)}
 
         <div className="grid grid-cols-3 gap-3 mb-4" style={{ breakInside: 'avoid' }}>
           {summaryBox('Resumo da Folha', [
@@ -949,7 +959,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               <th className="text-left">Rubrica / Colaborador</th>
               <th className="text-left">Referência</th>
               <th className="text-center w-14">Colab.</th>
-              <th className="text-right w-28">Total</th>
+              <th className="text-right print-nowrap w-28">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -958,13 +968,13 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 {g.key === 'INFO' && (
                   <tr className="font-bold bg-slate-300">
                     <td colSpan={3}>= Líquido a Pagar</td>
-                    <td className="text-right">{brl(sum(groups[0].rows) - sum(groups[1].rows))}</td>
+                    <td className="text-right print-nowrap">{brl(sum(groups[0].rows) - sum(groups[1].rows))}</td>
                   </tr>
                 )}
                 {(g.key !== 'INFO' || g.rows.length > 0) && (
                   <tr className="font-bold bg-slate-200 uppercase">
                     <td colSpan={3}>{g.label}</td>
-                    <td className="text-right">{brl(sum(g.rows))}</td>
+                    <td className="text-right print-nowrap">{brl(sum(g.rows))}</td>
                   </tr>
                 )}
                 {g.rows.map((r) => (
@@ -973,9 +983,9 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                       <td style={{ paddingLeft: '12px' }}>{r.code} • {r.name}</td>
                       <td />
                       <td className="text-center">{r.employees}</td>
-                      <td className="text-right">{brl(r.total)}</td>
+                      <td className="text-right print-nowrap">{brl(r.total)}</td>
                     </tr>
-                    {r.details.map((d) => (
+                    {printDetailed && r.details.map((d) => (
                       <tr key={`${r.item_id}-${d.employee_id}`}>
                         <td style={{ paddingLeft: '28px' }}>
                           {d.employee_name} <span className="text-slate-600">• {d.employee_role}</span>
@@ -983,7 +993,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                         </td>
                         <td>{d.reference || ''}</td>
                         <td />
-                        <td className="text-right">{brl(d.amount)}</td>
+                        <td className="text-right print-nowrap">{brl(d.amount)}</td>
                       </tr>
                     ))}
                   </React.Fragment>
@@ -999,11 +1009,11 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             <tr className="bg-slate-200">
               <th className="text-left">Cargo</th>
               <th className="text-center">Colab.</th>
-              <th className="text-right">Proventos</th>
-              <th className="text-right">Descontos</th>
-              <th className="text-right">Líquido</th>
-              <th className="text-right">FGTS</th>
-              <th className="text-right">Custo Empresa</th>
+              <th className="text-right print-nowrap">Proventos</th>
+              <th className="text-right print-nowrap">Descontos</th>
+              <th className="text-right print-nowrap">Líquido</th>
+              <th className="text-right print-nowrap">FGTS</th>
+              <th className="text-right print-nowrap">Custo Empresa</th>
             </tr>
           </thead>
           <tbody>
@@ -1011,11 +1021,11 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               <tr key={r.role}>
                 <td className="font-semibold">{r.role}</td>
                 <td className="text-center">{r.headcount}</td>
-                <td className="text-right">{brl(r.receitas)}</td>
-                <td className="text-right">{brl(r.despesas)}</td>
-                <td className="text-right font-semibold">{brl(r.liquido)}</td>
-                <td className="text-right">{brl(r.fgts)}</td>
-                <td className="text-right">{brl(r.receitas + r.fgts + r.beneficios)}</td>
+                <td className="text-right print-nowrap">{brl(r.receitas)}</td>
+                <td className="text-right print-nowrap">{brl(r.despesas)}</td>
+                <td className="text-right print-nowrap font-semibold">{brl(r.liquido)}</td>
+                <td className="text-right print-nowrap">{brl(r.fgts)}</td>
+                <td className="text-right print-nowrap">{brl(r.receitas + r.fgts + r.beneficios)}</td>
               </tr>
             ))}
           </tbody>
@@ -1023,11 +1033,11 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             <tr className="font-bold bg-slate-100">
               <td>Total</td>
               <td className="text-center">{totals.headcount || 0}</td>
-              <td className="text-right">{brl(totals.receitas)}</td>
-              <td className="text-right">{brl(totals.despesas)}</td>
-              <td className="text-right">{brl(totals.liquido)}</td>
-              <td className="text-right">{brl(totals.fgts)}</td>
-              <td className="text-right">{brl(totals.custo_empresa)}</td>
+              <td className="text-right print-nowrap">{brl(totals.receitas)}</td>
+              <td className="text-right print-nowrap">{brl(totals.despesas)}</td>
+              <td className="text-right print-nowrap">{brl(totals.liquido)}</td>
+              <td className="text-right print-nowrap">{brl(totals.fgts)}</td>
+              <td className="text-right print-nowrap">{brl(totals.custo_empresa)}</td>
             </tr>
           </tfoot>
         </table>
@@ -1413,14 +1423,32 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             </button>
           </div>
 
-          {view !== 'rubricas' && !loading && (
+          {view === 'folha' && !loading && (
             <button
               onClick={() => window.print()}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
-              title={view === 'folha' ? 'Imprime o resumo e o detalhamento por colaborador' : 'Imprime os totais com todas as rubricas expandidas'}
+              title="Imprime o detalhamento por colaborador e o resumo"
             >
-              <Printer size={13} /> Imprimir {view === 'folha' ? 'Folha' : 'Totais'}
+              <Printer size={13} /> Imprimir Folha
             </button>
+          )}
+          {view === 'totais' && !loading && (
+            <div className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+              <button
+                onClick={() => printTotais(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                title="Rubricas com o valor de cada colaborador"
+              >
+                <Printer size={13} /> Imprimir Detalhado
+              </button>
+              <button
+                onClick={() => printTotais(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                title="Somente os totais de cada provento e desconto"
+              >
+                <Printer size={13} /> Imprimir Resumido
+              </button>
+            </div>
           )}
 
           {msg && <span className="text-xs font-medium text-emerald-400">{msg}</span>}
