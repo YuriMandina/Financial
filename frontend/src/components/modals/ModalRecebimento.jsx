@@ -1,6 +1,7 @@
 import React from 'react';
 import { Zap, ArrowDownToLine, Loader2 } from 'lucide-react';
 import { converterDataBrParaDate, formatarDataComDia } from '../../utils/formatters';
+import SelectDropdown from '../common/SelectDropdown';
 
 export default function ModalRecebimento({ modalBaixa, setModalBaixa, calcularTotaisModal, descGlobalTipo, setDescGlobalTipo, descGlobalValor, setDescGlobalValor, jurosGlobalTipo, setJurosGlobalTipo, jurosGlobalValor, setJurosGlobalValor, valorTotalRecebido, setValorTotalRecebido, aplicarRateioGlobal, detalhesPagamento, handleAlterarDetalhe, contaDestino, setContaDestino, listaBancos, dataPagamento, setDataPagamento, processandoBaixa, handleEfetuarBaixaLote }) {
   const getHojeBR = () => {
@@ -137,17 +138,23 @@ export default function ModalRecebimento({ modalBaixa, setModalBaixa, calcularTo
                       <p className="text-3xl font-black text-emerald-400">R$ {totalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6 mb-8">
+                    <div className="grid grid-cols-2 gap-6 mb-8 items-start">
                       <div>
                         <label className="block text-sm font-medium text-slate-300 mb-2">Conta de Destino</label>
-                        <select value={contaDestino} onChange={e => setContaDestino(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm">
-                          <option value="">Selecione...</option>
-                          {listaBancos.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
-                        </select>
+                        <SelectDropdown
+                          value={contaDestino}
+                          onChange={(val) => setContaDestino(val)}
+                          options={listaBancos.map(b => ({ value: b.id, label: b.nome }))}
+                          placeholder="Selecione a conta corrente..."
+                          searchable={true}
+                          size="lg"
+                          direction="up"
+                          buttonClassName="!py-2.5 !bg-slate-800 !border-slate-600 hover:!border-slate-500 text-sm"
+                        />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-300 mb-2">Data</label>
-                        <input type="date" max={getHojeBR()} value={dataPagamento} onChange={e => setDataPagamento(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm [color-scheme:dark]" />
+                        <input type="date" max={getHojeBR()} value={dataPagamento} onChange={e => setDataPagamento(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm [color-scheme:dark] outline-none focus:border-indigo-500 transition" />
                       </div>
                     </div>
                   </>

@@ -12,6 +12,7 @@ import { ChevronDown, Check, Search, X } from 'lucide-react';
  * - disabled?: boolean
  * - searchable?: boolean
  * - size?: 'sm' | 'md' | 'lg'
+ * - direction?: 'down' | 'up'
  * - className?: string
  * - buttonClassName?: string
  * - menuClassName?: string
@@ -26,6 +27,7 @@ export default function SelectDropdown({
   disabled = false,
   searchable = false,
   size = 'md',
+  direction = 'down',
   className = '',
   buttonClassName = '',
   menuClassName = '',
@@ -135,7 +137,9 @@ export default function SelectDropdown({
       {/* Menu Dropdown Suspenso */}
       {isOpen && (
         <div
-          className={`absolute left-0 right-0 z-50 mt-1 rounded-xl bg-slate-900 border border-slate-700/80 shadow-2xl backdrop-blur-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${menuClassName}`}
+          className={`absolute left-0 right-0 z-50 rounded-xl bg-slate-900 border border-slate-700/80 shadow-2xl backdrop-blur-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${
+            direction === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+          } ${menuClassName}`}
           style={{ maxHeight: '280px' }}
         >
           {/* Campo de Busca Opcional */}
