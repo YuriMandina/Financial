@@ -1027,11 +1027,20 @@ export default function RHEscalasView({ token }) {
             {rowsWithSpecials.length > 0 && (
               <div className="hidden print:block mt-2 text-[9px] text-black break-inside-avoid">
                 <div className="font-bold mb-0.5">* Horários especiais</div>
-                <ul className="space-y-0.5">
+                <ul className="space-y-1">
                   {rowsWithSpecials.map(({ emp, specials }) => (
-                    <li key={emp.id}>
-                      <span className="font-bold">{emp.name}:</span>{' '}
-                      {specials.map((s) => `${pad(s.day)}/${mm} ${formatTimes(s)}`).join(' · ')}
+                    <li key={emp.id} className="flex items-start gap-1.5 break-inside-avoid">
+                      <span className="font-bold whitespace-nowrap pt-0.5 min-w-[28mm]">{emp.name}</span>
+                      <div className="flex flex-wrap gap-1">
+                        {specials.map((s) => (
+                          <div key={s.day} className="border border-slate-500 rounded px-1.5 py-0.5 whitespace-nowrap">
+                            <span className="font-bold">{pad(s.day)}/{mm}</span>{' '}
+                            {WEEKDAY_LABELS[new Date(selectedYear, selectedMonth - 1, s.day).getDay()]}
+                            <span className="mx-1 text-slate-400">|</span>
+                            <span className="font-mono">{formatTimes(s)}</span>
+                          </div>
+                        ))}
+                      </div>
                     </li>
                   ))}
                 </ul>
