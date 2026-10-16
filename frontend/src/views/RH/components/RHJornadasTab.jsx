@@ -638,8 +638,13 @@ export default function RHJornadasTab({
                                     <td className="border border-black text-center text-gray-400">-</td>
                                     <td className="border border-black text-center text-gray-400">-</td>
                                     <td className="border border-black"></td>
-                                    <td className="border border-black text-left px-2 font-bold text-[9px] uppercase tracking-wider text-gray-800">
-                                      {ocorrencia}
+                                    <td className="border border-black text-left px-1.5 font-bold text-gray-800">
+                                      <div
+                                        className={`uppercase line-clamp-2 ${ocorrencia.length > 42 ? 'text-[7.5px] leading-[1.1] tracking-normal' : 'text-[9px] leading-tight tracking-wider'}`}
+                                        title={ocorrencia}
+                                      >
+                                        {ocorrencia}
+                                      </div>
                                     </td>
                                   </>
                                 ) : (
@@ -665,8 +670,10 @@ export default function RHJornadasTab({
                                       ) : null}
                                     </td>
                                     <td className="border border-black"></td>
-                                    <td className="border border-black text-left px-1 text-[9px]">
-                                      {dayWork?.notes || ''}
+                                    <td className="border border-black text-left px-1">
+                                      <div className="text-[8px] leading-[1.1] line-clamp-2" title={dayWork?.notes || ''}>
+                                        {dayWork?.notes || ''}
+                                      </div>
                                     </td>
                                   </>
                                 )}
