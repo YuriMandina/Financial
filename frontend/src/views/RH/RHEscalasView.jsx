@@ -1633,7 +1633,7 @@ export default function RHEscalasView({ token }) {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Jornada Semanal Contratual</label>
+                  <label className="block text-slate-400 mb-1 whitespace-nowrap" title="Jornada semanal contratual">Jornada Contratual</label>
                   <SelectDropdown
                     value={employeeFormData.weekly_contract_hours}
                     onChange={(val) => {
@@ -1645,31 +1645,31 @@ export default function RHEscalasView({ token }) {
                         weekly_actual_hours: wasEqual ? newContract : employeeFormData.weekly_actual_hours
                       });
                     }}
-                    options={[44, 40, 36, 30, 20].map((h) => ({ value: h, label: `${h} horas semanais` }))}
+                    options={[44, 40, 36, 30, 20].map((h) => ({ value: h, label: `${h}h semanais` }))}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1">Jornada Semanal Praticada</label>
+                  <label className="block text-slate-400 mb-1 whitespace-nowrap" title="Jornada semanal praticada">Jornada Praticada</label>
                   <SelectDropdown
                     value={employeeFormData.weekly_actual_hours}
                     onChange={(val) => setEmployeeFormData({ ...employeeFormData, weekly_actual_hours: parseFloat(val) })}
                     options={[
-                      { value: 44, label: '44 horas semanais' },
-                      { value: 48, label: '48 horas semanais', subtitle: 'ex: 6x 8h' },
-                      ...[40, 36, 30, 20].map((h) => ({ value: h, label: `${h} horas semanais` }))
+                      { value: 44, label: '44h semanais' },
+                      { value: 48, label: '48h semanais' },
+                      ...[40, 36, 30, 20].map((h) => ({ value: h, label: `${h}h semanais` }))
                     ]}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1">Dias Trabalhados/Sem.</label>
+                  <label className="block text-slate-400 mb-1 whitespace-nowrap">Dias por Semana</label>
                   <SelectDropdown
                     value={employeeFormData.work_days_per_week || 6}
                     onChange={(val) => setEmployeeFormData({ ...employeeFormData, work_days_per_week: parseInt(val, 10) || 6 })}
                     options={[
-                      { value: 6, label: '6 dias', subtitle: 'Seg a Sáb (6x1)' },
-                      { value: 5, label: '5 dias', subtitle: 'Seg a Sex (5x2)' }
+                      { value: 6, label: '6 dias (6x1)' },
+                      { value: 5, label: '5 dias (5x2)' }
                     ]}
                   />
                 </div>
