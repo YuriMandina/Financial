@@ -696,17 +696,8 @@ def get_monthly_schedule(
                     models.RHWorkDay.schedule_id == schedule.id
                 ).all()
 
-        # Se ainda estiver vazio e houver colaboradores, preenche automaticamente
-        if not work_days_db and employees:
-            apply_shift_fill(
-                db=db,
-                organization_id=current_user.organization_id,
-                schedule_id=schedule.id,
-                overwrite_manual=True
-            )
-            work_days_db = db.query(models.RHWorkDay).filter(
-                models.RHWorkDay.schedule_id == schedule.id
-            ).all()
+        # Mês sem escala permanece vazio: o preenchimento só ocorre por ação explícita
+        # do operador (Aplicar Turnos em Lote / Restaurar Turno Contratual).
 
         # Buscar ajustes avulsos do mês (D7)
         benefit_adjustments_db = db.query(models.RHBenefitAdjustment).filter(
@@ -750,7 +741,7 @@ def get_monthly_schedule(
                     benefit_note = wd.benefit_note
                 else:
                     is_sun = day in sundays
-                    status = "DSR" if is_sun else "FOLGA"
+                    status = "FERIADO" if day in holidays_by_day else ("DSR" if is_sun else "FOLGA")
                     ben = {
                         "vt_calc": 0, "vt_final": 0, "vt_is_overridden": False,
                         "va_calc": False, "va_final": False, "va_is_overridden": False,
