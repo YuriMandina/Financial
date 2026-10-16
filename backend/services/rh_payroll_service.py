@@ -440,11 +440,75 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "totals": totals,
         })
 
+    # Totais por rubrica (somatório do mês e quantidade de colaboradores)
+    row_by_emp = {r["employee_id"]: r for r in rows}
+    by_item: Dict[int, Dict[str, Any]] = {}
+    for e in entries:
+        row = row_by_emp.get(e.employee_id)
+        if not row:
+            continue
+        it = e.item
+        agg = by_item.setdefault(it.id, {
+            "item_id": it.id, "code": it.code, "name": it.name, "kind": it.kind,
+            "system_key": it.system_key, "affects_net": bool(it.affects_net),
+            "total": 0.0, "details": []
+        })
+        agg["total"] += e.amount or 0.0
+        agg["details"].append({
+            "employee_id": e.employee_id,
+            "employee_name": row["employee_name"],
+            "employee_role": row["employee_role"],
+            "reference": e.reference,
+            "amount": round(e.amount or 0.0, 2),
+            "source": e.source,
+        })
+    item_totals = sorted(
+        (
+            {
+                **v,
+                "total": round(v["total"], 2),
+                "employees": len({d["employee_id"] for d in v["details"]}),
+                "details": sorted(v["details"], key=lambda d: (-d["amount"], d["employee_name"])),
+            }
+            for v in by_item.values()
+        ),
+        key=lambda v: (v["kind"] != "RECEITA", not v["affects_net"], v["code"])
+    )
+
+    # Totais por cargo
+    by_role: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        agg = by_role.setdefault(r["employee_role"], {
+            "role": r["employee_role"], "headcount": 0,
+            "receitas": 0.0, "despesas": 0.0, "liquido": 0.0, "fgts": 0.0, "beneficios": 0.0
+        })
+        agg["headcount"] += 1
+        for k in ("receitas", "despesas", "liquido", "fgts", "beneficios"):
+            agg[k] += r["totals"][k]
+    role_totals = sorted(
+        ({k: (round(v, 2) if isinstance(v, float) else v) for k, v in agg.items()} for agg in by_role.values()),
+        key=lambda v: v["role"]
+    )
+
+    def item_sum(key: str) -> float:
+        return sum(v["total"] for v in item_totals if v["system_key"] == key)
+
+    totals = {k: round(v, 2) for k, v in grand.items()}
+    # Custo da empresa: proventos (bruto) + FGTS + benefícios informativos (VA)
+    totals.update({
+        "headcount": len(rows),
+        "inss": round(item_sum("INSS"), 2),
+        "irrf": round(item_sum("IRRF"), 2),
+        "custo_empresa": round(totals["receitas"] + totals["fgts"] + totals["beneficios"], 2),
+    })
+
     return {
         "schedule_id": schedule.id,
         "year": schedule.year,
         "month": schedule.month,
         "calculated": any(e.source == "AUTO" for e in entries),
         "employees": rows,
-        "totals": {k: round(v, 2) for k, v in grand.items()},
+        "totals": totals,
+        "item_totals": item_totals,
+        "role_totals": role_totals,
     }

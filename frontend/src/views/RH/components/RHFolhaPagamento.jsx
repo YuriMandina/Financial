@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Wallet, Calculator, RefreshCw, Plus, Edit2, Trash2, X, ChevronDown, ChevronRight,
-  ListChecks, Lock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle
+  ListChecks, Lock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
@@ -37,11 +37,12 @@ const EMPTY_ITEM = {
 };
 
 export default function RHFolhaPagamento({ token, apiBase, selectedYear, selectedMonth }) {
-  const [view, setView] = useState('folha'); // 'folha' | 'rubricas'
+  const [view, setView] = useState('folha'); // 'folha' | 'totais' | 'rubricas'
   const [loading, setLoading] = useState(true);
   const [payroll, setPayroll] = useState(null);
   const [items, setItems] = useState([]);
   const [expanded, setExpanded] = useState({});
+  const [treeOpen, setTreeOpen] = useState({ RECEITA: true, DESPESA: true, INFO: false }); // grupos e rubricas abertos
   const [msg, setMsg] = useState('');
 
   // Modal de rubrica
@@ -404,12 +405,263 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-700 bg-slate-950/70 font-bold">
+                  <td className="py-2.5 px-3 text-slate-300 uppercase tracking-wider text-[10px]">
+                    Total ({employees.length} colaboradores)
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-slate-300">
+                    {brl(employees.reduce((acc, e) => acc + (e.base_salary || 0), 0))}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-emerald-300">{brl(totals.receitas)}</td>
+                  <td className="py-2.5 px-3 text-right text-rose-300">{brl(totals.despesas)}</td>
+                  <td className="py-2.5 px-3 text-right text-white">{brl(totals.liquido)}</td>
+                  <td className="py-2.5 px-3 text-right text-sky-300">{brl(totals.fgts)}</td>
+                  <td />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
       )}
     </div>
   );
+
+  // ==============================================================================
+  // --- [TOTAIS DETALHADOS] ---
+  // ==============================================================================
+
+  // Árvore: Grupo (Receitas/Despesas/Informativos) > Rubrica > Colaborador, com subtotais
+  const renderHierarchy = (receitas, despesas, informativos) => {
+    const toggle = (key) => setTreeOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+    const groupTotal = (rows) => rows.reduce((acc, r) => acc + r.total, 0);
+    const pct = (part, whole) => (whole > 0 ? `${((part / whole) * 100).toFixed(1).replace('.', ',')}%` : '-');
+
+    const renderGroup = (key, label, rows, tone, sign) => {
+      const total = groupTotal(rows);
+      const open = !!treeOpen[key];
+      return (
+        <React.Fragment key={key}>
+          <tr className="bg-slate-950/80 border-t border-slate-700 cursor-pointer hover:bg-slate-800/40" onClick={() => toggle(key)}>
+            <td className="py-2.5 px-3" colSpan={2}>
+              <div className={`flex items-center gap-2 font-bold uppercase tracking-wider text-[11px] ${tone}`}>
+                {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {sign && <span className="w-3 text-center">{sign}</span>}
+                {label}
+                <span className="text-[10px] font-normal normal-case tracking-normal text-slate-500">
+                  {rows.length} rubrica(s)
+                </span>
+              </div>
+            </td>
+            <td />
+            <td className={`py-2.5 px-3 text-right font-bold ${tone}`}>{brl(total)}</td>
+            <td />
+          </tr>
+          {open && rows.length === 0 && (
+            <tr><td colSpan={5} className="py-2 pl-12 text-slate-500">Nenhum lançamento.</td></tr>
+          )}
+          {open && rows.map((r) => {
+            const itemKey = `item-${r.item_id}`;
+            const itemOpen = !!treeOpen[itemKey];
+            return (
+              <React.Fragment key={itemKey}>
+                <tr className="border-t border-slate-800/60 cursor-pointer hover:bg-slate-800/30" onClick={() => toggle(itemKey)}>
+                  <td className="py-1.5 pl-9 pr-3" colSpan={2}>
+                    <div className="flex items-center gap-2">
+                      {itemOpen ? <ChevronDown size={12} className="text-slate-500" /> : <ChevronRight size={12} className="text-slate-500" />}
+                      <span className="text-slate-500 w-8">{r.code}</span>
+                      <span className="font-semibold text-slate-200">{r.name}</span>
+                    </div>
+                  </td>
+                  <td className="py-1.5 px-3 text-center text-slate-400">{r.employees}</td>
+                  <td className={`py-1.5 px-3 text-right font-semibold ${tone}`}>{brl(r.total)}</td>
+                  <td className="py-1.5 px-3 text-right text-slate-500">{pct(r.total, total)}</td>
+                </tr>
+                {itemOpen && r.details.map((d) => (
+                  <tr key={`${itemKey}-${d.employee_id}`} className="bg-slate-950/40">
+                    <td className="py-1 pl-20 pr-3 text-slate-300">
+                      {d.employee_name}
+                      <span className="ml-1.5 text-[10px] text-slate-500">{d.employee_role}</span>
+                      {d.source === 'MANUAL' && (
+                        <span className="ml-1.5 px-1 rounded text-[9px] font-bold bg-indigo-600/20 text-indigo-300 border border-indigo-500/40">MANUAL</span>
+                      )}
+                    </td>
+                    <td className="py-1 px-3 text-slate-500">{d.reference || ''}</td>
+                    <td />
+                    <td className="py-1 px-3 text-right text-slate-300">{brl(d.amount)}</td>
+                    <td className="py-1 px-3 text-right text-slate-600">{pct(d.amount, r.total)}</td>
+                  </tr>
+                ))}
+              </React.Fragment>
+            );
+          })}
+        </React.Fragment>
+      );
+    };
+
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800">
+          <span className="text-xs font-bold text-white">Totais por Rubrica</span>
+          <div className="flex gap-2 text-[11px]">
+            <button
+              onClick={() => {
+                const all = { RECEITA: true, DESPESA: true, INFO: true };
+                [...receitas, ...despesas, ...informativos].forEach((r) => { all[`item-${r.item_id}`] = true; });
+                setTreeOpen(all);
+              }}
+              className="text-indigo-300 hover:text-indigo-200"
+            >
+              Expandir tudo
+            </button>
+            <span className="text-slate-600">|</span>
+            <button
+              onClick={() => setTreeOpen({ RECEITA: false, DESPESA: false, INFO: false })}
+              className="text-indigo-300 hover:text-indigo-200"
+            >
+              Recolher tudo
+            </button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-500 uppercase tracking-wider text-[9px]">
+                <th className="py-1.5 px-3 text-left">Rubrica / Colaborador</th>
+                <th className="py-1.5 px-3 text-left">Referência</th>
+                <th className="py-1.5 px-3 text-center">Colab.</th>
+                <th className="py-1.5 px-3 text-right">Total</th>
+                <th className="py-1.5 px-3 text-right w-16">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {renderGroup('RECEITA', 'Receitas (Proventos)', receitas, 'text-emerald-300', '+')}
+              {renderGroup('DESPESA', 'Despesas (Descontos)', despesas, 'text-rose-300', '−')}
+              <tr className="border-t-2 border-slate-600 bg-slate-950">
+                <td colSpan={3} className="py-3 px-3 font-bold text-white uppercase tracking-wider text-[11px]">
+                  <span className="w-3 inline-block text-center mr-2">=</span>Líquido a Pagar
+                </td>
+                <td className="py-3 px-3 text-right font-bold text-white text-sm">
+                  {brl(groupTotal(receitas) - groupTotal(despesas))}
+                </td>
+                <td />
+              </tr>
+              {informativos.length > 0 && renderGroup('INFO', 'Informativos (não alteram o líquido)', informativos, 'text-slate-300', '')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTotais = () => {
+    const itemTotals = payroll?.item_totals || [];
+    const roleTotals = payroll?.role_totals || [];
+    const receitas = itemTotals.filter((i) => i.affects_net && i.kind === 'RECEITA');
+    const despesas = itemTotals.filter((i) => i.affects_net && i.kind === 'DESPESA');
+    const informativos = itemTotals.filter((i) => !i.affects_net);
+
+    const summaryLine = (label, value, tone = 'text-slate-200', strong = false) => (
+      <div className={`flex items-center justify-between py-1.5 ${strong ? 'border-t border-slate-700 mt-1 pt-2.5' : ''}`}>
+        <span className={strong ? 'font-bold text-white' : 'text-slate-400'}>{label}</span>
+        <span className={`font-semibold ${tone} ${strong ? 'text-base' : ''}`}>{brl(value)}</span>
+      </div>
+    );
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Resumo do mês */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-white mb-2">
+              <BarChart3 size={14} className="text-indigo-400" /> Resumo da Folha
+            </div>
+            <div className="flex items-center gap-1.5 text-slate-400 mb-2">
+              <Users size={12} /> {totals.headcount || 0} colaborador(es)
+            </div>
+            {summaryLine('Total de receitas (bruto)', totals.receitas, 'text-emerald-300')}
+            {summaryLine('Total de despesas (descontos)', totals.despesas, 'text-rose-300')}
+            {summaryLine('Líquido a pagar', totals.liquido, 'text-white', true)}
+          </div>
+
+          {/* Recolhimentos */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-white mb-2">
+              <Landmark size={14} className="text-sky-400" /> Encargos e Recolhimentos
+            </div>
+            {summaryLine('INSS descontado dos colaboradores', totals.inss, 'text-rose-300')}
+            {summaryLine('IRRF retido', totals.irrf, 'text-rose-300')}
+            {summaryLine('FGTS (8% pago pela empresa)', totals.fgts, 'text-sky-300')}
+            <p className="text-[10px] text-slate-500 mt-2">
+              INSS patronal, RAT e terceiros dependem do regime tributário e não estão incluídos.
+            </p>
+          </div>
+
+          {/* Custo da empresa */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-white mb-2">
+              <Building2 size={14} className="text-amber-400" /> Custo Total da Empresa
+            </div>
+            {summaryLine('Receitas dos colaboradores (bruto)', totals.receitas)}
+            {summaryLine('FGTS', totals.fgts)}
+            {summaryLine('Benefícios (VA)', totals.beneficios)}
+            {summaryLine('Custo total do mês', totals.custo_empresa, 'text-amber-300', true)}
+            {totals.headcount > 0 && (
+              <div className="text-[10px] text-slate-500 mt-1 text-right">
+                Média por colaborador: {brl(totals.custo_empresa / totals.headcount)}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {renderHierarchy(receitas, despesas, informativos)}
+
+        {/* Totais por cargo */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-white">Totais por Cargo</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-500 uppercase tracking-wider text-[9px] border-b border-slate-800/60">
+                  <th className="py-1.5 px-3 text-left">Cargo</th>
+                  <th className="py-1.5 px-3 text-center">Colab.</th>
+                  <th className="py-1.5 px-3 text-right">Receitas</th>
+                  <th className="py-1.5 px-3 text-right">Despesas</th>
+                  <th className="py-1.5 px-3 text-right">Líquido</th>
+                  <th className="py-1.5 px-3 text-right">FGTS</th>
+                  <th className="py-1.5 px-3 text-right">Custo Empresa</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {roleTotals.map((r) => (
+                  <tr key={r.role}>
+                    <td className="py-1.5 px-3 font-semibold text-slate-200">{r.role}</td>
+                    <td className="py-1.5 px-3 text-center text-slate-400">{r.headcount}</td>
+                    <td className="py-1.5 px-3 text-right text-emerald-300">{brl(r.receitas)}</td>
+                    <td className="py-1.5 px-3 text-right text-rose-300">{brl(r.despesas)}</td>
+                    <td className="py-1.5 px-3 text-right font-semibold text-white">{brl(r.liquido)}</td>
+                    <td className="py-1.5 px-3 text-right text-sky-300">{brl(r.fgts)}</td>
+                    <td className="py-1.5 px-3 text-right text-amber-300">{brl(r.receitas + r.fgts + r.beneficios)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-slate-700 font-bold">
+                  <td className="py-2 px-3 text-slate-300 text-[10px] uppercase tracking-wider">Total</td>
+                  <td className="py-2 px-3 text-center text-slate-300">{totals.headcount || 0}</td>
+                  <td className="py-2 px-3 text-right text-emerald-300">{brl(totals.receitas)}</td>
+                  <td className="py-2 px-3 text-right text-rose-300">{brl(totals.despesas)}</td>
+                  <td className="py-2 px-3 text-right text-white">{brl(totals.liquido)}</td>
+                  <td className="py-2 px-3 text-right text-sky-300">{brl(totals.fgts)}</td>
+                  <td className="py-2 px-3 text-right text-amber-300">{brl(totals.custo_empresa)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderIncidence = (label, on) => (
     <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
@@ -768,6 +1020,14 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               <Wallet size={13} /> Folha do Mês
             </button>
             <button
+              onClick={() => setView('totais')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold ${
+                view === 'totais' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <BarChart3 size={13} /> Totais
+            </button>
+            <button
               onClick={() => setView('rubricas')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold ${
                 view === 'rubricas' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
@@ -786,7 +1046,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
           <RefreshCw size={18} className="animate-spin mx-auto mb-2" />
           Carregando folha...
         </div>
-      ) : view === 'folha' ? renderFolha() : renderRubricas()}
+      ) : view === 'folha' ? renderFolha() : view === 'totais' ? renderTotais() : renderRubricas()}
 
       {itemModal && renderItemModal()}
       {entryModal && renderEntryModal()}

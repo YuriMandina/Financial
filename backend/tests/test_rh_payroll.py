@@ -239,6 +239,24 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(rows["Ciclano"]["base_salary"], 4000.0)
         self.assertEqual(rows["Fulano"]["base_salary"], 3300.0)
 
+    def test_detailed_totals(self):
+        other = models.RHEmployee(organization_id=self.org_id, name="Ciclano", role_id=self.role.id,
+                                  weekly_contract_hours=40.0, work_days_per_week=5,
+                                  default_daily_transport_tickets=0, daily_meal_cost=0, active=True)
+        self.db.add(other)
+        self.db.commit()
+        with patch("services.rh_payroll_service.get_effective_holidays_map", return_value={}):
+            calculate_payroll(self.db, self.org_id, self.schedule)
+        data = get_payroll_month(self.db, self.org_id, self.schedule)
+        items = {i["system_key"]: i for i in data["item_totals"]}
+        self.assertEqual(items["SALARIO"]["total"], 6000.0)
+        self.assertEqual(items["SALARIO"]["employees"], 2)
+        self.assertEqual(data["totals"]["inss"], round(2 * calc_inss(3000.0), 2))
+        self.assertEqual(data["totals"]["headcount"], 2)
+        self.assertEqual(data["totals"]["custo_empresa"], 6000.0 + 480.0)
+        self.assertEqual(data["role_totals"][0]["headcount"], 2)
+        self.assertEqual(data["role_totals"][0]["receitas"], 6000.0)
+
     def test_recalculate_is_idempotent(self):
         first = self._calc()
         second = self._calc()
