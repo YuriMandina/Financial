@@ -471,31 +471,59 @@ export default function RHJornadaGrid({
 
   const editingNoLunch = Boolean(editingCell && !editingCell.data.lunch_start && !editingCell.data.lunch_end);
 
-  const handleQuickHourShift = (minutesDiff) => {
+  // Desloca entrada ou saída (HH:MM) e recalcula as horas do dia
+  const shiftEditingTime = (field, minutesDiff) => {
     if (!editingCell) return;
-    const curEnd = editingCell.data.end_time || '17:00';
-    const parts = curEnd.split(':');
-    let totalMins = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10) + minutesDiff;
-    if (totalMins < 0) totalMins += 1440;
-    if (totalMins >= 1440) totalMins -= 1440;
-
-    const newH = String(Math.floor(totalMins / 60)).padStart(2, '0');
-    const newM = String(totalMins % 60).padStart(2, '0');
-    const newEndTime = `${newH}:${newM}`;
-
-    // Recalcula minutos
-    const newWorked = Math.max(0, (editingCell.data.worked_minutes || 480) + minutesDiff);
-
-    setEditingCell({
-      ...editingCell,
-      data: {
-        ...editingCell.data,
-        end_time: newEndTime,
-        worked_minutes: newWorked,
-        worked_hours_formatted: `${Math.floor(newWorked / 60)}h${String(newWorked % 60).padStart(2, '0')}`
-      }
-    });
+    const fallback = field === 'start_time' ? '08:00' : '17:00';
+    const total = (toMinutes(editingCell.data[field] || fallback) + minutesDiff + 1440) % 1440;
+    updateEditingTimes({ [field]: `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}` });
   };
+
+  // ==============================================================================
+  // --- [BANCO DE HORAS NO AJUSTE DO DIA] ---
+  // ==============================================================================
+
+  const [bankBase, setBankBase] = useState({}); // { empId: saldo sem o efeito da escala do mês }
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBase}/api/rh/payroll/bank-hours/balances?year=${selectedYear}&month=${selectedMonth}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => (res.ok ? res.json() : {}))
+      .then((data) => {
+        if (!cancelled) {
+          const map = {};
+          Object.entries(data || {}).forEach(([empId, v]) => { map[empId] = v.base_minutes || 0; });
+          setBankBase(map);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [apiBase, token, selectedYear, selectedMonth, workDays]);
+
+  const dailyExpectedFor = (emp) => Math.round(((Number(emp?.weekly_contract_hours) || 44) / (Number(emp?.work_days_per_week) || 6)) * 60);
+
+  // Efeito de um dia no banco: horas a mais/a menos no trabalho ou a jornada inteira na folga BH
+  const bankContribution = (data, expected) => {
+    if (!data) return 0;
+    if (data.status === 'TRABALHO') return (data.worked_minutes ?? 480) - expected;
+    if (data.status === 'FOLGA_BH') return -expected;
+    return 0;
+  };
+
+  const editingBank = useMemo(() => {
+    if (!editingCell) return null;
+    const emp = employees.find((e) => e.id === editingCell.empId);
+    const expected = dailyExpectedFor(emp);
+    const monthBalance = summaryMap[editingCell.empId]?.final_balance_minutes || 0;
+    const original = getCellData(editingCell.empId, editingCell.day);
+    const before = (bankBase[editingCell.empId] || 0) + monthBalance - bankContribution(original, expected);
+    const after = before + bankContribution(editingCell.data, expected);
+    return { expected, before, after };
+  }, [editingCell, employees, summaryMap, bankBase]);
+
+  const fmtBank = (m) => `${m > 0 ? '+' : m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}h${String(Math.abs(m) % 60).padStart(2, '0')}`;
 
   // ==============================================================================
   // --- [SALVAR ALTERAÇÕES EM LOTE] ---
@@ -1183,6 +1211,42 @@ export default function RHJornadaGrid({
                 </div>
               </div>
 
+              {/* Banco de horas do colaborador */}
+              {editingBank && (
+                <div className="bg-slate-950 border border-amber-500/20 rounded-lg p-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-amber-300">Banco de Horas</span>
+                    <span className="text-[11px] text-slate-400">
+                      Disponível: <span className={`font-bold ${editingBank.before < 0 ? 'text-rose-300' : 'text-amber-300'}`}>{fmtBank(editingBank.before)}</span>
+                      <span className="mx-1.5 text-slate-600">→</span>
+                      Após este ajuste: <span className={`font-bold ${editingBank.after < 0 ? 'text-rose-300' : 'text-amber-300'}`}>{fmtBank(editingBank.after)}</span>
+                    </span>
+                  </div>
+                  {editingCell.data.status !== 'FOLGA_BH' && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingCell({
+                        ...editingCell,
+                        data: { ...editingCell.data, status: 'FOLGA_BH', worked_minutes: 0 }
+                      })}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition-colors ${
+                        editingBank.before >= editingBank.expected
+                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
+                          : 'border-rose-600/40 bg-rose-950/30 text-rose-200 hover:bg-rose-950/50'
+                      }`}
+                    >
+                      Folgar o dia usando o banco (−{fmtBank(editingBank.expected).replace('+', '')})
+                      {editingBank.before < editingBank.expected && ' • saldo insuficiente, ficará negativo'}
+                    </button>
+                  )}
+                  {editingBank.after < 0 && (
+                    <p className="text-[10px] text-rose-300">
+                      O saldo ficará negativo: o colaborador passará a dever horas, a compensar em dias futuros.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Se for TRABALHO, exibe seleção de turno e horários */}
               {editingCell.data.status === 'TRABALHO' && (
                 <>
@@ -1277,45 +1341,34 @@ export default function RHJornadaGrid({
                     </span>
                   </div>
 
-                  {/* Botões de Ajuste Rápido de Horas */}
-                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
-                    <span className="block text-[10px] text-slate-400 mb-1.5 font-medium">Ajuste rápido de sobrejornada:</span>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => handleQuickHourShift(-60)}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700"
-                      >
-                        -1h
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleQuickHourShift(-30)}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700"
-                      >
-                        -30m
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleQuickHourShift(30)}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 font-semibold text-xs border border-slate-700"
-                      >
-                        +30m
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleQuickHourShift(60)}
-                        className="px-2 py-1 rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 font-semibold text-xs border border-indigo-500/50"
-                      >
-                        +1 hora
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleQuickHourShift(120)}
-                        className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 font-semibold text-xs border border-amber-500/40"
-                      >
-                        +2 horas
-                      </button>
+                  {/* Ajustes rápidos: horas extras somam ao banco; saída mais cedo e chegada mais tarde consomem */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] text-slate-400 font-medium w-32">Hora extra (saída):</span>
+                      {[30, 60, 120].map((m) => (
+                        <button key={`he-${m}`} type="button" onClick={() => shiftEditingTime('end_time', m)}
+                          className="px-2 py-1 rounded font-semibold text-[11px] border bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border-amber-500/40">
+                          +{m < 60 ? `${m}m` : `${m / 60}h`}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] text-slate-400 font-medium w-32">Usar banco: sair mais cedo</span>
+                      {[30, 60, 120].map((m) => (
+                        <button key={`out-${m}`} type="button" onClick={() => shiftEditingTime('end_time', -m)}
+                          className="px-2 py-1 rounded font-semibold text-[11px] border bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700">
+                          −{m < 60 ? `${m}m` : `${m / 60}h`}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] text-slate-400 font-medium w-32">Usar banco: chegar mais tarde</span>
+                      {[30, 60, 120].map((m) => (
+                        <button key={`in-${m}`} type="button" onClick={() => shiftEditingTime('start_time', m)}
+                          className="px-2 py-1 rounded font-semibold text-[11px] border bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700">
+                          +{m < 60 ? `${m}m` : `${m / 60}h`}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </>

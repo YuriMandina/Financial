@@ -13,6 +13,7 @@ import RHBeneficiosGrid from './components/RHBeneficiosGrid';
 import RHFeriadosView from './components/RHFeriadosView';
 import RHFolhaPagamento from './components/RHFolhaPagamento';
 import RHSalaryModal from './components/RHSalaryModal';
+import RHBancoHorasView from './components/RHBancoHorasView';
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
 
@@ -150,7 +151,7 @@ export default function RHEscalasView({ token }) {
     time_rounding_mode: 'NEAREST',
     clt_tolerance_enabled: true,
     absence_dsr_mode: 'ONE',
-    overtime_policy: 'PAY',
+    overtime_policy: 'BANK',
     overtime_rate: '50',
     overtime_fixed_value: '0,00'
   });
@@ -232,7 +233,7 @@ export default function RHEscalasView({ token }) {
           time_rounding_mode: data.settings.time_rounding_mode || 'NEAREST',
           clt_tolerance_enabled: data.settings.clt_tolerance_enabled ?? true,
           absence_dsr_mode: data.settings.absence_dsr_mode || 'ONE',
-          overtime_policy: data.settings.overtime_policy || 'PAY',
+          overtime_policy: data.settings.overtime_policy || 'BANK',
           overtime_rate: String(data.settings.overtime_rate ?? 50).replace('.', ','),
           overtime_fixed_value: Number(data.settings.overtime_fixed_value || 0).toFixed(2).replace('.', ',')
         });
@@ -555,7 +556,7 @@ export default function RHEscalasView({ token }) {
         time_rounding_mode: settingsFormData.time_rounding_mode || 'NEAREST',
         clt_tolerance_enabled: !!settingsFormData.clt_tolerance_enabled,
         absence_dsr_mode: settingsFormData.absence_dsr_mode || 'ONE',
-        overtime_policy: settingsFormData.overtime_policy || 'PAY',
+        overtime_policy: settingsFormData.overtime_policy || 'BANK',
         overtime_rate: parseMoney(settingsFormData.overtime_rate),
         overtime_fixed_value: parseMoney(settingsFormData.overtime_fixed_value)
       };
@@ -579,19 +580,6 @@ export default function RHEscalasView({ token }) {
   // ==============================================================================
   // --- [BLOCO: TOTAIS E CÁLCULOS DINÂMICOS] ---
   // ==============================================================================
-
-  const calculatedTotals = useMemo(() => {
-    if (!scheduleData?.summaries) return { vt: 0, va: 0, total: 0, totalTickets: 0 };
-    return scheduleData.summaries.reduce(
-      (acc, curr) => ({
-        vt: acc.vt + (curr.total_vt_amount || 0),
-        va: acc.va + (curr.total_va_amount || 0),
-        total: acc.total + (curr.total_benefits_amount || 0),
-        totalTickets: acc.totalTickets + (curr.total_vt_tickets || 0)
-      }),
-      { vt: 0, va: 0, total: 0, totalTickets: 0 }
-    );
-  }, [scheduleData]);
 
   const daysList = useMemo(() => {
     const numDays = scheduleData?.num_days || 31;
@@ -801,121 +789,6 @@ export default function RHEscalasView({ token }) {
 
   // ==============================================================================
   // --- [BLOCO: RENDERIZAÇÃO DA ABA RESUMO FINANCEIRO & RECIBOS] ---
-  // ==============================================================================
-
-  const renderFinancialSummary = () => (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Total Vale Transporte (VT)</span>
-            <Bus size={18} className="text-indigo-400" />
-          </div>
-          <div className="text-2xl font-bold text-white tracking-tight">
-            R$ {calculatedTotals.vt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {calculatedTotals.totalTickets} passagens $\times$ R$ {ticketUnitPrice.toFixed(2)}
-          </p>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Total Vale Alimentação (VA)</span>
-            <Utensils size={18} className="text-emerald-400" />
-          </div>
-          <div className="text-2xl font-bold text-white tracking-tight">
-            R$ {calculatedTotals.va.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </div>
-          <p className="text-xs text-slate-500 mt-1">1 refeição/dia por colaborador com jornada &gt; 6h</p>
-        </div>
-
-        <div className="bg-slate-900 border border-indigo-900/50 rounded-xl p-5 shadow-sm bg-gradient-to-br from-slate-900 to-indigo-950/30">
-          <div className="flex items-center justify-between text-indigo-300 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Total Benefícios a Depositar</span>
-            <Sparkles size={18} className="text-indigo-400" />
-          </div>
-          <div className="text-2xl font-bold text-emerald-400 tracking-tight">
-            R$ {calculatedTotals.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </div>
-          <p className="text-xs text-slate-400 mt-1">Depósito antecipado consolidado da equipe</p>
-        </div>
-      </div>
-
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-semibold text-white">Relação Individual de Pagamento e Banco de Horas</h3>
-            <p className="text-xs text-slate-400">Valores antecipados para depósito bancário ou cartão de benefícios</p>
-          </div>
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors print:hidden"
-          >
-            <Printer size={15} />
-            Imprimir Recibos / Relatório
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
-                <th className="py-3 px-4">Colaborador</th>
-                <th className="py-3 px-4">Cargo & Contrato</th>
-                <th className="py-3 px-4 text-center">Passagens VT</th>
-                <th className="py-3 px-4 text-right">Valor VT</th>
-                <th className="py-3 px-4 text-center">Dias VA</th>
-                <th className="py-3 px-4 text-right">Valor VA</th>
-                <th className="py-3 px-4 text-right font-bold text-white">Total a Depositar</th>
-                <th className="py-3 px-4 text-center">Banco de Horas (BH)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {summaries.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-6 text-center text-slate-500 italic">
-                    Nenhum colaborador com dados calculados para este mês.
-                  </td>
-                </tr>
-              ) : (
-                summaries.map((s) => (
-                  <tr key={s.employee_id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-slate-200">{s.employee_name}</td>
-                    <td className="py-3 px-4 text-slate-400">
-                      <div>{s.employee_role}</div>
-                      <div className="text-[10px] text-slate-500">{s.weekly_contract_hours}h semanais</div>
-                    </td>
-                    <td className="py-3 px-4 text-center text-slate-300">
-                      {s.total_vt_tickets || 0} vales ({s.vt_worked_days || 0} dias)
-                    </td>
-                    <td className="py-3 px-4 text-right text-indigo-400 font-medium">R$ {(s.total_vt_amount || 0).toFixed(2)}</td>
-                    <td className="py-3 px-4 text-center text-slate-300">
-                      {s.va_worked_days || 0} dias (R$ {(s.va_daily_cost || 25).toFixed(2)}/dia)
-                    </td>
-                    <td className="py-3 px-4 text-right text-emerald-400 font-medium">R$ {(s.total_va_amount || 0).toFixed(2)}</td>
-                    <td className="py-3 px-4 text-right font-bold text-white">R$ {(s.total_benefits_amount || 0).toFixed(2)}</td>
-                    <td className="py-3 px-4 text-center">
-                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${
-                        (s.bh_days_used || 0) >= (s.bh_days_target || 0)
-                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                      }`}>
-                        {s.bh_days_used || 0} de {s.bh_days_target || 0} folgas
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ==============================================================================
-  // --- [BLOCO: RENDERIZAÇÃO DA ABA MURAL DE HORÁRIOS & DOMINGOS] ---
   // ==============================================================================
 
   const renderSundayScheduleWall = () => (
@@ -1513,8 +1386,8 @@ export default function RHEscalasView({ token }) {
               : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
           }`}
         >
-          <FileSpreadsheet size={16} />
-          Resumo Financeiro & Banco de Horas
+          <Clock size={16} />
+          Banco de Horas
         </button>
 
         <button
@@ -1669,7 +1542,14 @@ export default function RHEscalasView({ token }) {
           }}
         />
       )}
-      {activeTab === 'resumo' && renderFinancialSummary()}
+      {activeTab === 'resumo' && (
+        <RHBancoHorasView
+          token={token}
+          apiBase={API_BASE}
+          selectedYear={selectedYear}
+          selectedMonth={selectedMonth}
+        />
+      )}
       {activeTab === 'mural' && renderSundayScheduleWall()}
       {activeTab === 'equipe' && renderTeamAndSettings()}
       {activeTab === 'folha' && (
@@ -2170,7 +2050,7 @@ export default function RHEscalasView({ token }) {
                   <div>
                     <label className="block text-slate-400 mb-1">Destino padrão das horas extras</label>
                     <SelectDropdown
-                      value={settingsFormData.overtime_policy || 'PAY'}
+                      value={settingsFormData.overtime_policy || 'BANK'}
                       onChange={(val) => setSettingsFormData({ ...settingsFormData, overtime_policy: val })}
                       options={[
                       { value: 'PAY', label: 'Pagar com acréscimo', subtitle: 'Hora extra com o % definido + DSR' },

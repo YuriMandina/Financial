@@ -41,7 +41,8 @@ class TestCalculatePayroll(unittest.TestCase):
         needed = [
             models.Organization, models.RHRole, models.RHWorkShift, models.RHEmployee,
             models.RHMonthlySchedule, models.RHWorkDay, models.RHSettings, models.RHBenefitAdjustment,
-            models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange, models.RHBankHours
+            models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange, models.RHBankHours,
+            models.RHBankHoursEntry
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()
@@ -285,6 +286,7 @@ class TestCalculatePayroll(unittest.TestCase):
         return self._by_key(row), row["bank"]
 
     def test_overtime_paid_with_rate(self):
+        self._set_policy("PAY")
         self._work_month(self.schedule, extra_days=(1, 2))  # +4h
         lines, bank = self._payroll(self.schedule)
         hourly = 3000.0 / 200
@@ -293,6 +295,7 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(bank["balance_minutes"], 0)
 
     def test_absence_does_not_cancel_overtime(self):
+        self._set_policy("PAY")
         self._work_month(self.schedule, extra_days=(1, 2))
         rec = self.db.query(models.RHWorkDay).filter_by(employee_id=self.emp.id, day=7).first()
         rec.status, rec.worked_minutes = "FALTA", 0
@@ -351,6 +354,47 @@ class TestCalculatePayroll(unittest.TestCase):
         lines, bank = self._payroll(self.schedule)
         self.assertNotIn("HE50", lines)
         self.assertEqual(bank["effective_policy"], "BANK")
+
+    def test_default_policy_keeps_hours_in_bank(self):
+        self._work_month(self.schedule, extra_days=(1, 2))
+        lines, bank = self._payroll(self.schedule)
+        self.assertNotIn("HE50", lines)
+        self.assertEqual(bank["effective_policy"], "BANK")
+        self.assertEqual(bank["balance_minutes"], 240)
+
+    def _bank_entry(self, sched, kind, minutes, pay_mode=None, note="ajuste"):
+        self.db.add(models.RHBankHoursEntry(schedule_id=sched.id, employee_id=self.emp.id, kind=kind,
+                                            minutes=minutes, pay_mode=pay_mode, note=note))
+        self.db.commit()
+
+    def test_partial_payment_keeps_rest_in_bank(self):
+        self._work_month(self.schedule, extra_days=(1, 2, 5, 6, 7), extra_minutes=240)  # +20h
+        self._bank_entry(self.schedule, "PAYMENT", 360, pay_mode="PAY")  # paga 6h a 50%
+        lines, bank = self._payroll(self.schedule)
+        self.assertEqual(lines["HE50"]["amount"], round(6 * 3000.0 / 200 * 1.5, 2))
+        self.assertEqual(bank["paid_minutes"], 360)
+        self.assertEqual(bank["balance_minutes"], 1200 - 360)
+
+    def test_manual_credit_and_debit(self):
+        self._work_month(self.schedule)
+        self._bank_entry(self.schedule, "CREDIT", 600, note="Saldo de implantação")
+        self._bank_entry(self.schedule, "DEBIT", 120, note="Compensação acordada")
+        _, bank = self._payroll(self.schedule)
+        self.assertEqual(bank["adjustments_minutes"], 480)
+        self.assertEqual(bank["balance_minutes"], 480)
+        self.assertEqual(len(bank["entries"]), 2)
+
+    def test_leaving_early_consumes_bank_daily(self):
+        self._work_month(self.schedule, extra_days=(1,), extra_minutes=240)  # +4h
+        for d in (5, 6, 7, 8):  # sai 1h mais cedo em 4 dias
+            rec = self.db.query(models.RHWorkDay).filter_by(employee_id=self.emp.id, day=d).first()
+            rec.worked_minutes = 420
+        self.db.commit()
+        _, bank = self._payroll(self.schedule)
+        self.assertEqual(bank["balance_minutes"], 0)
+        kinds = [m["kind"] for m in bank["movements"]]
+        self.assertEqual(kinds.count("SHORT"), 4)
+        self.assertEqual(kinds.count("EXTRA"), 1)
 
     def test_recalculate_is_idempotent(self):
         first = self._calc()

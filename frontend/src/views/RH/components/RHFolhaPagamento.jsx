@@ -30,12 +30,6 @@ const fmtHours = (minutes) => {
   return `${sign}${Math.floor(abs / 60)}h${String(abs % 60).padStart(2, '0')}`;
 };
 
-const OVERTIME_POLICY_LABELS = {
-  PAY: 'Pagar com acréscimo',
-  PAY_NORMAL: 'Pagar valor normal',
-  FIXED_PLUS_BANK: 'Valor fixo + folga',
-  BANK: 'Somente folga (banco)'
-};
 
 const EMPTY_ITEM = {
   code: '',
@@ -227,24 +221,6 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
     }
   };
 
-  const handleBankPolicy = async (employee, policy) => {
-    try {
-      await request('/api/rh/payroll/bank-hours', {
-        method: 'PUT',
-        body: JSON.stringify({
-          year: selectedYear,
-          month: selectedMonth,
-          employee_id: employee.employee_id,
-          policy: policy || null
-        })
-      });
-      await loadAll();
-      flash('Destino das horas atualizado e folha recalculada.');
-    } catch (err) {
-      alert('Erro ao definir destino das horas: ' + err.message);
-    }
-  };
-
   const handleDeleteEntry = async (entry) => {
     if (!window.confirm(`Excluir o lançamento "${entry.name}"?`)) return;
     try {
@@ -374,44 +350,6 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                       {isOpen && (
                         <tr className="bg-slate-950/50">
                           <td colSpan={8} className="px-4 py-3">
-                            <div className="mb-3 bg-slate-900 border border-slate-800 rounded-lg p-3 flex flex-col lg:flex-row lg:items-center gap-3 text-[11px]">
-                              <div className="grid grid-cols-4 gap-3 flex-1">
-                                <div>
-                                  <div className="text-slate-500">Saldo anterior</div>
-                                  <div className="font-semibold text-slate-200">{fmtHours(emp.bank.previous_balance_minutes)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-slate-500">Horas do mês</div>
-                                  <div className="font-semibold text-slate-200">{fmtHours(emp.bank.month_balance_minutes)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-slate-500">Pagas na folha</div>
-                                  <div className="font-semibold text-emerald-300">{fmtHours(emp.bank.paid_minutes)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-slate-500">Saldo no banco</div>
-                                  <div className={`font-bold ${emp.bank.balance_minutes < 0 ? 'text-rose-300' : 'text-amber-300'}`}>
-                                    {fmtHours(emp.bank.balance_minutes)}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="lg:w-72">
-                                <div className="text-slate-500 mb-1">Destino das horas neste mês</div>
-                                <SelectDropdown
-                                  size="sm"
-                                  value={emp.bank.policy || ''}
-                                  onChange={(val) => handleBankPolicy(emp, val)}
-                                  options={[
-                                    {
-                                      value: '',
-                                      label: 'Padrão',
-                                      subtitle: OVERTIME_POLICY_LABELS[emp.bank.employee_policy || emp.bank.effective_policy] || ''
-                                    },
-                                    ...Object.entries(OVERTIME_POLICY_LABELS).map(([value, label]) => ({ value, label }))
-                                  ]}
-                                />
-                              </div>
-                            </div>
                             <table className="w-full text-[11px]">
                               <thead>
                                 <tr className="text-slate-500 uppercase tracking-wider text-[9px]">

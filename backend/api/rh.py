@@ -43,7 +43,7 @@ class RHSettingsSchema(BaseModel):
     clt_tolerance_enabled: bool = True
     hours_display_format: str = "HHMM"
     absence_dsr_mode: str = "ONE"  # NONE, ONE ou SCHEDULE
-    overtime_policy: str = "PAY"  # PAY, PAY_NORMAL, FIXED_PLUS_BANK ou BANK
+    overtime_policy: str = "BANK"  # PAY, PAY_NORMAL, FIXED_PLUS_BANK ou BANK
     overtime_rate: float = 50.0
     overtime_fixed_value: float = 0.0
 
@@ -459,7 +459,7 @@ def get_rh_settings(
             clt_tolerance_enabled=True,
             hours_display_format="HHMM",
             absence_dsr_mode="ONE",
-            overtime_policy="PAY",
+            overtime_policy="BANK",
             overtime_rate=50.0,
             overtime_fixed_value=0.0
         )
@@ -936,7 +936,7 @@ def get_monthly_schedule(
                 "clt_tolerance_enabled": settings.clt_tolerance_enabled if settings.clt_tolerance_enabled is not None else True,
                 "hours_display_format": settings.hours_display_format or "HHMM",
                 "absence_dsr_mode": settings.absence_dsr_mode or "ONE",
-                "overtime_policy": settings.overtime_policy or "PAY",
+                "overtime_policy": settings.overtime_policy or "BANK",
                 "overtime_rate": settings.overtime_rate if settings.overtime_rate is not None else 50.0,
                 "overtime_fixed_value": settings.overtime_fixed_value or 0.0
             },

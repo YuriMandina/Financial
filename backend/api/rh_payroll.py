@@ -14,7 +14,8 @@ from services.rh_payroll_service import (
     entry_to_dict,
     CONFIGURABLE_PERCENT_ITEMS,
     OVERTIME_POLICIES,
-    calculate_payroll_through
+    calculate_payroll_through,
+    _previous_bank_balance
 )
 
 router = APIRouter(prefix="/api/rh/payroll", tags=["rh-payroll"])
@@ -66,6 +67,15 @@ class BankHoursPolicyUpdate(BaseModel):
     month: int
     employee_id: int
     policy: Optional[str] = None  # None = padrão do colaborador/empresa
+
+class BankHoursEntryCreate(BaseModel):
+    year: int
+    month: int
+    employee_id: int
+    kind: str  # PAYMENT, CREDIT ou DEBIT
+    minutes: int
+    pay_mode: Optional[str] = None  # PAYMENT: PAY ou PAY_NORMAL
+    note: Optional[str] = None
 
 class PayrollEntryUpdate(BaseModel):
     amount: Optional[float] = None
@@ -401,3 +411,119 @@ def set_bank_hours_policy(
     db.commit()
     calculate_payroll_through(db, org_id, schedule)
     return {"message": "Destino das horas atualizado."}
+
+
+BANK_ENTRY_KINDS = {"PAYMENT", "CREDIT", "DEBIT"}
+
+
+@router.post("/bank-hours/entries")
+def create_bank_hours_entry(
+    payload: BankHoursEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Lança no banco de horas: pagamento parcial de horas, crédito ou débito manual."""
+    org_id = current_user.organization_id
+    if payload.kind not in BANK_ENTRY_KINDS:
+        raise HTTPException(status_code=400, detail="Tipo de lançamento inválido")
+    if payload.minutes <= 0:
+        raise HTTPException(status_code=400, detail="Informe a quantidade de horas")
+    if payload.kind == "PAYMENT" and payload.pay_mode not in ("PAY", "PAY_NORMAL"):
+        raise HTTPException(status_code=400, detail="Informe se o pagamento é com acréscimo ou valor normal")
+    if payload.kind in ("CREDIT", "DEBIT") and not (payload.note or "").strip():
+        raise HTTPException(status_code=400, detail="Informe o motivo do ajuste")
+
+    emp = db.query(models.RHEmployee).filter(
+        models.RHEmployee.id == payload.employee_id,
+        models.RHEmployee.organization_id == org_id
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Colaborador não encontrado")
+
+    schedule = _get_or_create_schedule(db, org_id, payload.year, payload.month)
+    calculate_payroll_through(db, org_id, schedule)
+
+    if payload.kind == "PAYMENT":
+        bank = db.query(models.RHBankHours).filter(
+            models.RHBankHours.schedule_id == schedule.id,
+            models.RHBankHours.employee_id == emp.id
+        ).first()
+        available = int(bank.balance_minutes or 0) if bank else 0
+        if payload.minutes > available:
+            h, m = divmod(max(available, 0), 60)
+            raise HTTPException(status_code=400, detail=f"Saldo insuficiente no banco de horas (disponível: {h}h{m:02d})")
+
+    db.add(models.RHBankHoursEntry(
+        schedule_id=schedule.id, employee_id=emp.id, kind=payload.kind, minutes=payload.minutes,
+        pay_mode=payload.pay_mode if payload.kind == "PAYMENT" else None,
+        note=(payload.note or "").strip() or None
+    ))
+    db.commit()
+    calculate_payroll_through(db, org_id, schedule)
+    return {"message": "Lançamento registrado no banco de horas."}
+
+
+@router.delete("/bank-hours/entries/{entry_id}")
+def delete_bank_hours_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    org_id = current_user.organization_id
+    entry = db.query(models.RHBankHoursEntry).join(
+        models.RHMonthlySchedule, models.RHBankHoursEntry.schedule_id == models.RHMonthlySchedule.id
+    ).filter(
+        models.RHBankHoursEntry.id == entry_id,
+        models.RHMonthlySchedule.organization_id == org_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    schedule = db.query(models.RHMonthlySchedule).get(entry.schedule_id)
+    db.delete(entry)
+    db.commit()
+    calculate_payroll_through(db, org_id, schedule)
+    return {"message": "Lançamento excluído do banco de horas."}
+
+
+@router.get("/bank-hours/balances")
+def bank_hours_balances(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    Base do saldo do banco de horas para a escala do mês (sem o efeito da própria escala do mês):
+    saldo anterior + ajustes manuais - pagamentos lançados. A escala soma o saldo do mês em tela.
+    """
+    org_id = current_user.organization_id
+    schedule = _get_or_create_schedule(db, org_id, year, month)
+
+    # Garante que o saldo dos meses anteriores está atualizado
+    previous_schedule = db.query(models.RHMonthlySchedule).filter(
+        models.RHMonthlySchedule.organization_id == org_id,
+        (models.RHMonthlySchedule.year * 12 + models.RHMonthlySchedule.month) < (year * 12 + month)
+    ).order_by(models.RHMonthlySchedule.year.desc(), models.RHMonthlySchedule.month.desc()).first()
+    if previous_schedule:
+        calculate_payroll_through(db, org_id, previous_schedule)
+
+    entries = db.query(models.RHBankHoursEntry).filter(models.RHBankHoursEntry.schedule_id == schedule.id).all()
+    employees = db.query(models.RHEmployee).filter(
+        models.RHEmployee.organization_id == org_id,
+        models.RHEmployee.active == True
+    ).all()
+
+    result = {}
+    for emp in employees:
+        emp_entries = [e for e in entries if e.employee_id == emp.id]
+        credits = sum(e.minutes for e in emp_entries if e.kind == "CREDIT")
+        debits = sum(e.minutes for e in emp_entries if e.kind == "DEBIT")
+        payments = sum(e.minutes for e in emp_entries if e.kind == "PAYMENT")
+        previous = _previous_bank_balance(db, schedule, emp.id)
+        result[emp.id] = {
+            "previous_balance_minutes": previous,
+            "adjustments_minutes": credits - debits,
+            "payments_minutes": payments,
+            "base_minutes": previous + credits - debits - payments,
+        }
+    return result

@@ -286,12 +286,27 @@ class RHBankHours(Base):
     previous_balance_minutes = Column(Integer, default=0)
     month_balance_minutes = Column(Integer, default=0)
     paid_minutes = Column(Integer, default=0)
+    adjustments_minutes = Column(Integer, default=0) # Créditos - débitos manuais do mês
     balance_minutes = Column(Integer, default=0) # Saldo após o mês
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         UniqueConstraint('schedule_id', 'employee_id', name='uq_bank_hours_schedule_employee'),
     )
+
+
+class RHBankHoursEntry(Base):
+    """Lançamento manual no banco de horas: pagamento (parcial) de horas, crédito ou débito."""
+    __tablename__ = "rh_bank_hours_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False) # PAYMENT, CREDIT ou DEBIT
+    minutes = Column(Integer, nullable=False) # Sempre positivo; o tipo define o sinal
+    pay_mode = Column(String, nullable=True) # PAYMENT: PAY (com acréscimo) ou PAY_NORMAL
+    note = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class RHPayrollItem(Base):
@@ -353,7 +368,7 @@ class RHSettings(Base):
     clt_tolerance_enabled = Column(Boolean, default=True) # Art. 58 §1º CLT
     hours_display_format = Column(String, default="HHMM") # HHMM ou DECIMAL
     absence_dsr_mode = Column(String, default="ONE") # Desconto de DSR por falta: NONE, ONE ou SCHEDULE
-    overtime_policy = Column(String, default="PAY") # PAY, PAY_NORMAL, FIXED_PLUS_BANK ou BANK
+    overtime_policy = Column(String, default="BANK") # PAY, PAY_NORMAL, FIXED_PLUS_BANK ou BANK
     overtime_rate = Column(Float, default=50.0) # Acréscimo da hora extra (%)
     overtime_fixed_value = Column(Float, default=0.0) # Valor fixo por hora no modo valor fixo + folga
     created_at = Column(DateTime(timezone=True), server_default=func.now())

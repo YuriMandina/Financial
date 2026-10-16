@@ -52,9 +52,10 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS absence_dsr_mode VARCHAR DEFAULT 'ONE';"))
             conn.execute(text("ALTER TABLE rh_roles ADD COLUMN IF NOT EXISTS base_salary FLOAT DEFAULT 0;"))
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS overtime_policy VARCHAR;"))
-            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS overtime_policy VARCHAR DEFAULT 'PAY';"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS overtime_policy VARCHAR DEFAULT 'BANK';"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS overtime_rate FLOAT DEFAULT 50;"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS overtime_fixed_value FLOAT DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE rh_bank_hours ADD COLUMN IF NOT EXISTS adjustments_minutes INTEGER DEFAULT 0;"))
             # Salário passa a ser do cargo: herda o maior salário já cadastrado nos colaboradores do cargo
             conn.execute(text("""
                 UPDATE rh_roles r SET base_salary = sub.salary
