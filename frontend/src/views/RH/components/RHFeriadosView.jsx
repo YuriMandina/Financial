@@ -35,7 +35,8 @@ export default function RHFeriadosView({ token, apiBase, onRefreshSchedule }) {
 
   const fetchHolidays = async () => {
     try {
-      setLoading(true);
+      // Só exibe o carregamento na primeira carga, preservando o scroll após salvar
+      if (holidays.length === 0) setLoading(true);
       setError(null);
       const res = await fetch(`${apiBase}/api/rh/holidays`, {
         headers: { Authorization: `Bearer ${token}` }

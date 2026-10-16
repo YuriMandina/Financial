@@ -68,13 +68,18 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   // --- [CARREGAMENTO] ---
   // ==============================================================================
 
+  // Recargas do mesmo mês (após salvar) não exibem o carregamento, preservando o scroll
+  const loadedPeriodRef = React.useRef(null);
+
   const loadAll = async () => {
+    const period = `${selectedYear}-${selectedMonth}`;
     try {
-      setLoading(true);
+      if (loadedPeriodRef.current !== period) setLoading(true);
       const [p, its] = await Promise.all([
         request(`/api/rh/payroll?year=${selectedYear}&month=${selectedMonth}`),
         request('/api/rh/payroll/items')
       ]);
+      loadedPeriodRef.current = period;
       setPayroll(p);
       setItems(its);
     } catch (err) {

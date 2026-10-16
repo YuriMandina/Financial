@@ -156,9 +156,15 @@ export default function RHEscalasView({ token }) {
   // --- [BLOCO: CARREGAMENTO DE DADOS (FETCH SEGURO)] ---
   // ==============================================================================
 
+  // Mês já carregado: recargas (após salvar) acontecem em segundo plano, sem esqueleto,
+  // para não desmontar a tela e preservar a posição do scroll
+  const loadedPeriodRef = React.useRef(null);
+
   const fetchSchedule = async () => {
+    const period = `${selectedYear}-${selectedMonth}`;
+    const silent = loadedPeriodRef.current === period;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setFetchError(null);
       const res = await fetch(`${API_BASE}/api/rh/schedules?year=${selectedYear}&month=${selectedMonth}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -177,6 +183,7 @@ export default function RHEscalasView({ token }) {
         throw new Error(`Erro na API de RH (${errorDetail})`);
       }
       const data = await res.json();
+      loadedPeriodRef.current = period;
       setScheduleData(data);
       setLocalGrid(data.grid || {});
       setWorkDays(data.work_days || {});
