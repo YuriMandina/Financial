@@ -14,6 +14,9 @@ import RHFeriadosView from './components/RHFeriadosView';
 import RHFolhaPagamento from './components/RHFolhaPagamento';
 import RHSalaryModal from './components/RHSalaryModal';
 import RHBancoHorasView from './components/RHBancoHorasView';
+import RHEmployeeProfileForm from './components/RHEmployeeProfileForm';
+import RHFichaCadastral from './components/RHFichaCadastral';
+import { PROFILE_TABS, profileCompleteness } from './components/employeeProfileSchema';
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
 
@@ -129,12 +132,15 @@ export default function RHEscalasView({ token }) {
     dependents: 0,
     admission_date: '',
     overtime_policy: '',
+    profile: {},
     work_days_per_week: 6,
     active: true
   });
 
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [salaryModalTarget, setSalaryModalTarget] = useState(null); // id do cargo ou 'ALL'
+  const [employeeTab, setEmployeeTab] = useState('contrato'); // aba do cadastro do colaborador
+  const [fichaEmployeeId, setFichaEmployeeId] = useState(null); // ficha cadastral para impressão
   const [roleFormData, setRoleFormData] = useState({ name: '', description: '', base_salary: '' });
 
   const [shiftModalOpen, setShiftModalOpen] = useState(false);
@@ -428,6 +434,11 @@ export default function RHEscalasView({ token }) {
 
   const handleSaveEmployee = async (e) => {
     e.preventDefault();
+    if (!String(employeeFormData.name || '').trim()) {
+      setEmployeeTab('contrato');
+      alert('Informe o nome completo do colaborador.');
+      return;
+    }
     try {
       const url = editingEmployee 
         ? `${API_BASE}/api/rh/employees/${editingEmployee.id}` 
@@ -446,6 +457,7 @@ export default function RHEscalasView({ token }) {
         dependents: parseInt(employeeFormData.dependents, 10) || 0,
         admission_date: employeeFormData.admission_date || null,
         overtime_policy: employeeFormData.overtime_policy || null,
+        profile: employeeFormData.profile || {},
         active: employeeFormData.active
       };
 
@@ -633,8 +645,10 @@ export default function RHEscalasView({ token }) {
                 dependents: 0,
                 admission_date: '',
                 overtime_policy: '',
+                profile: {},
                 active: true
               });
+              setEmployeeTab('contrato');
               setEmployeeModalOpen(true);
             }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
@@ -955,8 +969,10 @@ export default function RHEscalasView({ token }) {
                 dependents: 0,
                 admission_date: '',
                 overtime_policy: '',
+                profile: {},
                 active: true
               });
+              setEmployeeTab('contrato');
               setEmployeeModalOpen(true);
             }}
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors shadow-sm"
@@ -995,7 +1011,17 @@ export default function RHEscalasView({ token }) {
                 const shiftObj = shifts.find((s) => s.id === emp.default_shift_id);
                 return (
                   <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-slate-200">{emp.name}</td>
+                    <td className="py-3 px-4 font-semibold text-slate-200">
+                      {emp.name}
+                      {(() => {
+                        const c = profileCompleteness(emp.profile);
+                        return c.filled < c.total ? (
+                          <span className="ml-2 text-[10px] font-normal text-amber-300" title="Dados essenciais da ficha cadastral preenchidos">
+                            ficha {c.filled}/{c.total}
+                          </span>
+                        ) : null;
+                      })()}
+                    </td>
                     <td className="py-3 px-4 text-slate-300">
                       <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-medium text-[11px]">
                         {emp.role || 'Geral'}
@@ -1037,10 +1063,12 @@ export default function RHEscalasView({ token }) {
                             dependents: emp.dependents || 0,
                             admission_date: emp.admission_date || '',
                             overtime_policy: emp.overtime_policy || '',
+                            profile: emp.profile || {},
                             work_days_per_week: emp.work_days_per_week || 6,
                             active: true
                           });
-                          setEmployeeModalOpen(true);
+                          setEmployeeTab('contrato');
+              setEmployeeModalOpen(true);
                         }}
                         className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
                         title="Editar Colaborador"
@@ -1059,6 +1087,13 @@ export default function RHEscalasView({ token }) {
                         title="Salário do cargo: aumento e histórico"
                       >
                         <TrendingUp size={15} />
+                      </button>
+                      <button
+                        onClick={() => setFichaEmployeeId(emp.id)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-300 rounded hover:bg-slate-800 transition-colors"
+                        title="Imprimir Ficha Cadastral"
+                      >
+                        <Printer size={15} />
                       </button>
                       <button
                         onClick={() => handleDeleteEmployee(emp.id)}
@@ -1535,10 +1570,12 @@ export default function RHEscalasView({ token }) {
               dependents: emp.dependents || 0,
               admission_date: emp.admission_date || '',
               overtime_policy: emp.overtime_policy || '',
+              profile: emp.profile || {},
               work_days_per_week: emp.work_days_per_week || 6,
               active: true
             });
-            setEmployeeModalOpen(true);
+            setEmployeeTab('contrato');
+              setEmployeeModalOpen(true);
           }}
         />
       )}
@@ -1587,14 +1624,62 @@ export default function RHEscalasView({ token }) {
         />
       )}
 
+      {fichaEmployeeId !== null && (() => {
+        const emp = employees.find((e) => e.id === fichaEmployeeId);
+        return (
+          <RHFichaCadastral
+            employee={emp}
+            roleName={emp?.role}
+            shift={shifts.find((sh) => sh.id === emp?.default_shift_id)}
+            organizationName={scheduleData?.organization_name}
+            onClose={() => setFichaEmployeeId(null)}
+          />
+        );
+      })()}
+
       {/* Modal de Colaborador */}
       {employeeModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-white">
-              {editingEmployee ? 'Editar Colaborador' : 'Novo Colaborador'}
-            </h3>
-            <form onSubmit={handleSaveEmployee} className="space-y-3.5 text-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-3xl w-full p-6 shadow-xl space-y-4 max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-bold text-white">
+                {editingEmployee ? `Editar Colaborador • ${editingEmployee.name}` : 'Novo Colaborador'}
+              </h3>
+              {(() => {
+                const c = profileCompleteness(employeeFormData.profile);
+                return (
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                    c.filled === c.total ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' : 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                  }`}>
+                    Ficha: {c.filled}/{c.total} dados essenciais
+                  </span>
+                );
+              })()}
+            </div>
+            <div className="flex gap-1 overflow-x-auto border-b border-slate-800 -mx-1 px-1">
+              {PROFILE_TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setEmployeeTab(t.key)}
+                  className={`px-3 py-2 text-xs font-semibold border-b-2 whitespace-nowrap transition-colors ${
+                    employeeTab === t.key ? 'border-indigo-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <form onSubmit={handleSaveEmployee} className="space-y-3.5 text-xs overflow-y-auto pr-1 flex-1">
+              {employeeTab !== 'contrato' && (
+                <RHEmployeeProfileForm
+                  sectionKey={employeeTab}
+                  profile={employeeFormData.profile || {}}
+                  onChange={(profile) => setEmployeeFormData({ ...employeeFormData, profile })}
+                />
+              )}
+              {employeeTab === 'contrato' && (
+              <>
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
                   <label className="block text-slate-400 mb-1">Nome Completo</label>
@@ -1827,7 +1912,28 @@ export default function RHEscalasView({ token }) {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="pt-3 border-t border-slate-800">
+                <div className="text-slate-300 font-semibold mb-2">Complemento do Contrato</div>
+                <RHEmployeeProfileForm
+                  sectionKey="contrato"
+                  profile={employeeFormData.profile || {}}
+                  onChange={(profile) => setEmployeeFormData({ ...employeeFormData, profile })}
+                />
+              </div>
+              </>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800 sticky bottom-0 bg-slate-900">
+                {editingEmployee && (
+                  <button
+                    type="button"
+                    onClick={() => setFichaEmployeeId(editingEmployee.id)}
+                    className="mr-auto flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-slate-300 hover:text-white bg-slate-800 border border-slate-700"
+                    title="Imprime a ficha com os dados salvos"
+                  >
+                    <Printer size={14} /> Ficha Cadastral
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setEmployeeModalOpen(false)}

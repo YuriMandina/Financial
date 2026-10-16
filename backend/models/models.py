@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, UniqueConstraint, Float, Boolean, BigInteger
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, UniqueConstraint, Float, Boolean, BigInteger, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
@@ -250,6 +250,8 @@ class RHEmployee(Base):
     dependents = Column(Integer, default=0) # Dependentes para dedução do IRRF
     admission_date = Column(Date, nullable=True) # Data de admissão (tempo de casa / triênio)
     overtime_policy = Column(String, nullable=True) # Destino das horas extras (None = padrão da empresa)
+    # Ficha cadastral: {pessoal, documentos, contato, contrato, bancarios, dependentes[], saude, uniforme, observacoes}
+    profile = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

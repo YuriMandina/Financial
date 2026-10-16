@@ -105,6 +105,7 @@ class RHEmployeeCreate(BaseModel):
     dependents: int = 0
     admission_date: Optional[date] = None
     overtime_policy: Optional[str] = None
+    profile: Optional[Dict[str, Any]] = None
     active: bool = True
 
 class RHEmployeeUpdate(BaseModel):
@@ -121,6 +122,7 @@ class RHEmployeeUpdate(BaseModel):
     dependents: Optional[int] = None
     admission_date: Optional[date] = None
     overtime_policy: Optional[str] = None
+    profile: Optional[Dict[str, Any]] = None
     active: Optional[bool] = None
 
 class RHSalaryChangeCreate(BaseModel):
@@ -541,9 +543,41 @@ def list_employees(
             "dependents": emp.dependents or 0,
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "overtime_policy": emp.overtime_policy,
+            "profile": emp.profile or {},
             "active": emp.active
         })
     return result
+
+PROFILE_SECTIONS = {"pessoal", "documentos", "contato", "contrato", "bancarios", "dependentes", "saude", "uniforme", "observacoes"}
+
+
+def _clean_profile(profile: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Mantém apenas as seções conhecidas da ficha cadastral e remove valores vazios."""
+    if not profile:
+        return None
+    cleaned: Dict[str, Any] = {}
+    for section, value in profile.items():
+        if section not in PROFILE_SECTIONS:
+            continue
+        if isinstance(value, dict):
+            data = {k: v for k, v in value.items() if v not in (None, "")}
+            if data:
+                cleaned[section] = data
+        elif isinstance(value, list):
+            items = [i for i in value if isinstance(i, dict) and (i.get("nome") or "").strip()]
+            if items:
+                cleaned[section] = items
+        elif isinstance(value, str) and value.strip():
+            cleaned[section] = value.strip()
+    return cleaned or None
+
+
+def _sync_irrf_dependents(emp: models.RHEmployee, raw_profile: Optional[Dict[str, Any]]) -> None:
+    """Quando a ficha traz a lista de dependentes, a quantidade para IRRF passa a ser derivada dela."""
+    deps = (raw_profile or {}).get("dependentes")
+    if isinstance(deps, list):
+        emp.dependents = sum(1 for d in deps if isinstance(d, dict) and d.get("irrf") and (d.get("nome") or "").strip())
+
 
 @router.post("/employees")
 def create_employee(
@@ -572,8 +606,10 @@ def create_employee(
         dependents=payload.dependents or 0,
         admission_date=payload.admission_date,
         overtime_policy=payload.overtime_policy if payload.overtime_policy in OVERTIME_POLICIES else None,
+        profile=_clean_profile(payload.profile),
         active=payload.active
     )
+    _sync_irrf_dependents(emp, payload.profile)
     db.add(emp)
     db.commit()
     db.refresh(emp)
@@ -619,6 +655,9 @@ def update_employee(
         emp.dependents = payload.dependents
     if "admission_date" in payload.model_fields_set:
         emp.admission_date = payload.admission_date
+    if payload.profile is not None:
+        emp.profile = _clean_profile(payload.profile)
+        _sync_irrf_dependents(emp, payload.profile)
     if "overtime_policy" in payload.model_fields_set:
         emp.overtime_policy = payload.overtime_policy if payload.overtime_policy in OVERTIME_POLICIES else None
     if payload.active is not None:
@@ -923,6 +962,8 @@ def get_monthly_schedule(
             "num_days": num_days,
             "sundays": sundays,
             "holidays": holidays_by_day,
+            "organization_name": (db.query(models.Organization).get(current_user.organization_id).name
+                                  if current_user.organization_id else None),
             "settings": {
                 "max_consecutive_sundays": settings.max_consecutive_sundays,
                 "transport_ticket_unit_price": round(float(settings.transport_ticket_unit_price), 2) if settings.transport_ticket_unit_price is not None else 4.70,
@@ -971,7 +1012,8 @@ def get_monthly_schedule(
                     "base_salary": current_salary(db, emp),
                     "dependents": emp.dependents or 0,
                     "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
-                    "overtime_policy": emp.overtime_policy
+                    "overtime_policy": emp.overtime_policy,
+                    "profile": emp.profile or {}
                 }
                 for emp in employees
             ],
