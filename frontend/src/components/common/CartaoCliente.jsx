@@ -69,9 +69,11 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
   };
 
   const localSubtotal = contasOrdenadas.reduce((acc, c) => acc + c.saldo_devedor, 0);
+  const contasOperaveis = contasOrdenadas.filter(c => !c.is_omie_cash);
   const selecionadasDoCliente = contasOrdenadas.filter(c => selecionados.find(s => s.codigo_lancamento === c.codigo_lancamento));
-  const todasSelecionadas = contasOrdenadas.length > 0 && contasOrdenadas.every(c => selecionados.find(s => s.codigo_lancamento === c.codigo_lancamento));
+  const todasSelecionadas = contasOperaveis.length > 0 && contasOperaveis.every(c => selecionados.find(s => s.codigo_lancamento === c.codigo_lancamento));
   const valorTotalSelecionado = selecionadasDoCliente.reduce((acc, c) => acc + c.saldo_devedor, 0);
+  const totalOmieCash = contasOrdenadas.filter(c => c.is_omie_cash).reduce((acc, c) => acc + c.saldo_devedor, 0);
 
 
   return (
@@ -105,6 +107,11 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
         <div className="text-right shrink-0 print:ml-auto">
           <p className="text-sm text-slate-400 uppercase font-bold print:text-slate-500 print:text-[9px] print:m-0 print:leading-tight">Total Aberto</p>
           <p className="text-2xl font-black text-emerald-400 print:text-slate-900 print:text-sm print:m-0 print:font-bold print:leading-tight">R$ {localSubtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+          {totalOmieCash > 0 && (
+            <p className="text-[11px] font-semibold text-sky-400 print:hidden mt-0.5">
+              (R$ {totalOmieCash.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em Boletos Omie.Cash)
+            </p>
+          )}
         </div>
       </div>
 
@@ -113,9 +120,11 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
           <thead>
             <tr className="bg-slate-800/30 text-slate-300 print:bg-slate-200 print:text-slate-900 text-xs font-bold border-b border-slate-700/50 print:border-slate-300">
               <th className="py-3 px-5 print:hidden w-10">
-                <button onClick={() => toggleTodosCliente(contasOrdenadas)} className="text-slate-400 hover:text-indigo-400" title="Selecionar Todos Visíveis">
-                  {todasSelecionadas ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} />}
-                </button>
+                {contasOperaveis.length > 0 && (
+                  <button onClick={() => toggleTodosCliente(contasOperaveis)} className="text-slate-400 hover:text-indigo-400" title="Selecionar Todos em Aberto (Carteira)">
+                    {todasSelecionadas ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} />}
+                  </button>
+                )}
               </th>
               <HeaderTH handleSort={handleSort} sortConfig={sortConfig} sortKey="emissao" label="Emissão" width="w-36" />
               <HeaderTH handleSort={handleSort} sortConfig={sortConfig} sortKey="vencimento" label="Vencimento" width="w-36" />
@@ -133,14 +142,31 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
               contasOrdenadas.map((conta, idx) => {
                 const taSelecionado = selecionados.find(s => s.codigo_lancamento === conta.codigo_lancamento);
                 return (
-                  <tr key={conta.codigo_lancamento} className={`border-b border-slate-700/30 print:border-slate-300 ${taSelecionado ? 'bg-indigo-500/5' : 'hover:bg-slate-800/40'} transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50'}`}>
-                    <td className="py-3 px-5 print:hidden cursor-pointer" onClick={() => toggleSelecao(conta)}>
-                      {taSelecionado ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} className="text-slate-500" />}
+                  <tr key={conta.codigo_lancamento} className={`border-b border-slate-700/30 print:border-slate-300 ${conta.is_omie_cash ? 'bg-indigo-950/20' : taSelecionado ? 'bg-indigo-500/5' : 'hover:bg-slate-800/40'} transition-colors ${idx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50'}`}>
+                    <td className="py-3 px-5 print:hidden">
+                      {conta.is_omie_cash ? (
+                        <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded cursor-default" title="Boleto emitido via Omie.Cash com liquidação automática">
+                          Boleto
+                        </span>
+                      ) : (
+                        <div className="cursor-pointer" onClick={() => toggleSelecao(conta)}>
+                          {taSelecionado ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} className="text-slate-500" />}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-5 text-slate-400 print:text-slate-800 print:py-1 print:px-2 print:text-[10px]">{formatarDataComDia(conta.data_emissao)}</td>
                     <td className="py-3 px-5 font-medium text-slate-300 print:text-slate-800 print:py-1 print:px-2 print:text-[10px]">{formatarDataComDia(conta.data_previsao_br)}</td>
                     <td className="py-3 px-5 text-slate-300 print:text-slate-800 print:py-1 print:px-2 print:text-[10px]">{conta.numero_documento_fiscal} - {conta.numero_parcela}</td>
-                    <td className="py-3 px-5 text-slate-400 print:text-slate-600 truncate max-w-[200px] print:max-w-none print:py-1 print:px-2 print:text-[10px]">{conta.conta_corrente}</td>
+                    <td className="py-3 px-5 text-slate-400 print:text-slate-600 truncate max-w-[200px] print:max-w-none print:py-1 print:px-2 print:text-[10px]">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">{conta.conta_corrente}</span>
+                        {conta.is_omie_cash && (
+                          <span className="shrink-0 text-[9px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.2 rounded">
+                            Baixa Automática
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-3 px-5 text-right print:py-1 print:px-2 print:text-[10px]">
                       {conta.tem_pagamento_parcial ? (
                         <div className="flex flex-col items-end gap-0.5">
