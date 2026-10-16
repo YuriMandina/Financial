@@ -44,6 +44,28 @@ const EMPTY_ITEM = {
   active: true
 };
 
+// Quadro de impressão: o cabeçalho e o rodapé vazios se repetem em cada página e
+// garantem a margem vertical mesmo quando o navegador ignora a margem do @page.
+const PRINT_FRAME_CSS = `
+@media print {
+  @page { size: A4 portrait; margin: 0 10mm; }
+  table.print-page-frame, table.print-page-frame > * > tr > td { border: none !important; padding: 0 !important; }
+  table.print-page-frame > thead { display: table-header-group !important; }
+  table.print-page-frame > tfoot { display: table-footer-group !important; }
+  table.print-page-frame > tbody > tr { break-inside: auto !important; page-break-inside: auto !important; }
+}`;
+
+const PrintFrame = ({ children }) => (
+  <div className="hidden print:block text-black bg-white">
+    <style>{PRINT_FRAME_CSS}</style>
+    <table className="print-page-frame w-full">
+      <thead><tr><td><div style={{ height: '10mm' }} /></td></tr></thead>
+      <tfoot><tr><td><div style={{ height: '10mm' }} /></td></tr></tfoot>
+      <tbody><tr><td>{children}</td></tr></tbody>
+    </table>
+  </div>
+);
+
 export default function RHFolhaPagamento({ token, apiBase, selectedYear, selectedMonth }) {
   const [view, setView] = useState('folha'); // 'folha' | 'totais' | 'rubricas'
   const [loading, setLoading] = useState(true);
@@ -750,8 +772,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
     ];
 
     return (
-      <div className="hidden print:block text-black bg-white">
-        <style>{'@media print { @page { size: A4 portrait; margin: 10mm; } }'}</style>
+      <PrintFrame>
         {printTitle(`Detalhamento por colaborador • ${employees.length} colaborador(es)`)}
         <div className="space-y-3">
           {employees.map((emp) => {
@@ -867,7 +888,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             Líquido = Proventos − Descontos − Adiantamento (saldo a pagar no fechamento do mês). Na coluna Descontos o adiantamento não está incluído.
           </p>
         </div>
-      </div>
+      </PrintFrame>
     );
   };
 
@@ -898,8 +919,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
     );
 
     return (
-      <div className="hidden print:block text-black bg-white">
-        <style>{'@media print { @page { size: A4 portrait; margin: 10mm; } }'}</style>
+      <PrintFrame>
         {printTitle(`Totais da folha • ${totals.headcount || 0} colaborador(es)`)}
 
         <div className="grid grid-cols-3 gap-3 mb-4" style={{ breakInside: 'avoid' }}>
@@ -1011,7 +1031,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             </tr>
           </tfoot>
         </table>
-      </div>
+      </PrintFrame>
     );
   };
 
