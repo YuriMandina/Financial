@@ -19,6 +19,8 @@ const STATUS_OPTIONS = [
   { key: 'ATESTADO', label: 'Atestado Médico', short: 'ATEST', bg: 'bg-cyan-600/20 text-cyan-300 border-cyan-500/40 hover:bg-cyan-600/30' }
 ];
 
+const WEEKDAY_SHORT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
 const MONTH_NAMES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
@@ -302,6 +304,8 @@ export default function RHJornadaGrid({
         );
       } else {
         setFillDrawerOpen(false);
+        setSaveMsg(resData.message || 'Turnos aplicados com sucesso!');
+        setTimeout(() => setSaveMsg(''), 6000);
       }
 
       setDirty(false);
@@ -522,6 +526,7 @@ export default function RHJornadaGrid({
                 {daysList.map((day) => {
                   const isSunday = sundays.includes(day);
                   const isHoliday = !!holidays[day];
+                  const weekdayLabel = WEEKDAY_SHORT[new Date(selectedYear, selectedMonth - 1, day).getDay()];
                   return (
                     <th
                       key={day}
@@ -532,12 +537,15 @@ export default function RHJornadaGrid({
                             ? 'bg-sky-950/30 text-sky-400 font-bold'
                             : 'text-slate-300'
                       }`}
-                      title={isHoliday ? holidays[day] : isSunday ? 'Domingo' : `Dia ${day}`}
+                      title={isHoliday ? `${holidays[day]} (${weekdayLabel})` : isSunday ? 'Domingo' : `Dia ${day} (${weekdayLabel})`}
                     >
                       <div>{day}</div>
                       <div className="text-[9px] font-normal lowercase opacity-70">
-                        {isSunday ? 'dom' : isHoliday ? 'fer' : ''}
+                        {weekdayLabel}
                       </div>
+                      {isHoliday && (
+                        <div className="text-[8px] font-semibold uppercase leading-none">fer</div>
+                      )}
                     </th>
                   );
                 })}
