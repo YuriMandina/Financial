@@ -46,13 +46,13 @@ export const TaskSyncProvider = ({ children, onNavigateMenu }) => {
     setActiveSyncTasks((prev) => prev.filter((t) => t.taskId !== taskId));
   }, []);
 
-  const handleTaskSuccess = useCallback((taskState) => {
+  const handleTaskSuccess = useCallback((taskState, taskResult) => {
     if (typeof taskState.onSuccess === 'string') {
       if (onNavigateMenu) {
         onNavigateMenu(taskState.onSuccess);
       }
     } else if (typeof taskState.onSuccess === 'function') {
-      taskState.onSuccess();
+      taskState.onSuccess(taskResult);
     }
     triggerGlobalRefresh();
   }, [onNavigateMenu, triggerGlobalRefresh]);
@@ -76,7 +76,7 @@ export const TaskSyncProvider = ({ children, onNavigateMenu }) => {
               taskId={taskState.taskId?.startsWith('err-') ? null : taskState.taskId}
               manualState={taskState}
               onClose={() => dismissTask(taskState.taskId)}
-              onSuccess={() => handleTaskSuccess(taskState)}
+              onSuccess={(result) => handleTaskSuccess(taskState, result)}
               title={taskState.title}
             />
           </div>

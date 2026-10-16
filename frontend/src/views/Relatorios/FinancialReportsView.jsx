@@ -791,20 +791,32 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
         return;
       }
 
+      const bancoSelecionado = listaBancos.find(b => String(b.id) === String(contaDestino))?.nome || 'Conta Não Identificada';
+      const totais = calcularTotaisModal();
+      const nomeCliente = modalBaixa.cliente;
+
       const payload = {
         id_conta_corrente: parseInt(contaDestino),
         data_pagamento: `${dia}/${mes}/${ano}`,
+        cliente: nomeCliente,
+        banco: bancoSelecionado,
+        totais: {
+          totalOriginal: totais.totalOriginal,
+          totalDesconto: totais.totalDesconto,
+          totalJuros: totais.totalJuros,
+          totalPago: totais.totalPago
+        },
         pagamentos: pagamentosTratados.map(p => ({
           codigo_lancamento: p.codigo_lancamento,
           valor: p.valor,
           desconto: p.desconto,
-          juros: p.juros
+          juros: p.juros,
+          numero_documento_fiscal: p.contaOriginal?.numero_documento_fiscal,
+          numero_parcela: p.contaOriginal?.numero_parcela,
+          data_vencimento: p.contaOriginal?.data_previsao_br,
+          data_emissao: p.contaOriginal?.data_emissao
         }))
       };
-
-      const bancoSelecionado = listaBancos.find(b => b.id === contaDestino)?.nome;
-      const totais = calcularTotaisModal();
-      const nomeCliente = modalBaixa.cliente;
 
       setModalBaixa({ aberto: false, cliente: '', contas: [] });
 
@@ -825,19 +837,17 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
       if (data.task_id) {
         handleGlobalTaskStart(data.task_id, "Efetivando Recebimento", async (result) => {
+          // O backend já persiste o recibo automaticamente no banco, mesmo para baixas parciais
+          const baixas = result?.baixas || [];
           const pagamentosComBaixa = pagamentosTratados
-            .filter(p => result?.baixas?.some(b => b.codigo_lancamento === p.codigo_lancamento))
+            .filter(p => baixas.length === 0 || baixas.some(b => b.codigo_lancamento === p.codigo_lancamento))
             .map(p => {
-              const baixaEncontrada = result.baixas.find(b => b.codigo_lancamento === p.codigo_lancamento);
-              return { ...p, codigo_baixa: baixaEncontrada.codigo_baixa };
+              const baixaEncontrada = baixas.find(b => b.codigo_lancamento === p.codigo_lancamento);
+              return { ...p, codigo_baixa: baixaEncontrada?.codigo_baixa || null };
             });
 
-          if (pagamentosComBaixa.length === 0) {
-            console.log("Nenhuma baixa retornou sucesso do Omie. Histórico não será gerado.");
-            return;
-          }
-
-          const novoRecibo = {
+          const reciboFinal = {
+            id: result?.recibo_id,
             cliente: nomeCliente,
             banco: bancoSelecionado,
             data_pagamento: `${dia}/${mes}/${ano}`,
@@ -848,17 +858,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
             notas: pagamentosComBaixa
           };
 
-          try {
-            await fetchWithAuth('http://localhost:8000/api/recibos', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(novoRecibo)
-            });
-          } catch (err) {
-            console.error("Erro ao salvar recibo:", err);
-          }
-
-          setReciboGerado(novoRecibo);
+          setReciboGerado(reciboFinal);
           setTimeout(() => { triggerGlobalRefresh(); }, 500);
         });
       } else {
