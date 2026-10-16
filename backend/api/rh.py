@@ -1128,7 +1128,19 @@ def override_day_benefit(
     ).first()
 
     if not rec:
-        raise HTTPException(status_code=404, detail="Dia de trabalho não encontrado")
+        # Dia ainda sem registro na escala: cria como folga/DSR para receber o ajuste do benefício
+        schedule = db.query(models.RHMonthlySchedule).filter(
+            models.RHMonthlySchedule.id == payload.schedule_id,
+            models.RHMonthlySchedule.organization_id == current_user.organization_id
+        ).first()
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Escala não encontrada")
+        is_sunday = date(schedule.year, schedule.month, payload.day).weekday() == 6
+        rec = models.RHWorkDay(
+            schedule_id=schedule.id, employee_id=payload.employee_id, day=payload.day,
+            status="DSR" if is_sunday else "FOLGA", raw_minutes=0, worked_minutes=0, is_manual=False
+        )
+        db.add(rec)
 
     if payload.vt_tickets_override is not None:
         rec.vt_tickets_override = payload.vt_tickets_override

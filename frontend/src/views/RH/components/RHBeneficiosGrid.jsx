@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Bus, Utensils, RotateCcw, Plus, Trash2, CheckCircle2, 
-  AlertCircle, Edit2, Sparkles, Filter, X, HelpCircle
+  AlertCircle, Edit2, Sparkles, Filter, X, HelpCircle, Zap
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 
@@ -31,6 +31,74 @@ export default function RHBeneficiosGrid({
   const [overrideVal, setOverrideVal] = useState('');
   const [overrideNote, setOverrideNote] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
+
+  // Ajuste rápido: clique alterna o benefício do dia e salva na hora
+  const [quickMode, setQuickMode] = useState(() => {
+    try {
+      return localStorage.getItem('rh_benefit_quick_mode') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const [pendingCells, setPendingCells] = useState({}); // { 'empId:day': valor exibido enquanto salva }
+  const saveChainRef = useRef(Promise.resolve());
+  const refreshTimerRef = useRef(null);
+
+  const toggleQuickMode = () => {
+    setQuickMode((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('rh_benefit_quick_mode', next ? 'on' : 'off'); } catch { /* sem armazenamento */ }
+      return next;
+    });
+  };
+
+  // VT: não recebe -> 2 -> 4 -> não recebe | VA: recebe <-> não recebe
+  const nextQuickValue = (current) => {
+    if (!isVT) return !current;
+    if (current < 2) return 2;
+    if (current < 4) return 4;
+    return 0;
+  };
+
+  const handleQuickToggle = (emp, day, currentValue) => {
+    const key = `${emp.id}:${day}`;
+    const next = nextQuickValue(currentValue);
+    setPendingCells((prev) => ({ ...prev, [key]: next }));
+
+    const payload = {
+      schedule_id: scheduleId,
+      employee_id: emp.id,
+      day,
+      ...(isVT ? { vt_tickets_override: next } : { va_override: next })
+    };
+
+    // Salva em sequência (cliques rápidos não chegam fora de ordem) e atualiza a tela ao final
+    saveChainRef.current = saveChainRef.current.then(async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/rh/schedules/benefits/override`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Erro ao salvar ajuste');
+      } catch (err) {
+        setPendingCells((prev) => {
+          const copy = { ...prev };
+          delete copy[key];
+          return copy;
+        });
+        alert('Erro ao ajustar benefício: ' + err.message);
+      }
+    });
+
+    clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      saveChainRef.current.then(async () => {
+        if (onRefresh) await onRefresh();
+        setPendingCells({});
+      });
+    }, 700);
+  };
 
   // Estado do modal de ajuste avulso (D7)
   const [adjModalOpen, setAdjModalOpen] = useState(false);
@@ -186,40 +254,68 @@ export default function RHBeneficiosGrid({
   return (
     <div className="space-y-5">
       {/* Barra de Ferramentas da Aba */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <TypeIcon className={isVT ? 'text-indigo-400' : 'text-emerald-400'} size={18} />
-            Controle & Ajustes de {typeLabel}
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {isVT
-              ? `Calculado automaticamente a partir dos dias trabalhados (tarifa universal: R$ ${ticketUnitPrice.toFixed(2)}). Você pode fazer ajustes para mais ou para menos.`
-              : 'Concedido automaticamente para dias de trabalho com jornada de 6 horas ou mais. Editável por dia ou por ajuste avulso no mês.'
-            }
-          </p>
+      <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-sm">
+        <div className="p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <TypeIcon className={isVT ? 'text-indigo-400' : 'text-emerald-400'} size={18} />
+              Controle & Ajustes de {typeLabel}
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {isVT
+                ? `Calculado a partir dos dias trabalhados (tarifa: R$ ${ticketUnitPrice.toFixed(2)}). Ajuste para mais ou para menos por dia ou no mês.`
+                : 'Concedido em dias de trabalho com jornada de 6 horas ou mais. Ajuste por dia ou no mês.'
+              }
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => handleResetBenefit(null, null)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors whitespace-nowrap"
+              title="Remove todos os ajustes deste benefício e volta aos valores calculados pela jornada"
+            >
+              <RotateCcw size={14} />
+              Restaurar Calculados
+            </button>
+            <button
+              onClick={() => {
+                setAdjEmpId(employees[0]?.id || '');
+                setAdjModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-colors whitespace-nowrap"
+            >
+              <Plus size={14} />
+              Ajuste Avulso no Mês
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Modo de edição da grade */}
+        <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-950/40 rounded-b-xl flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
           <button
-            onClick={() => handleResetBenefit(null, null)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
-            title="Remove todos os overrides deste benefício e volta aos valores calculados pela jornada"
+            type="button"
+            role="switch"
+            aria-checked={quickMode}
+            onClick={toggleQuickMode}
+            className="flex items-center gap-2 font-semibold text-slate-200"
           >
-            <RotateCcw size={14} />
-            Restaurar Todos Calculados
+            <span className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${quickMode ? 'bg-amber-500' : 'bg-slate-700'}`}>
+              <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${quickMode ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+            </span>
+            <Zap size={13} className={quickMode ? 'text-amber-300' : 'text-slate-500'} />
+            Ajuste rápido
           </button>
-
-          <button
-            onClick={() => {
-              setAdjEmpId(employees[0]?.id || '');
-              setAdjModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-colors"
-          >
-            <Plus size={14} />
-            Novo Ajuste Avulso no Mês
-          </button>
+          <span className="text-slate-500">
+            {quickMode
+              ? (isVT
+                ? 'Clique na célula: não recebe → 2 → 4 → não recebe. Clique direito: ajuste detalhado.'
+                : 'Clique na célula: recebe ↔ não recebe. Clique direito: ajuste detalhado.')
+              : 'Clique na célula para abrir o ajuste detalhado.'}
+          </span>
+          <span className="ml-auto flex items-center gap-1.5 text-slate-500">
+            <span className="w-2 h-2 rounded-full bg-amber-400" /> ajustado manualmente
+          </span>
         </div>
       </div>
 
@@ -244,8 +340,9 @@ export default function RHBeneficiosGrid({
                     >
                       <div>{day}</div>
                       <div className="text-[9px] font-normal lowercase opacity-70">
-                        {isSunday ? 'dom' : isHoliday ? 'fer' : ''}
+                        {['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(selectedYear, selectedMonth - 1, day).getDay()]}
                       </div>
+                      {isHoliday && <div className="text-[8px] font-semibold uppercase leading-none">fer</div>}
                     </th>
                   );
                 })}
@@ -284,8 +381,10 @@ export default function RHBeneficiosGrid({
 
                     {daysList.map((day) => {
                       const d = empDays[day] || {};
-                      const isOverridden = isVT ? d.vt_is_overridden : d.va_is_overridden;
-                      const finalVal = isVT ? (d.vt_final ?? 0) : d.va_final;
+                      const pendingKey = `${emp.id}:${day}`;
+                      const isPending = pendingKey in pendingCells;
+                      const isOverridden = isPending || (isVT ? d.vt_is_overridden : d.va_is_overridden);
+                      const finalVal = isPending ? pendingCells[pendingKey] : (isVT ? (d.vt_final ?? 0) : d.va_final);
                       const isSun = sundays.includes(day);
 
                       let badgeText = '';
@@ -312,16 +411,20 @@ export default function RHBeneficiosGrid({
                       return (
                         <td
                           key={day}
-                          onClick={() => handleOpenOverride(emp, day)}
+                          onClick={() => (quickMode ? handleQuickToggle(emp, day, finalVal) : handleOpenOverride(emp, day))}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            handleOpenOverride(emp, day);
+                          }}
                           className={`py-1 px-0.5 text-center cursor-pointer select-none transition-colors border-r border-slate-800/50 ${
                             isSun ? 'bg-red-950/10' : ''
                           }`}
-                          title={`Dia ${day}: ${isVT ? `${finalVal} passagens` : (finalVal ? 'Concedido' : 'Não concedido')} ${isOverridden ? '(Ajustado manualmente)' : '(Calculado)'}`}
+                          title={`Dia ${day}: ${isVT ? (finalVal > 0 ? `${finalVal} passagens` : 'não recebe') : (finalVal ? 'Concedido' : 'Não concedido')} ${isOverridden ? '(Ajustado manualmente)' : '(Calculado)'}${quickMode ? ' • clique para alternar, clique direito para detalhar' : ''}`}
                         >
                           <div
                             className={`w-7 h-7 mx-auto rounded flex items-center justify-center font-bold text-[10px] border transition-transform active:scale-95 relative ${badgeStyle} ${
                               isOverridden ? 'border-amber-400 ring-1 ring-amber-400/40 shadow-xs' : ''
-                            }`}
+                            } ${isPending ? 'opacity-70' : ''}`}
                           >
                             <span>{badgeText}</span>
                             {isOverridden && (
