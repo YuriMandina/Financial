@@ -278,7 +278,7 @@ export default function RHBeneficiosGrid({
                     <td className="py-2 px-3 font-medium text-slate-200 sticky left-0 bg-slate-900 border-r border-slate-800 z-10">
                       <div className="truncate max-w-[150px] font-semibold text-white">{emp.name}</div>
                       <div className="text-[10px] text-slate-400 truncate">
-                        {isVT ? `Padrão: ${emp.default_daily_transport_tickets || 2} vales/dia` : `VA: R$ ${(emp.daily_meal_cost || 25).toFixed(2)}/dia`}
+                        {isVT ? (emp.default_daily_transport_tickets === 0 ? 'Sem vale transporte' : `Padrão: ${emp.default_daily_transport_tickets ?? 2} vales/dia`) : `VA: R$ ${(emp.daily_meal_cost || 25).toFixed(2)}/dia`}
                       </div>
                     </td>
 

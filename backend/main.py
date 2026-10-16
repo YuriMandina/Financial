@@ -22,6 +22,7 @@ from api.relatorios import router as relatorios_router
 from api.recebimentos import router as recebimentos_router
 from api.tasks import router as tasks_router
 from api.rh import router as rh_router
+from api.rh_payroll import router as rh_payroll_router
 
 # --- SETUP DA APLICAÇÃO ---
 app = FastAPI(title="API GabaritoBI", version="5.0")
@@ -45,6 +46,8 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS time_rounding_mode VARCHAR DEFAULT 'NEAREST';"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS clt_tolerance_enabled BOOLEAN DEFAULT TRUE;"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS hours_display_format VARCHAR DEFAULT 'HHMM';"))
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS base_salary FLOAT DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS dependents INTEGER DEFAULT 0;"))
     except Exception as e:
         print(f"Warning during auto-migration: {e}")
 
@@ -74,4 +77,5 @@ app.include_router(recebimentos_router)
 app.include_router(relatorios_router)
 app.include_router(tasks_router)
 app.include_router(rh_router)
+app.include_router(rh_payroll_router)
 

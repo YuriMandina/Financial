@@ -88,6 +88,8 @@ class RHEmployeeCreate(BaseModel):
     weekly_contract_hours: float = 44.0
     weekly_actual_hours: Optional[float] = None
     work_days_per_week: int = 6
+    base_salary: float = 0.0
+    dependents: int = 0
     active: bool = True
 
 class RHEmployeeUpdate(BaseModel):
@@ -101,6 +103,8 @@ class RHEmployeeUpdate(BaseModel):
     weekly_contract_hours: Optional[float] = None
     weekly_actual_hours: Optional[float] = None
     work_days_per_week: Optional[int] = None
+    base_salary: Optional[float] = None
+    dependents: Optional[int] = None
     active: Optional[bool] = None
 
 class RHHolidayCreate(BaseModel):
@@ -460,12 +464,14 @@ def list_employees(
             "role_id": emp.role_id,
             "role": role_label,
             "default_shift_id": emp.default_shift_id,
-            "default_daily_transport_tickets": emp.default_daily_transport_tickets or 2,
+            "default_daily_transport_tickets": (emp.default_daily_transport_tickets if emp.default_daily_transport_tickets is not None else 2),
             "daily_transport_cost": emp.daily_transport_cost,
             "daily_meal_cost": emp.daily_meal_cost,
             "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
             "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0),
             "work_days_per_week": emp.work_days_per_week or 6,
+            "base_salary": emp.base_salary or 0.0,
+            "dependents": emp.dependents or 0,
             "active": emp.active
         })
     return result
@@ -488,12 +494,14 @@ def create_employee(
         role_id=payload.role_id,
         role=role_text,
         default_shift_id=payload.default_shift_id,
-        default_daily_transport_tickets=payload.default_daily_transport_tickets or 2,
+        default_daily_transport_tickets=payload.default_daily_transport_tickets if payload.default_daily_transport_tickets is not None else 2,
         daily_transport_cost=payload.daily_transport_cost,
         daily_meal_cost=payload.daily_meal_cost,
         weekly_contract_hours=payload.weekly_contract_hours,
         weekly_actual_hours=payload.weekly_actual_hours if payload.weekly_actual_hours is not None else (payload.weekly_contract_hours or 44.0),
         work_days_per_week=payload.work_days_per_week or 6,
+        base_salary=round(payload.base_salary or 0.0, 2),
+        dependents=payload.dependents or 0,
         active=payload.active
     )
     db.add(emp)
@@ -537,6 +545,10 @@ def update_employee(
         emp.weekly_actual_hours = payload.weekly_actual_hours
     if payload.work_days_per_week is not None:
         emp.work_days_per_week = payload.work_days_per_week
+    if payload.base_salary is not None:
+        emp.base_salary = round(payload.base_salary, 2)
+    if payload.dependents is not None:
+        emp.dependents = payload.dependents
     if payload.active is not None:
         emp.active = payload.active
 
@@ -717,7 +729,7 @@ def get_monthly_schedule(
         for emp in employees:
             unified_work_days[emp.id] = {}
             grid_data[emp.id] = {"TRANSPORTE": {}, "ALIMENTACAO": {}}
-            emp_default_tickets = emp.default_daily_transport_tickets or 2
+            emp_default_tickets = (emp.default_daily_transport_tickets if emp.default_daily_transport_tickets is not None else 2)
 
             for day in range(1, num_days + 1):
                 wd = work_days_by_emp[emp.id].get(day)
@@ -875,11 +887,13 @@ def get_monthly_schedule(
                     "role_id": emp.role_id,
                     "role": emp.role_obj.name if emp.role_obj else emp.role or "Geral",
                     "default_shift_id": emp.default_shift_id,
-                    "default_daily_transport_tickets": emp.default_daily_transport_tickets or 2,
+                    "default_daily_transport_tickets": (emp.default_daily_transport_tickets if emp.default_daily_transport_tickets is not None else 2),
                     "daily_meal_cost": emp.daily_meal_cost,
                     "weekly_contract_hours": emp.weekly_contract_hours or 44.0,
                     "weekly_actual_hours": emp.weekly_actual_hours if emp.weekly_actual_hours is not None else (emp.weekly_contract_hours or 44.0),
-                    "work_days_per_week": emp.work_days_per_week or 6
+                    "work_days_per_week": emp.work_days_per_week or 6,
+                    "base_salary": emp.base_salary or 0.0,
+                    "dependents": emp.dependents or 0
                 }
                 for emp in employees
             ],
@@ -1275,7 +1289,7 @@ def auto_fill_standard_schedule(
         shift_code = target_shift.code if target_shift else None
         shift_net_hours = target_shift.net_hours if target_shift else 8.0
 
-        tickets_default = emp.default_daily_transport_tickets or 2
+        tickets_default = (emp.default_daily_transport_tickets if emp.default_daily_transport_tickets is not None else 2)
 
         for day in range(1, num_days + 1):
             if day in holiday_days:

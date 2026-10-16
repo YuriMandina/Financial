@@ -298,7 +298,8 @@ def calculate_work_days_summary(
     hours_format = getattr(settings, "hours_display_format", "HHMM") or "HHMM"
 
     emp_meal_cost = getattr(employee, "daily_meal_cost", 25.00) or 0.0
-    default_tickets = getattr(employee, "default_daily_transport_tickets", 2) or 2
+    default_tickets = getattr(employee, "default_daily_transport_tickets", 2)
+    default_tickets = 2 if default_tickets is None else default_tickets  # 0 = sem vale transporte
     contract_weekly_hours = getattr(employee, "weekly_contract_hours", 44.0) or 44.0
     work_days_per_week = getattr(employee, "work_days_per_week", 6) or 6
 

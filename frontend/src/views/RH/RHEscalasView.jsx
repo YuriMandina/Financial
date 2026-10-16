@@ -3,7 +3,7 @@ import {
   Users, Bus, Utensils, AlertTriangle, Calendar, Printer, 
   Save, RefreshCw, Plus, Trash2, Edit2, CheckCircle2, Clock, 
   ChevronLeft, ChevronRight, ShieldAlert, Sparkles, FileSpreadsheet,
-  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays
+  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays, Wallet
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
 import RHShiftModal from './components/RHShiftModal';
@@ -11,6 +11,7 @@ import RHJornadasTab from './components/RHJornadasTab';
 import RHJornadaGrid from './components/RHJornadaGrid';
 import RHBeneficiosGrid from './components/RHBeneficiosGrid';
 import RHFeriadosView from './components/RHFeriadosView';
+import RHFolhaPagamento from './components/RHFolhaPagamento';
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
 
@@ -65,6 +66,14 @@ const STATUS_CONFIG = {
 
 const STATUS_KEYS = ['X', 'BH', 'F', 'FE', 'OFF'];
 
+// Aceita "3.000,50", "3000,50" e "3000.50"
+const parseMoney = (value) => {
+  const str = String(value ?? '').trim();
+  if (!str) return 0;
+  const normalized = str.includes(',') ? str.replace(/\./g, '').replace(',', '.') : str;
+  return parseFloat(normalized) || 0;
+};
+
 const MONTH_NAMES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
@@ -101,6 +110,8 @@ export default function RHEscalasView({ token }) {
     daily_meal_cost: 25.00,
     weekly_contract_hours: 44.0,
     weekly_actual_hours: 44.0,
+    base_salary: '0,00',
+    dependents: 0,
     work_days_per_week: 6,
     active: true
   });
@@ -193,7 +204,7 @@ export default function RHEscalasView({ token }) {
         status: 'OFF', 
         shift: defaultShift?.code || null, 
         shift_id: defaultShift?.id || null,
-        tickets_count: empObj?.default_daily_transport_tickets || 2, 
+        tickets_count: empObj?.default_daily_transport_tickets ?? 2, 
         daily_hours: defaultShift?.net_hours || 8.0 
       };
       const currentStatus = currentEntry.status || 'OFF';
@@ -368,11 +379,13 @@ export default function RHEscalasView({ token }) {
         name: employeeFormData.name,
         role_id: employeeFormData.role_id ? parseInt(employeeFormData.role_id, 10) : null,
         default_shift_id: employeeFormData.default_shift_id ? parseInt(employeeFormData.default_shift_id, 10) : null,
-        default_daily_transport_tickets: parseInt(employeeFormData.default_daily_transport_tickets, 10) || 2,
+        default_daily_transport_tickets: Number.isNaN(parseInt(employeeFormData.default_daily_transport_tickets, 10)) ? 2 : parseInt(employeeFormData.default_daily_transport_tickets, 10),
         daily_meal_cost: parseFloat(String(employeeFormData.daily_meal_cost).replace(',', '.')) || 25.00,
         weekly_contract_hours: parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         weekly_actual_hours: parseFloat(employeeFormData.weekly_actual_hours) || parseFloat(employeeFormData.weekly_contract_hours) || 44.0,
         work_days_per_week: parseInt(employeeFormData.work_days_per_week, 10) || 6,
+        base_salary: parseMoney(employeeFormData.base_salary),
+        dependents: parseInt(employeeFormData.dependents, 10) || 0,
         active: employeeFormData.active
       };
 
@@ -564,6 +577,8 @@ export default function RHEscalasView({ token }) {
                 daily_meal_cost: '25,00',
                 weekly_contract_hours: 44.0,
                 weekly_actual_hours: 44.0,
+                base_salary: '0,00',
+                dependents: 0,
                 active: true
               });
               setEmployeeModalOpen(true);
@@ -662,12 +677,12 @@ export default function RHEscalasView({ token }) {
                         {emp.role} • {emp.weekly_contract_hours}h sem.
                       </div>
                       <div className="text-[10px] text-indigo-400">
-                        {isTransport ? `Padrão: ${emp.default_daily_transport_tickets} passagens/dia` : `VA: R$ ${(emp.daily_meal_cost || 25).toFixed(2)}/dia`}
+                        {isTransport ? (emp.default_daily_transport_tickets === 0 ? 'Sem vale transporte' : `Padrão: ${emp.default_daily_transport_tickets} passagens/dia`) : `VA: R$ ${(emp.daily_meal_cost || 25).toFixed(2)}/dia`}
                       </div>
                     </td>
 
                     {daysList.map((day) => {
-                      const entry = empGrid[day] || { status: 'OFF', tickets_count: emp.default_daily_transport_tickets || 2 };
+                      const entry = empGrid[day] || { status: 'OFF', tickets_count: emp.default_daily_transport_tickets ?? 2 };
                       const status = entry.status || 'OFF';
                       const ticketsCount = entry.tickets_count || emp.default_daily_transport_tickets || 2;
                       const conf = STATUS_CONFIG[status] || STATUS_CONFIG.OFF;
@@ -989,6 +1004,8 @@ export default function RHEscalasView({ token }) {
                 daily_meal_cost: '25,00',
                 weekly_contract_hours: 44.0,
                 weekly_actual_hours: 44.0,
+                base_salary: '0,00',
+                dependents: 0,
                 active: true
               });
               setEmployeeModalOpen(true);
@@ -1041,7 +1058,7 @@ export default function RHEscalasView({ token }) {
                       {shiftObj ? `${shiftObj.code} (${shiftObj.net_hours}h)` : 'Padrão (8h)'}
                     </td>
                     <td className="py-3 px-4 text-center text-indigo-400 font-medium">
-                      {emp.default_daily_transport_tickets} passagens (R$ {(emp.default_daily_transport_tickets * ticketUnitPrice).toFixed(2)})
+                      {emp.default_daily_transport_tickets === 0 ? 'Sem vale transporte' : `${emp.default_daily_transport_tickets} passagens (R$ ${(emp.default_daily_transport_tickets * ticketUnitPrice).toFixed(2)})`}
                     </td>
                     <td className="py-3 px-4 text-right text-emerald-400 font-medium">
                       R$ {(emp.daily_meal_cost || 25).toFixed(2)}
@@ -1059,10 +1076,13 @@ export default function RHEscalasView({ token }) {
                             name: emp.name,
                             role_id: emp.role_id || '',
                             default_shift_id: emp.default_shift_id || '',
-                            default_daily_transport_tickets: emp.default_daily_transport_tickets || 2,
+                            default_daily_transport_tickets: emp.default_daily_transport_tickets ?? 2,
                             daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2).replace('.', ','),
                             weekly_contract_hours: emp.weekly_contract_hours || 44.0,
                             weekly_actual_hours: emp.weekly_actual_hours || emp.weekly_contract_hours || 44.0,
+                            base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
+                            dependents: emp.dependents || 0,
+                            work_days_per_week: emp.work_days_per_week || 6,
                             active: true
                           });
                           setEmployeeModalOpen(true);
@@ -1435,6 +1455,18 @@ export default function RHEscalasView({ token }) {
           <CalendarDays size={16} />
           Feriados & Folgas
         </button>
+
+        <button
+          onClick={() => setActiveTab('folha')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+            activeTab === 'folha'
+              ? 'border-indigo-500 text-white bg-slate-900/60'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+          }`}
+        >
+          <Wallet size={16} />
+          Folha de Pagamento
+        </button>
       </div>
 
       {/* Renderização do Conteúdo da Aba */}
@@ -1510,10 +1542,12 @@ export default function RHEscalasView({ token }) {
               name: emp.name,
               role_id: emp.role_id || '',
               default_shift_id: emp.default_shift_id || '',
-              default_daily_transport_tickets: emp.default_daily_transport_tickets || 2,
+              default_daily_transport_tickets: emp.default_daily_transport_tickets ?? 2,
               daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2),
               weekly_contract_hours: emp.weekly_contract_hours || 44.0,
               weekly_actual_hours: emp.weekly_actual_hours || emp.weekly_contract_hours || 44.0,
+              base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
+              dependents: emp.dependents || 0,
               work_days_per_week: emp.work_days_per_week || 6,
               active: true
             });
@@ -1524,6 +1558,14 @@ export default function RHEscalasView({ token }) {
       {activeTab === 'resumo' && renderFinancialSummary()}
       {activeTab === 'mural' && renderSundayScheduleWall()}
       {activeTab === 'equipe' && renderTeamAndSettings()}
+      {activeTab === 'folha' && (
+        <RHFolhaPagamento
+          token={token}
+          apiBase={API_BASE}
+          selectedYear={selectedYear}
+          selectedMonth={selectedMonth}
+        />
+      )}
       {activeTab === 'feriados' && (
         <RHFeriadosView
           token={token}
@@ -1567,85 +1609,69 @@ export default function RHEscalasView({ token }) {
                       + Novo Cargo
                     </button>
                   </div>
-                  <select
+                  <SelectDropdown
                     value={employeeFormData.role_id}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, role_id: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="">Selecione um cargo...</option>
-                    {roles.map((r) => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setEmployeeFormData({ ...employeeFormData, role_id: val })}
+                    placeholder="Selecione um cargo..."
+                    searchable={roles.length > 6}
+                    options={roles.map((r) => ({ value: r.id, label: r.name }))}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-slate-400 mb-1">Turno Padrão Contratual</label>
-                  <select
+                  <SelectDropdown
                     value={employeeFormData.default_shift_id}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, default_shift_id: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="">Padrão (8h)</option>
-                    {shifts.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.code}: {s.name} ({s.net_hours}h)
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setEmployeeFormData({ ...employeeFormData, default_shift_id: val })}
+                    options={[
+                      { value: '', label: 'Padrão (8h)' },
+                      ...shifts.map((s) => ({ value: s.id, label: `${s.code}: ${s.name}`, subtitle: `${s.net_hours}h líquidas` }))
+                    ]}
+                  />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Jornada Semanal Contratual</label>
-                  <select
+                  <SelectDropdown
                     value={employeeFormData.weekly_contract_hours}
-                    onChange={(e) => {
-                      const newContract = parseFloat(e.target.value);
+                    onChange={(val) => {
+                      const newContract = parseFloat(val);
                       const wasEqual = employeeFormData.weekly_actual_hours === employeeFormData.weekly_contract_hours;
-                      setEmployeeFormData({ 
-                        ...employeeFormData, 
+                      setEmployeeFormData({
+                        ...employeeFormData,
                         weekly_contract_hours: newContract,
                         weekly_actual_hours: wasEqual ? newContract : employeeFormData.weekly_actual_hours
                       });
                     }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value={44}>44 horas semanais</option>
-                    <option value={40}>40 horas semanais</option>
-                    <option value={36}>36 horas semanais</option>
-                    <option value={30}>30 horas semanais</option>
-                    <option value={20}>20 horas semanais</option>
-                  </select>
+                    options={[44, 40, 36, 30, 20].map((h) => ({ value: h, label: `${h} horas semanais` }))}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-slate-400 mb-1">Jornada Semanal Praticada</label>
-                  <select
+                  <SelectDropdown
                     value={employeeFormData.weekly_actual_hours}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, weekly_actual_hours: parseFloat(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value={44}>44 horas semanais</option>
-                    <option value={48}>48 horas semanais (ex: 6x 8h)</option>
-                    <option value={40}>40 horas semanais</option>
-                    <option value={36}>36 horas semanais</option>
-                    <option value={30}>30 horas semanais</option>
-                    <option value={20}>20 horas semanais</option>
-                  </select>
+                    onChange={(val) => setEmployeeFormData({ ...employeeFormData, weekly_actual_hours: parseFloat(val) })}
+                    options={[
+                      { value: 44, label: '44 horas semanais' },
+                      { value: 48, label: '48 horas semanais', subtitle: 'ex: 6x 8h' },
+                      ...[40, 36, 30, 20].map((h) => ({ value: h, label: `${h} horas semanais` }))
+                    ]}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-slate-400 mb-1">Dias Trabalhados/Sem.</label>
-                  <select
+                  <SelectDropdown
                     value={employeeFormData.work_days_per_week || 6}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, work_days_per_week: parseInt(e.target.value, 10) || 6 })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value={6}>6 dias (Seg a Sáb)</option>
-                    <option value={5}>5 dias (Seg a Sex)</option>
-                  </select>
+                    onChange={(val) => setEmployeeFormData({ ...employeeFormData, work_days_per_week: parseInt(val, 10) || 6 })}
+                    options={[
+                      { value: 6, label: '6 dias', subtitle: 'Seg a Sáb (6x1)' },
+                      { value: 5, label: '5 dias', subtitle: 'Seg a Sex (5x2)' }
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -1676,15 +1702,47 @@ export default function RHEscalasView({ token }) {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Passagens Padrão de VT por Dia</label>
-                  <select
-                    value={employeeFormData.default_daily_transport_tickets}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, default_daily_transport_tickets: parseInt(e.target.value, 10) })}
+                  <label className="block text-slate-400 mb-1">Salário Base Mensal</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-semibold text-xs">R$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={employeeFormData.base_salary ?? ''}
+                      onChange={(e) => setEmployeeFormData({ ...employeeFormData, base_salary: e.target.value.replace(/[^0-9.,]/g, '') })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-500">Base da folha, horas extras, faltas e encargos</span>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1">Dependentes (IRRF)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={employeeFormData.dependents ?? 0}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, dependents: Math.max(0, parseInt(e.target.value, 10) || 0) })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value={2}>2 passagens por dia (Ida e Volta)</option>
-                    <option value={4}>4 passagens por dia (Dupla Jornada/Integração)</option>
-                  </select>
+                  />
+                  <span className="text-[10px] text-slate-500">Dedução de R$ 189,59 por dependente</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Passagens Padrão de VT por Dia</label>
+                  <SelectDropdown
+                    value={employeeFormData.default_daily_transport_tickets ?? 2}
+                    onChange={(val) => setEmployeeFormData({ ...employeeFormData, default_daily_transport_tickets: parseInt(val, 10) })}
+                    options={[
+                      { value: 0, label: 'Sem vale transporte', subtitle: 'Não recebe VT nem tem o desconto de 6%' },
+                      { value: 2, label: '2 passagens por dia', subtitle: 'Ida e volta' },
+                      { value: 4, label: '4 passagens por dia', subtitle: 'Dupla jornada / integração' }
+                    ]}
+                  />
                   <span className="text-[10px] text-slate-500">Tarifa: R$ {ticketUnitPrice.toFixed(2)} cada</span>
                 </div>
 
@@ -1869,31 +1927,31 @@ export default function RHEscalasView({ token }) {
                 <div className="grid grid-cols-2 gap-3 mb-2">
                   <div>
                     <label className="block text-slate-400 mb-1">Múltiplo de Arredondamento</label>
-                    <select
+                    <SelectDropdown
                       value={settingsFormData.time_rounding_minutes ?? 0}
-                      onChange={(e) => setSettingsFormData({ ...settingsFormData, time_rounding_minutes: parseInt(e.target.value, 10) || 0 })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value={0}>Sem arredondamento (exato)</option>
-                      <option value={5}>A cada 5 minutos</option>
-                      <option value={10}>A cada 10 minutos</option>
-                      <option value={15}>A cada 15 minutos (1/4 hora)</option>
-                      <option value={30}>A cada 30 minutos (1/2 hora)</option>
-                      <option value={60}>A cada 60 minutos (1 hora inteira)</option>
-                    </select>
+                      onChange={(val) => setSettingsFormData({ ...settingsFormData, time_rounding_minutes: parseInt(val, 10) || 0 })}
+                      options={[
+                        { value: 0, label: 'Sem arredondamento (exato)' },
+                        { value: 5, label: 'A cada 5 minutos' },
+                        { value: 10, label: 'A cada 10 minutos' },
+                        { value: 15, label: 'A cada 15 minutos (1/4 hora)' },
+                        { value: 30, label: 'A cada 30 minutos (1/2 hora)' },
+                        { value: 60, label: 'A cada 60 minutos (1 hora inteira)' }
+                      ]}
+                    />
                   </div>
 
                   <div>
                     <label className="block text-slate-400 mb-1">Modo de Arredondamento</label>
-                    <select
+                    <SelectDropdown
                       value={settingsFormData.time_rounding_mode || 'NEAREST'}
-                      onChange={(e) => setSettingsFormData({ ...settingsFormData, time_rounding_mode: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value="NEAREST">Mais Próximo (Padrão)</option>
-                      <option value="DOWN">Truncar para Baixo</option>
-                      <option value="UP">Para Cima</option>
-                    </select>
+                      onChange={(val) => setSettingsFormData({ ...settingsFormData, time_rounding_mode: val })}
+                      options={[
+                        { value: 'NEAREST', label: 'Mais Próximo (Padrão)' },
+                        { value: 'DOWN', label: 'Truncar para Baixo' },
+                        { value: 'UP', label: 'Para Cima' }
+                      ]}
+                    />
                   </div>
                 </div>
 

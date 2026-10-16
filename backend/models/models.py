@@ -243,6 +243,8 @@ class RHEmployee(Base):
     weekly_contract_hours = Column(Float, default=44.0) # Regime semanal contratual (ex: 44h, 40h)
     weekly_actual_hours = Column(Float, default=48.0) # Regime praticado
     work_days_per_week = Column(Integer, default=6) # 5 ou 6 dias de trabalho por semana
+    base_salary = Column(Float, default=0.0) # Salário base mensal (folha de pagamento)
+    dependents = Column(Integer, default=0) # Dependentes para dedução do IRRF
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -251,6 +253,49 @@ class RHEmployee(Base):
     default_shift = relationship("RHWorkShift")
     schedule_days = relationship("RHScheduleDay", back_populates="employee", cascade="all, delete-orphan")
     work_days = relationship("RHWorkDay", back_populates="employee", cascade="all, delete-orphan")
+    payroll_entries = relationship("RHPayrollEntry", back_populates="employee", cascade="all, delete-orphan")
+
+
+class RHPayrollItem(Base):
+    """Rubrica da folha de pagamento: receita (provento) ou despesa (desconto)."""
+    __tablename__ = "rh_payroll_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    code = Column(String, nullable=False) # Ex: "001", "HE50"
+    name = Column(String, nullable=False)
+    kind = Column(String, nullable=False) # RECEITA ou DESPESA
+    calc_type = Column(String, default="FIXED") # FIXED (valor) ou PERCENT (% do salário base)
+    default_value = Column(Float, default=0.0)
+    recurring = Column(Boolean, default=False) # Lançada automaticamente para todos no cálculo da folha
+    incide_inss = Column(Boolean, default=True)
+    incide_irrf = Column(Boolean, default=True)
+    incide_fgts = Column(Boolean, default=True)
+    system_key = Column(String, nullable=True) # Rubricas automáticas do sistema (SALARIO, HE50, INSS...)
+    affects_net = Column(Boolean, default=True) # False para itens informativos (FGTS, VA)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    organization = relationship("Organization")
+    entries = relationship("RHPayrollEntry", back_populates="item")
+
+
+class RHPayrollEntry(Base):
+    """Lançamento de uma rubrica para um colaborador em uma folha mensal."""
+    __tablename__ = "rh_payroll_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("rh_payroll_items.id"), nullable=False, index=True)
+    reference = Column(String, nullable=True) # Ex: "12h30", "2 dias", "7,5%"
+    amount = Column(Float, nullable=False, default=0.0)
+    source = Column(String, default="MANUAL") # MANUAL ou AUTO
+    notes = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    employee = relationship("RHEmployee", back_populates="payroll_entries")
+    item = relationship("RHPayrollItem", back_populates="entries")
 
 
 class RHSettings(Base):
