@@ -37,7 +37,7 @@ function startOfDay(d) {
 
 // ─── Month Calendar ──────────────────────────────────────────────────────────
 
-function MonthCalendar({ year, month, selectedDate, onDayClick }) {
+function MonthCalendar({ year, month, selectedDate, onDayClick, maxDate, minDate }) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
@@ -58,16 +58,20 @@ function MonthCalendar({ year, month, selectedDate, onDayClick }) {
           const d = startOfDay(day);
           const isSelected = selectedDate && isSameDay(d, startOfDay(selectedDate));
           const isToday = isSameDay(d, new Date());
+          const isAfterMax = maxDate && d > startOfDay(maxDate);
+          const isBeforeMin = minDate && d < startOfDay(minDate);
+          const isDisabled = isAfterMax || isBeforeMin;
 
           return (
             <div
               key={day.toISOString()}
-              className={`relative flex items-center justify-center h-8 cursor-pointer rounded-full transition-all
-                ${isSelected ? 'bg-indigo-500 text-white font-bold shadow-md shadow-indigo-500/40' : ''}
-                ${isToday && !isSelected ? 'ring-1 ring-indigo-400/70 text-indigo-300' : ''}
-                ${!isSelected && !isToday ? 'text-slate-300 hover:bg-slate-700' : ''}
+              className={`relative flex items-center justify-center h-8 rounded-full transition-all
+                ${isDisabled ? 'opacity-30 cursor-not-allowed text-slate-600' : 'cursor-pointer'}
+                ${isSelected && !isDisabled ? 'bg-indigo-500 text-white font-bold shadow-md shadow-indigo-500/40' : ''}
+                ${isToday && !isSelected && !isDisabled ? 'ring-1 ring-indigo-400/70 text-indigo-300' : ''}
+                ${!isSelected && !isToday && !isDisabled ? 'text-slate-300 hover:bg-slate-700' : ''}
               `}
-              onClick={() => onDayClick(day)}
+              onClick={() => { if (!isDisabled) onDayClick(day); }}
             >
               <span className="text-xs">{day.getDate()}</span>
             </div>
@@ -80,7 +84,17 @@ function MonthCalendar({ year, month, selectedDate, onDayClick }) {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function DatePicker({ value, onChange, disabled }) {
+export default function DatePicker({
+  value,
+  onChange,
+  disabled = false,
+  direction = 'down',
+  align = 'right',
+  max = null,
+  min = null,
+  placeholder = 'Selecione uma data',
+  buttonClassName = ''
+}) {
   const [open, setOpen] = useState(false);
   
   const today = new Date();
@@ -88,6 +102,8 @@ export default function DatePicker({ value, onChange, disabled }) {
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
 
   const selectedDate = fromISO(value);
+  const maxDate = max ? fromISO(max) : null;
+  const minDate = min ? fromISO(min) : null;
   const wrapperRef = useRef(null);
 
   useEffect(() => {
@@ -125,9 +141,18 @@ export default function DatePicker({ value, onChange, disabled }) {
   };
 
   const setHoje = () => {
-    onChange(toISO(new Date()));
+    const dHoje = new Date();
+    if (maxDate && dHoje > maxDate) return;
+    if (minDate && dHoje < minDate) return;
+    onChange(toISO(dHoje));
     setOpen(false);
   };
+
+  const popoverPositionClass = direction === 'up'
+    ? 'bottom-full mb-2'
+    : 'top-full mt-2';
+
+  const popoverAlignClass = align === 'left' ? 'left-0' : 'right-0';
 
   return (
     <div ref={wrapperRef} className="relative w-full">
@@ -141,17 +166,18 @@ export default function DatePicker({ value, onChange, disabled }) {
             ? 'bg-indigo-600/20 border-indigo-500/60 text-indigo-200 shadow-lg shadow-indigo-500/10'
             : 'bg-slate-900/60 border-slate-700/50 text-slate-300 hover:border-indigo-500/40 hover:text-white'}
           ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          ${buttonClassName}
         `}
       >
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <CalendarDays size={16} className={open ? 'text-indigo-400' : 'text-slate-500'} />
-          <span className={value ? 'text-slate-200' : 'text-slate-500 font-normal'}>
-            {value ? formatDisplay(value) : 'Selecione uma data'}
+          <span className={`truncate ${value ? 'text-slate-200' : 'text-slate-500 font-normal'}`}>
+            {value ? formatDisplay(value) : placeholder}
           </span>
         </div>
         {value && (
           <span
-            className="text-slate-500 hover:text-slate-300 transition-colors"
+            className="text-slate-500 hover:text-slate-300 transition-colors ml-2"
             onClick={(e) => { e.stopPropagation(); onChange(''); }}
           >
             <X size={14} />
@@ -161,7 +187,7 @@ export default function DatePicker({ value, onChange, disabled }) {
 
       {open && (
         <div
-          className="absolute z-[500] bottom-full mb-2 right-0 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl shadow-black/70 overflow-hidden"
+          className={`absolute z-[500] ${popoverPositionClass} ${popoverAlignClass} bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl shadow-black/70 overflow-hidden`}
           style={{ animation: 'fadeIn 0.12s ease-out' }}
         >
           <div className="p-4 flex flex-col gap-3">
@@ -181,6 +207,8 @@ export default function DatePicker({ value, onChange, disabled }) {
               year={currentYear} month={currentMonth}
               selectedDate={selectedDate}
               onDayClick={handleDayClick}
+              maxDate={maxDate}
+              minDate={minDate}
             />
 
             <div className="flex items-center justify-between pt-3 mt-2 border-t border-slate-800">
@@ -194,7 +222,8 @@ export default function DatePicker({ value, onChange, disabled }) {
               <button
                 type="button"
                 onClick={setHoje}
-                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-bold"
+                disabled={Boolean((maxDate && new Date() > maxDate) || (minDate && new Date() < minDate))}
+                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-bold disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Hoje
               </button>

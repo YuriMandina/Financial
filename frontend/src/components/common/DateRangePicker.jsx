@@ -131,7 +131,16 @@ function MonthCalendar({ year, month, startDate, endDate, hoverDate, onDayClick,
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function DateRangePicker({ startValue, endValue, onStartChange, onEndChange, disabled }) {
+export default function DateRangePicker({
+  startValue,
+  endValue,
+  onStartChange,
+  onEndChange,
+  disabled = false,
+  compact = false,
+  align = 'right',
+  buttonClassName = ''
+}) {
   const [open, setOpen]           = useState(false);
   const [selectingEnd, setSelectingEnd] = useState(false);
   const [hoverDate, setHoverDate] = useState(null);
@@ -208,30 +217,35 @@ export default function DateRangePicker({ startValue, endValue, onStartChange, o
 
   const presets = getPresets();
 
+  const alignClass = align === 'left' ? 'left-0' : 'right-0';
+
   return (
     <div ref={wrapperRef} className="relative">
       {/* ── Trigger ── */}
       <button
+        type="button"
         onClick={() => { if (!disabled) { setOpen(o => !o); } }}
         disabled={disabled}
         className={`
-          flex items-center gap-2.5 h-10 px-4 rounded-xl border text-sm font-semibold transition-all whitespace-nowrap
+          flex items-center transition-all whitespace-nowrap
+          ${compact ? 'gap-2 h-8 px-2.5 rounded-lg text-xs font-medium' : 'gap-2.5 h-10 px-4 rounded-xl text-sm font-semibold'}
           ${open
             ? 'bg-indigo-600/20 border-indigo-500/60 text-indigo-200 shadow-lg shadow-indigo-500/10'
             : 'bg-slate-900/60 border-slate-700/50 text-slate-300 hover:border-indigo-500/40 hover:text-white'}
           ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          border ${buttonClassName}
         `}
       >
-        <CalendarDays size={15} className={open ? 'text-indigo-400' : 'text-slate-500'} />
+        <CalendarDays size={compact ? 13 : 15} className={open ? 'text-indigo-400' : 'text-slate-500'} />
         <span className={hasRange ? 'text-slate-200' : 'text-slate-500 font-normal'}>
           {displayText}
         </span>
         {hasRange && (
           <span
-            className="ml-0.5 text-slate-500 hover:text-slate-300 transition-colors"
+            className="ml-0.5 text-slate-500 hover:text-slate-300 transition-colors p-0.5"
             onClick={(e) => { e.stopPropagation(); onStartChange(''); onEndChange(''); }}
           >
-            <X size={12} />
+            <X size={compact ? 11 : 12} />
           </span>
         )}
       </button>
@@ -239,7 +253,7 @@ export default function DateRangePicker({ startValue, endValue, onStartChange, o
       {/* ── Dropdown ── */}
       {open && (
         <div
-          className="absolute z-[500] top-full mt-2 right-0 flex bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl shadow-black/70 overflow-hidden"
+          className={`absolute z-[500] top-full mt-2 ${alignClass} flex bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl shadow-black/70 overflow-hidden`}
           style={{ animation: 'fadeIn 0.12s ease-out' }}
         >
           {/* Presets column */}
