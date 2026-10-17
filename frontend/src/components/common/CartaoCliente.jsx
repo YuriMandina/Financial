@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { CalendarDays, CheckSquare, Square, Receipt, Calculator } from 'lucide-react';
 import { converterDataBrParaDate, formatarDataComDia } from '../../utils/formatters';
+import DateRangePicker from './DateRangePicker';
 
 // --- SUBCOMPONENTE: CARD INTELIGENTE DO CLIENTE ---
 const HeaderTH = ({ sortKey, label, width, align = "left", handleSort, sortConfig }) => (
@@ -95,13 +96,14 @@ function CartaoCliente({ grupo, selecionados, toggleSelecao, toggleTodosCliente,
         </div>
 
         <div className="flex items-center gap-2 bg-slate-950/50 p-1.5 rounded-lg border border-slate-800 print:hidden shrink-0">
-          <div className="bg-slate-800/50 px-3 py-2 rounded flex items-center gap-2">
-            <CalendarDays size={14} className="text-indigo-400" />
-            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Período:</span>
-          </div>
-          <input type="date" value={localFiltroInicio} onChange={e => setLocalFiltroInicio(e.target.value)} className="bg-transparent text-xs font-medium text-slate-300 outline-none cursor-pointer [color-scheme:dark] px-2" />
-          <span className="text-slate-600 text-xs font-black">até</span>
-          <input type="date" value={localFiltroFim} onChange={e => setLocalFiltroFim(e.target.value)} className="bg-transparent text-xs font-medium text-slate-300 outline-none cursor-pointer [color-scheme:dark] px-2" />
+          <DateRangePicker
+            startValue={localFiltroInicio}
+            endValue={localFiltroFim}
+            onStartChange={setLocalFiltroInicio}
+            onEndChange={setLocalFiltroFim}
+            compact={true}
+            align="right"
+          />
         </div>
 
         <div className="text-right shrink-0 print:ml-auto">
