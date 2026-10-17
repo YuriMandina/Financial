@@ -16,11 +16,13 @@ from api.tasks import TaskManager, TaskQueue
 from services.omie_dicionarios import (
     extrair_dicionario_contas_correntes, 
     extrair_dicionario_fornecedores, 
-    extrair_dicionario_categorias
+    extrair_dicionario_categorias,
+    consultar_cliente_pontual_omie
 )
 from services.omie_financeiro import (
     extrair_contas_pagar_abertas,
     extrair_movimentos_pagos_periodo,
+    extrair_movimentos_recebidos_periodo,
     extrair_dre_pagar,
     extrair_dre_receber
 )
@@ -43,6 +45,8 @@ def bg_sync_relatorio(task_id: str, module: str, data_inicio: str, data_fim: str
             extrair_contas_pagar_abertas(data_inicio, data_fim, task_id=task_id, force_sync=False)
         elif module == "contas-pagas":
             extrair_movimentos_pagos_periodo(data_inicio, data_fim, task_id=task_id, force_sync=False)
+        elif module == "contas-recebidas":
+            extrair_movimentos_recebidos_periodo(data_inicio, data_fim, task_id=task_id, force_sync=False)
         elif module == "curva-abc":
             extrair_movimento_vendas(data_inicio, data_fim, task_id=task_id, force_sync=False)
         elif module == "dre":
@@ -64,7 +68,7 @@ async def sync_module_dados(
     current_user: models.User = Depends(get_current_user_and_set_org)
 ):
     current_org.set(current_user.organization)
-    valid_modules = ["contas-a-pagar", "contas-pagas", "curva-abc", "dre"]
+    valid_modules = ["contas-a-pagar", "contas-pagas", "contas-recebidas", "curva-abc", "dre"]
     if module not in valid_modules:
         raise HTTPException(status_code=400, detail="Módulo inválido para sincronização.")
         
@@ -445,6 +449,115 @@ def obter_dados_contas_pagas(data_inicio: str, data_fim: str, current_user: mode
             ),
         )
         return JSONResponse(content={"total": total_pago, "contas": contas_lista})
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500, content={"detail": f"Falha no Backend: {e}"}
+        )
+
+# --- [BLOCO: Contas Recebidas (Convênios)] ---
+@router.get("/api/relatorios/contas-recebidas/dados")
+def obter_dados_contas_recebidas(data_inicio: str, data_fim: str, current_user: models.User = Depends(get_current_user_and_set_org)):
+    current_org.set(current_user.organization)
+    try:
+        dict_clientes = extrair_dicionario_fornecedores()
+        dict_categorias = extrair_dicionario_categorias()
+        dict_contas = extrair_dicionario_contas_correntes()
+
+        dict_cli_str = {str(k): v for k, v in dict_clientes.items()}
+        dict_cat_str = {str(k): v for k, v in dict_categorias.items()}
+
+        movimentos_brutos = extrair_movimentos_recebidos_periodo(data_inicio, data_fim)
+        if not movimentos_brutos:
+            return JSONResponse(content={"total": 0.0, "contas": []})
+
+        contas_lista = []
+        total_recebido = 0.0
+        movimentos_vistos = set()
+
+        for mov in movimentos_brutos:
+            det = mov.get("detalhes", {})
+            res = mov.get("resumo", {})
+
+            status_mov = str(det.get("cStatus", "")).upper()
+            if status_mov in ["CANCELADO", "EXCLUIDO", "ESTORNADO"]:
+                continue
+
+            tipo_doc = str(det.get("cTipo") or det.get("cTipoDoc") or "").strip().upper()
+            # Filtrar especificamente convênios / CRE
+            if tipo_doc != "CRE":
+                continue
+
+            id_mov = det.get("nCodMovCC") or det.get("nCodTitulo") or det.get("nCodLanc")
+            if id_mov:
+                if id_mov in movimentos_vistos:
+                    continue
+                movimentos_vistos.add(id_mov)
+
+            valor_mov = abs(safe_float(det.get("nValorMovCC")))
+            valor_pago_resumo = safe_float(res.get("nValPago"))
+            valor_liquido = safe_float(res.get("nValLiquido"))
+            valor_titulo = safe_float(det.get("nValorTitulo"))
+
+            valor = valor_pago_resumo if valor_pago_resumo > 0 else (valor_liquido if valor_liquido > 0 else (valor_mov if valor_mov > 0 else valor_titulo))
+
+            if valor <= 0:
+                continue
+
+            id_cli_orig = det.get("nCodCliente")
+            id_cat_orig = det.get("cCodCateg")
+            id_conta_orig = det.get("nCodCC")
+
+            id_cli = str(id_cli_orig) if id_cli_orig else ""
+            id_cat = str(id_cat_orig) if id_cat_orig else ""
+            id_conta = str(id_conta_orig) if id_conta_orig else ""
+
+            nome_cli = dict_cli_str.get(id_cli)
+            if not nome_cli or nome_cli == id_cli:
+                nome_pontual = consultar_cliente_pontual_omie(id_cli)
+                if nome_pontual:
+                    nome_cli = nome_pontual
+                    dict_cli_str[id_cli] = nome_pontual
+                else:
+                    nome_cli = tratar_vazio(id_cli_orig)
+
+            nome_conta = dict_contas.get(id_conta, f"Conta {id_conta}")
+            desc_cat = dict_cat_str.get(id_cat, tratar_vazio(id_cat_orig))
+
+            data_pagto = tratar_vazio(det.get("dDtPagamento") or det.get("dDtCredito"))
+            data_emis = tratar_vazio(det.get("dDtEmissao"))
+            data_venc = tratar_vazio(det.get("dDtVenc") or det.get("dDtPrevisao"))
+
+            contas_lista.append(
+                {
+                    "codigo_lancamento": det.get("nCodTitulo") or det.get("nCodLanc"),
+                    "data_pagamento_br": data_pagto,
+                    "data_emissao": data_emis,
+                    "data_previsao_br": data_venc,
+                    "numero_documento_fiscal": tratar_vazio(det.get("cNumDocFiscal")),
+                    "numero_parcela": tratar_vazio(det.get("cNumParcela")),
+                    "nome_fornecedor": nome_cli,
+                    "nome_cliente": nome_cli,
+                    "desc_categoria": desc_cat,
+                    "conta_corrente": nome_conta,
+                    "is_omie_cash": "omie.cash" in nome_conta.lower() or "boleto" in nome_conta.lower(),
+                    "valor_pago": valor,
+                    "saldo_devedor": valor,
+                }
+            )
+            total_recebido += valor
+
+        contas_lista = sorted(
+            contas_lista,
+            key=lambda x: (
+                pd.to_datetime(
+                    x["data_pagamento_br"], format="%d/%m/%Y", errors="coerce"
+                )
+                if x["data_pagamento_br"] != "-"
+                else pd.Timestamp.min
+            ),
+        )
+        return JSONResponse(content={"total": total_recebido, "contas": contas_lista})
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(

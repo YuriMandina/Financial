@@ -234,6 +234,71 @@ def extrair_movimentos_pagos_periodo(data_inicio: str, data_fim: str, **kwargs):
         force_sync=kwargs.get('force_sync', False)
     )
 
+def _omie_extrair_movimentos_recebidos_periodo(data_inicio: str, data_fim: str, task_id=None):
+    url = "https://app.omie.com.br/api/v1/financas/mf/"
+    dt_inicio_omie = pd.to_datetime(data_inicio).strftime("%d/%m/%Y")
+    dt_fim_omie = pd.to_datetime(data_fim).strftime("%d/%m/%Y")
+    pagina_atual, total_paginas = 1, 1
+    todos_movimentos = []
+
+    while pagina_atual <= total_paginas:
+        payload = {
+            "call": "ListarMovimentos",
+            "app_key": current_org.get().omie_app_key,
+            "app_secret": current_org.get().omie_app_secret,
+            "param": [
+                {
+                    "nPagina": pagina_atual,
+                    "nRegPorPagina": 100,
+                    "dDtPagtoDe": dt_inicio_omie,
+                    "dDtPagtoAte": dt_fim_omie,
+                    "cTpLancamento": "CR",
+                }
+            ],
+        }
+        try:
+            res = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=20,
+            ).json()
+            if "faultstring" in res:
+                break
+            total_paginas = res.get("nTotPaginas", 1)
+            todos_movimentos.extend(res.get("movimentos", []))
+        except:
+            break
+
+        if task_id:
+            t = TaskManager.get_task(task_id)
+            if t and t.get("status") == "canceled":
+                break
+            progress = (pagina_atual / total_paginas) * 100
+            TaskManager.update_task(task_id, progress=progress, log=f"Extraindo Contas Recebidas: Página {pagina_atual} de {total_paginas}")
+
+        pagina_atual += 1
+        time.sleep(0.3)
+
+    return todos_movimentos
+
+def extrair_movimentos_recebidos_periodo(data_inicio: str, data_fim: str, **kwargs):
+    def extract_mov_date(mov):
+        det = mov.get("detalhes", {})
+        dt = det.get("dDtPagamento") or det.get("dDtCredito") or "01/01/1900"
+        return pd.to_datetime(dt, format="%d/%m/%Y", errors="coerce").strftime("%Y-%m-%d")
+
+    return obter_fatiado_db(
+        data_inicio,
+        data_fim,
+        "Contas Recebidas (Convênios)",
+        "mov_recebidos_convenios",
+        _omie_extrair_movimentos_recebidos_periodo,
+        extract_mov_date,
+        task_id=kwargs.get('task_id'),
+        force_sync=kwargs.get('force_sync', False)
+    )
+
 def _omie_fetch_pages_parallel(url, call_name, array_name, d_ini, d_fim, task_id=None):
     app_key = current_org.get().omie_app_key
     app_secret = current_org.get().omie_app_secret
