@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import traceback
 import time
+import uuid
 import requests
 import pandas as pd
 import models.models as models
@@ -354,18 +355,34 @@ def bg_baixar_recebimentos_lote(task_id: str, req_dict: dict, org_id: int):
         traceback.print_exc()
         TaskManager.update_task(task_id, log=f"Erro fatal: {str(e)}", status="error")
 
+# --- [BLOCO: Baixa de Recebimentos em Lote] ---
 @router.post("/api/relatorios/recebimentos/baixar")
 async def baixar_recebimento_lote(req: BaixaLoteRequest, current_user: models.User = Depends(get_current_user_and_set_org)):
-    action_id = "baixar_recebimentos"
-    active_id = TaskManager.get_active_task_id(action_id)
-    if active_id:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=409, content={"detail": "Já existe um processamento de baixas em andamento. Aguarde.", "task_id": active_id})
+    novos_codigos = {p.codigo_lancamento for p in req.pagamentos}
+    
+    # Valida se os exatos mesmos títulos já estão na fila ou em processamento ativo
+    active_baixas = TaskManager.get_active_tasks(action_prefix="baixar_recebimentos")
+    for t in active_baixas:
+        codigos_em_andamento = set(t.get("metadata", {}).get("codigos_lancamento", []))
+        intersecao = novos_codigos.intersection(codigos_em_andamento)
+        if intersecao:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=409, 
+                content={
+                    "detail": f"Os títulos {list(intersecao)} já estão em processamento ou na fila de uma baixa ativa.", 
+                    "task_id": t["id"]
+                }
+            )
 
-    task_id = TaskManager.create_task(action_id)
-    TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila...")
+    action_id = f"baixar_recebimentos_{uuid.uuid4().hex[:8]}"
+    task_id = TaskManager.create_task(
+        action_id=action_id,
+        metadata={"codigos_lancamento": list(novos_codigos), "cliente": req.cliente}
+    )
+    TaskManager.update_task(task_id, progress=0.0, log="Aguardando na fila de baixas...")
     await TaskQueue.enqueue(bg_baixar_recebimentos_lote, task_id, req.dict(), current_org.get().id)
-    return {"task_id": task_id, "message": "Iniciando recebimento em lote..."}
+    return {"task_id": task_id, "message": "Recebimento adicionado à fila com sucesso."}
 
 @router.post("/api/recibos")
 def salvar_recibo(req: RecebimentoReciboCreate, current_user: models.User = Depends(get_current_user_and_set_org)):

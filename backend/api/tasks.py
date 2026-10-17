@@ -46,16 +46,26 @@ class TaskManager:
     _tasks: Dict[str, Dict[str, Any]] = {}
 
     @classmethod
-    def create_task(cls, action_id: str = None) -> str:
+    def create_task(cls, action_id: str = None, metadata: dict = None) -> str:
         task_id = str(uuid.uuid4())
         cls._tasks[task_id] = {
             "status": "queued",
             "progress": 0.0,
             "logs": [],
             "result": None,
-            "action_id": action_id
+            "action_id": action_id,
+            "metadata": metadata or {}
         }
         return task_id
+
+    @classmethod
+    def get_active_tasks(cls, action_prefix: str = None) -> list:
+        active = []
+        for tid, t in cls._tasks.items():
+            if t.get("status") not in ["completed", "error", "canceled"]:
+                if action_prefix is None or str(t.get("action_id", "")).startswith(action_prefix):
+                    active.append({**t, "id": tid})
+        return active
 
     @classmethod
     def get_active_task_id(cls, action_id: str) -> str:
