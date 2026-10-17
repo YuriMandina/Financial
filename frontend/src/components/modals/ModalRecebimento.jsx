@@ -2,6 +2,7 @@ import React from 'react';
 import { Zap, ArrowDownToLine, Loader2 } from 'lucide-react';
 import { converterDataBrParaDate, formatarDataComDia } from '../../utils/formatters';
 import SelectDropdown from '../common/SelectDropdown';
+import DatePicker from '../common/DatePicker';
 
 export default function ModalRecebimento({ modalBaixa, setModalBaixa, calcularTotaisModal, descGlobalTipo, setDescGlobalTipo, descGlobalValor, setDescGlobalValor, jurosGlobalTipo, setJurosGlobalTipo, jurosGlobalValor, setJurosGlobalValor, valorTotalRecebido, setValorTotalRecebido, aplicarRateioGlobal, detalhesPagamento, handleAlterarDetalhe, contaDestino, setContaDestino, listaBancos, dataPagamento, setDataPagamento, processandoBaixa, handleEfetuarBaixaLote }) {
   const getHojeBR = () => {
@@ -154,7 +155,13 @@ export default function ModalRecebimento({ modalBaixa, setModalBaixa, calcularTo
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-300 mb-2">Data</label>
-                        <input type="date" max={getHojeBR()} value={dataPagamento} onChange={e => setDataPagamento(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm [color-scheme:dark] outline-none focus:border-indigo-500 transition" />
+                        <DatePicker
+                          value={dataPagamento}
+                          onChange={setDataPagamento}
+                          max={getHojeBR()}
+                          direction="up"
+                          buttonClassName="!w-full !bg-slate-800 !border-slate-600 hover:!border-slate-500 !h-11 justify-between"
+                        />
                       </div>
                     </div>
                   </>

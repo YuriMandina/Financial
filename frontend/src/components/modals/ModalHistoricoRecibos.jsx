@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, History, RotateCcw, Loader2, Printer } from 'lucide-react';
+import DatePicker from '../common/DatePicker';
 
 export default function ModalHistoricoRecibos({ modalHistoricoRecibosAberto, setModalHistoricoRecibosAberto, historicoRecibos, filtroHistoricoCliente, setFiltroHistoricoCliente, filtroHistoricoData, setFiltroHistoricoData, carregandoHistorico, handleDesfazerBaixa, setReciboGerado }) {
   return (
@@ -14,7 +15,7 @@ export default function ModalHistoricoRecibos({ modalHistoricoRecibosAberto, set
                   <p className="text-sm text-slate-400 font-medium">Consulte, imprima ou desfaça recebimentos anteriores</p>
                 </div>
                 <div className="flex items-center gap-4">
-                  <div className="flex bg-slate-800/50 border border-white/[0.05] rounded-xl p-1 shadow-sm gap-2">
+                  <div className="flex bg-slate-800/50 border border-white/[0.05] rounded-xl p-1 shadow-sm gap-2 items-center">
                     <input 
                       type="text" 
                       placeholder="Cliente..." 
@@ -22,11 +23,12 @@ export default function ModalHistoricoRecibos({ modalHistoricoRecibosAberto, set
                       value={filtroHistoricoCliente}
                       onChange={(e) => setFiltroHistoricoCliente(e.target.value)}
                     />
-                    <input 
-                      type="date" 
-                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none [color-scheme:dark]"
+                    <DatePicker
                       value={filtroHistoricoData}
-                      onChange={(e) => setFiltroHistoricoData(e.target.value)}
+                      onChange={setFiltroHistoricoData}
+                      placeholder="Filtrar data..."
+                      align="right"
+                      buttonClassName="!h-9 !py-1 text-xs"
                     />
                   </div>
                   <button onClick={() => setModalHistoricoRecibosAberto(false)} className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400">
