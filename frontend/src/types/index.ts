@@ -18,6 +18,7 @@ export type MenuModulo =
   | 'contas-pagar' 
   | 'contas-pagas' 
   | 'recebimentos' 
+  | 'contas-recebidas'
   | 'curva-abc' 
   | 'dre-gerencial' 
   | 'desossa' 

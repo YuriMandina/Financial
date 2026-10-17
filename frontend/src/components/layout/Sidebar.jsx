@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, LayoutDashboard, FileText, Database, CreditCard, Target, PieChart, CalendarDays } from 'lucide-react';
+import { TrendingUp, LayoutDashboard, FileText, Database, CreditCard, Receipt, Target, PieChart, CalendarDays } from 'lucide-react';
 
 const SidebarItem = ({ id, icone: Icon, texto, menuAtivo, setMenuAtivo, setContasBrutas, setSelecionados, setClienteFiltro, setContaFiltro, setPaginaAtual }) => {
   const isActive = menuAtivo === id;
@@ -44,6 +44,7 @@ export default function Sidebar({ menuAtivo, setMenuAtivo, setContasBrutas, setS
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="contas-pagar" icone={FileText} texto="Contas a Pagar" />
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="contas-pagas" icone={Database} texto="Contas Pagas" />
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênios)" />
+        <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="contas-recebidas" icone={Receipt} texto="Contas Recebidas (Convênios)" />
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="curva-abc" icone={TrendingUp} texto="Curva ABC e Lucratividade" />
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="dre-gerencial" icone={Target} texto="DRE Gerencial" />
         <SidebarItem menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="desossa" icone={PieChart} texto="Rateio e Custeio" />
