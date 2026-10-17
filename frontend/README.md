@@ -10,7 +10,7 @@ O projeto segue um padrão modular focado em coesão e responsabilidade, para fa
 - **`src/components/common`**: Componentes reutilizáveis em múltiplas telas (ex: `CartaoCliente.jsx`).
 - **`src/views/`**: Componentes de visualização agrupados por domínio de negócio:
   - `Dashboard/DashboardView.jsx`: Tela principal de indicadores financeiros.
-  - `Contas/ContasView.jsx`: Tabela genérica compartilhada para Contas a Pagar, Contas Pagas e Recebimentos (Convênios).
+  - `Contas/ContasView.jsx`: Tabela genérica compartilhada para Contas a Pagar, Contas Pagas, Contas a Receber (Convênios) e Contas Recebidas (Convênios).
   - `CurvaABC/CurvaABCView.jsx`: Tela complexa de relatório Curva ABC e Lucratividade.
 - **`src/utils/`**: Funções puras utilitárias (ex: `formatters.js` para manipulação de data/moeda).
 

@@ -1,12 +1,13 @@
 import React from 'react';
-import { ArrowDownToLine, CheckCircle, TrendingUp, FileText, Database } from 'lucide-react';
+import { ArrowDownToLine, CheckCircle, TrendingUp, FileText, Database, Receipt } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
 
 export default function DashboardView({ carregandoTela, dashboardData }) {
   if (carregandoTela) {
     return (
       <div className="space-y-8 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          <Skeleton type="card" />
           <Skeleton type="card" />
           <Skeleton type="card" />
           <Skeleton type="card" />
@@ -22,10 +23,11 @@ export default function DashboardView({ carregandoTela, dashboardData }) {
                 const totalPagar = dashboardData.pagar.reduce((acc, c) => acc + (c.saldo_devedor || 0), 0);
                 const totalPagas = dashboardData.pagas.reduce((acc, c) => acc + (c.valor_pago || 0), 0);
                 const totalReceber = dashboardData.receber.reduce((acc, c) => acc + (c.saldo_devedor || 0), 0);
+                const totalRecebidas = (dashboardData.recebidas || []).reduce((acc, c) => acc + (c.valor_pago || 0), 0);
                 
                 return (
                   <>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                       <div className="relative bg-slate-900/80 border border-slate-700/60 rounded-2xl p-6 overflow-hidden group hover:border-rose-500/40 transition-colors shadow-lg">
                         <div className="absolute inset-0 bg-gradient-to-br from-rose-500/5 to-transparent pointer-events-none" />
                         <div className="flex items-center justify-between mb-4">
@@ -54,6 +56,16 @@ export default function DashboardView({ carregandoTela, dashboardData }) {
                         </div>
                         <p className="text-3xl font-black text-indigo-400">R$ {totalReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                         <p className="text-xs text-slate-500 mt-2">Em aberto (Convênios)</p>
+                      </div>
+
+                      <div className="relative bg-slate-900/80 border border-slate-700/60 rounded-2xl p-6 overflow-hidden group hover:border-sky-500/40 transition-colors shadow-lg">
+                        <div className="absolute inset-0 bg-gradient-to-br from-sky-500/5 to-transparent pointer-events-none" />
+                        <div className="flex items-center justify-between mb-4">
+                           <p className="text-sm font-bold uppercase tracking-widest text-slate-400">Total Recebido</p>
+                           <div className="w-10 h-10 rounded-full bg-sky-500/10 flex items-center justify-center"><Receipt size={20} className="text-sky-400" /></div>
+                        </div>
+                        <p className="text-3xl font-black text-sky-400">R$ {totalRecebidas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-xs text-slate-500 mt-2">Convênios liquidados no período</p>
                       </div>
                     </div>
                     

@@ -124,6 +124,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
     if (isForceSync) {
       try {
         const endpointBase = menuAtivo === 'contas-pagas' ? 'contas-pagas' 
+          : menuAtivo === 'contas-recebidas' ? 'contas-recebidas'
           : menuAtivo === 'recebimentos' ? 'recebimentos' 
           : menuAtivo === 'curva-abc' ? 'curva-abc' 
           : menuAtivo === 'dre-gerencial' ? 'dre'
@@ -144,6 +145,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
         
         const titleMap = {
           'contas-pagas': 'Sincronizando Contas Pagas',
+          'contas-recebidas': 'Sincronizando Contas Recebidas',
           'recebimentos': 'Sincronizando Recebimentos',
           'curva-abc': 'Sincronizando Curva ABC',
           'dre-gerencial': 'Sincronizando DRE',
@@ -177,22 +179,26 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
       if (menuAtivo === 'dashboard') {
         const urlPagar = `http://localhost:8000/api/relatorios/contas-a-pagar/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         const urlPagas = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const urlRecebidas = `http://localhost:8000/api/relatorios/contas-recebidas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         const urlRec = `http://localhost:8000/api/relatorios/recebimentos/dados`;
         
-        const [resPagar, resPagas, resRec] = await Promise.all([
+        const [resPagar, resPagas, resRecebidas, resRec] = await Promise.all([
           fetchWithAuth(urlPagar),
           fetchWithAuth(urlPagas),
+          fetchWithAuth(urlRecebidas),
           fetchWithAuth(urlRec)
         ]);
         
         const dadosPagar = resPagar.ok ? await resPagar.json() : { contas: [] };
         const dadosPagas = resPagas.ok ? await resPagas.json() : { contas: [] };
+        const dadosRecebidas = resRecebidas.ok ? await resRecebidas.json() : { contas: [] };
         const dadosRec = resRec.ok ? await resRec.json() : { contas: [] };
         
         startTransition(() => {
           setDashboardData({
             pagar: dadosPagar.contas || [],
             pagas: dadosPagas.contas || [],
+            recebidas: dadosRecebidas.contas || [],
             receber: dadosRec.contas || []
           });
         });
@@ -209,7 +215,10 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
           setContasBrutas(dados.itens || []);
         });
       } else {
-        const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' : menuAtivo === 'recebimentos' ? 'recebimentos' : 'contas-a-pagar';
+        const endpoint = menuAtivo === 'contas-pagas' ? 'contas-pagas' 
+          : menuAtivo === 'contas-recebidas' ? 'contas-recebidas'
+          : menuAtivo === 'recebimentos' ? 'recebimentos' 
+          : 'contas-a-pagar';
         const url = menuAtivo === 'recebimentos' 
           ? `http://localhost:8000/api/relatorios/recebimentos/dados`
           : `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
@@ -224,7 +233,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
           }
         });
 
-        if (menuAtivo === 'recebimentos') {
+        if (menuAtivo === 'recebimentos' || menuAtivo === 'contas-recebidas') {
           fetchWithAuth('http://localhost:8000/api/geral/bancos')
             .then(res => res.json())
             .then(data => setListaBancos(Array.isArray(data) ? data : []))
@@ -241,8 +250,9 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
   // --- [BLOCO: Processamento Analítico e Agrupamentos] ---
   const agruparDadosPorData = (contas, tipoRelatorio) => {
-    const campoData = tipoRelatorio === 'contas-pagas' ? 'data_pagamento_br' : 'data_previsao_br';
-    const campoValor = tipoRelatorio === 'contas-pagas' ? 'valor_pago' : 'saldo_devedor';
+    const isLiquidado = tipoRelatorio === 'contas-pagas' || tipoRelatorio === 'contas-recebidas';
+    const campoData = isLiquidado ? 'data_pagamento_br' : 'data_previsao_br';
+    const campoValor = isLiquidado ? 'valor_pago' : 'saldo_devedor';
 
     const datasUnicas = [...new Set(contas.map(c => c[campoData]))];
     return datasUnicas.map(data => {
@@ -253,7 +263,8 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
   };
 
   const agruparPorCategoria = (contas, tipoRelatorio) => {
-    const campoValor = tipoRelatorio === 'contas-pagas' ? 'valor_pago' : 'saldo_devedor';
+    const isLiquidado = tipoRelatorio === 'contas-pagas' || tipoRelatorio === 'contas-recebidas';
+    const campoValor = isLiquidado ? 'valor_pago' : 'saldo_devedor';
     const resumo = contas.reduce((acc, conta) => {
       // Se a conta possuir categorias múltiplas detalhadas, soma individualmente cada uma
       if (Array.isArray(conta.categorias) && conta.categorias.length > 0) {
@@ -262,7 +273,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
           const val = Number(catItem.valor) || 0;
           if (!acc[cat]) acc[cat] = { total: 0, contasCorrentes: {} };
           acc[cat].total += val;
-          if (tipoRelatorio === 'contas-pagas' || tipoRelatorio === 'recebimentos') {
+          if (isLiquidado || tipoRelatorio === 'recebimentos') {
             const cc = conta.conta_corrente || 'Conta Não Identificada';
             if (!acc[cat].contasCorrentes[cc]) acc[cat].contasCorrentes[cc] = 0;
             acc[cat].contasCorrentes[cc] += val;
@@ -273,7 +284,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
         const val = Number(conta[campoValor]) || 0;
         if (!acc[cat]) acc[cat] = { total: 0, contasCorrentes: {} };
         acc[cat].total += val;
-        if (tipoRelatorio === 'contas-pagas' || tipoRelatorio === 'recebimentos') {
+        if (isLiquidado || tipoRelatorio === 'recebimentos') {
           const cc = conta.conta_corrente || 'Conta Não Identificada';
           if (!acc[cat].contasCorrentes[cc]) acc[cat].contasCorrentes[cc] = 0;
           acc[cat].contasCorrentes[cc] += val;
@@ -387,7 +398,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
   }, [contasPaginadas, gruposRecebimentos, menuAtivo, indiceInicio, indiceFim]);
 
   const resumoCategorias = useMemo(() => agruparPorCategoria(contasFiltradas, menuAtivo), [contasFiltradas, menuAtivo]);
-  const totalGeral = useMemo(() => contasFiltradas.reduce((acc, c) => acc + (menuAtivo === 'contas-pagas' ? c.valor_pago : c.saldo_devedor), 0), [contasFiltradas, menuAtivo]);
+  const totalGeral = useMemo(() => contasFiltradas.reduce((acc, c) => acc + ((menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') ? c.valor_pago : c.saldo_devedor), 0), [contasFiltradas, menuAtivo]);
 
   const metricsVencimento = useMemo(() => {
     if (menuAtivo !== 'recebimentos') return { acima30: 0, acima60: 0, acima90: 0, totalAcima30: 0, totalAcima60: 0, totalAcima90: 0 };
@@ -930,6 +941,8 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
       let url = "";
       if (snap.tipo_relatorio === 'Contas Pagas') {
         url = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+      } else if (snap.tipo_relatorio === 'Contas Recebidas (Convênios)') {
+        url = `http://localhost:8000/api/relatorios/contas-recebidas/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
       } else if (snap.tipo_relatorio === 'Vendas PDV' || snap.tipo_relatorio.includes('CMC')) {
         url = `http://localhost:8000/api/relatorios/curva-abc/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
       } else if (snap.tipo_relatorio.includes('Pagar')) {
@@ -951,6 +964,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
       if (menuAtivo === 'dashboard') return true;
       if (menuAtivo === 'contas-pagar') return snap.tipo_relatorio === 'Contas a Pagar (Abertas)' || snap.tipo_relatorio.includes('Dicionário de');
       if (menuAtivo === 'contas-pagas') return snap.tipo_relatorio === 'Contas Pagas' || snap.tipo_relatorio.includes('Dicionário de');
+      if (menuAtivo === 'contas-recebidas') return snap.tipo_relatorio === 'Contas Recebidas (Convênios)' || snap.tipo_relatorio.includes('Dicionário de');
       if (menuAtivo === 'recebimentos') return snap.tipo_relatorio === 'Contas a Receber (Abertas)' || snap.tipo_relatorio.includes('Dicionário de');
       if (menuAtivo === 'curva-abc') return snap.tipo_relatorio === 'Vendas PDV' || snap.tipo_relatorio.includes('CMC') || snap.tipo_relatorio.includes('Famílias');
       return true;
@@ -984,22 +998,25 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
   // --- [BLOCO: Títulos e Rótulos do Cabeçalho] ---
   const tituloModulo = menuAtivo === 'contas-pagas' ? 'Módulo de Contas Pagas'
+    : menuAtivo === 'contas-recebidas' ? 'Módulo de Contas Recebidas (Convênios)'
     : menuAtivo === 'recebimentos' ? 'Módulo de Convênios'
-      : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
-        : menuAtivo === 'dashboard' ? 'Visão Geral Financeira'
-          : 'Módulo de Contas a Pagar';
+    : menuAtivo === 'curva-abc' ? 'Análise de Lucratividade'
+    : menuAtivo === 'dashboard' ? 'Visão Geral Financeira'
+    : 'Módulo de Contas a Pagar';
 
   const descModulo = menuAtivo === 'contas-pagas' ? 'Sincronize as baixas realizadas e concilie contas correntes.'
+    : menuAtivo === 'contas-recebidas' ? 'Acompanhe os títulos de convênios liquidados no período e concilie com os bancos.'
     : menuAtivo === 'recebimentos' ? 'Acompanhe faturas de convênios, edite pagamentos parciais e gere recibos.'
-      : menuAtivo === 'curva-abc' ? 'Avalie o peso e a margem de cada produto na sua operação.'
-        : menuAtivo === 'dashboard' ? 'Acompanhe os principais indicadores de saúde financeira do seu negócio.'
-          : 'Sincronize os dados e imprima o relatório detalhado.';
+    : menuAtivo === 'curva-abc' ? 'Avalie o peso e a margem de cada produto na sua operação.'
+    : menuAtivo === 'dashboard' ? 'Acompanhe os principais indicadores de saúde financeira do seu negócio.'
+    : 'Sincronize os dados e imprima o relatório detalhado.';
 
   const tituloRelatorio = menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados'
+    : menuAtivo === 'contas-recebidas' ? 'Recebimentos Realizados (Convênios)'
     : menuAtivo === 'recebimentos' ? 'Títulos a Receber (Convênio)'
-      : menuAtivo === 'curva-abc' ? 'Curva ABC e Lucratividade'
-        : menuAtivo === 'dashboard' ? 'Dashboard Executivo'
-          : 'Previsão de Pagamentos';
+    : menuAtivo === 'curva-abc' ? 'Curva ABC e Lucratividade'
+    : menuAtivo === 'dashboard' ? 'Dashboard Executivo'
+    : 'Previsão de Pagamentos';
 
   // --- [BLOCO: Renderização da View e Modais Correlatos] ---
   return (
@@ -1119,7 +1136,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
         )}
 
         {/* Views: Contas a Pagar / Contas Pagas / Recebimentos */}
-        {['contas-pagar', 'contas-pagas', 'recebimentos'].includes(menuAtivo) && (
+        {['contas-pagar', 'contas-pagas', 'recebimentos', 'contas-recebidas'].includes(menuAtivo) && (
           <ContasView
             menuAtivo={menuAtivo}
             carregandoTela={carregandoTela}

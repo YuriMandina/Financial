@@ -34,14 +34,14 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
               <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-10 gap-4 print:hidden">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                    <p className="text-emerald-400 font-bold text-lg xl:text-xl">Global a {menuAtivo === 'recebimentos' ? 'Receber' : 'Pagar'}: R$ {Number(totalGeral || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-emerald-400 font-bold text-lg xl:text-xl">Global {menuAtivo === 'recebimentos' ? 'a Receber' : (menuAtivo === 'contas-recebidas' ? 'Recebido' : (menuAtivo === 'contas-pagas' ? 'Pago' : 'a Pagar'))}: R$ {Number(totalGeral || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                   </div>
 
                   <div className="flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2">
                     <Search size={16} className="text-indigo-400" />
                     <input
                       type="text"
-                      placeholder={menuAtivo === 'recebimentos' ? "Filtrar cliente/nota..." : "Filtrar fornecedor..."}
+                      placeholder={(menuAtivo === 'recebimentos' || menuAtivo === 'contas-recebidas') ? "Filtrar cliente/nota..." : "Filtrar fornecedor..."}
                       value={clienteFiltro}
                       onChange={(e) => {
                         setClienteFiltro(e.target.value);
@@ -51,7 +51,7 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                     />
                   </div>
 
-                  {(menuAtivo === 'contas-pagas' || menuAtivo === 'recebimentos') && contasCorrentesDisponiveis.length > 0 && (
+                  {(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas' || menuAtivo === 'recebimentos') && contasCorrentesDisponiveis.length > 0 && (
                     <div className="flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2">
                       <Filter size={16} className="text-indigo-400" />
                       <select
@@ -149,15 +149,15 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                       {/* BLOCO 1: RESUMO POR CATEGORIA */}
                       <div className="mb-12 print:mb-6">
                         <h4 className="text-lg font-bold text-indigo-400 print:text-slate-900 uppercase tracking-wider mb-4 print:mb-2 print:mt-4 print:pl-2">
-                          Resumo por Categoria de Despesa
+                          Resumo por Categoria de {menuAtivo === 'contas-recebidas' ? 'Receita' : 'Despesa'}
                         </h4>
                         {/* A MÁGICA DA BORDA: Removido o overflow que cortava a borda e tirado os cantos arredondados */}
                         <div className="overflow-x-auto print:overflow-visible rounded-xl print:rounded-none border border-slate-700/50 print:border-slate-300 print:border shadow-lg shadow-black/20 print:shadow-none print:w-full">
                           <table className="w-full text-left border-collapse whitespace-nowrap">
                             <thead>
                               <tr className="bg-slate-900/80 print:bg-slate-200 print:!bg-slate-200 text-slate-300 print:text-slate-900 text-xs font-bold border-b print:border-b-2 border-slate-700/50 print:border-slate-400">
-                                <th className="py-4 print:py-1 px-5 print:px-2 uppercase w-3/4 print:w-auto print:min-w-0">Categoria {menuAtivo === 'contas-pagas' && '/ Conta Corrente'}</th>
-                                <th className="py-4 print:py-1 px-5 print:px-2 text-right uppercase w-1/4 min-w-[120px] print:w-auto print:min-w-0">Total {menuAtivo === 'contas-pagas' ? 'Pago' : 'a Pagar'}</th>
+                                <th className="py-4 print:py-1 px-5 print:px-2 uppercase w-3/4 print:w-auto print:min-w-0">Categoria {(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') && '/ Conta Corrente'}</th>
+                                <th className="py-4 print:py-1 px-5 print:px-2 text-right uppercase w-1/4 min-w-[120px] print:w-auto print:min-w-0">Total {menuAtivo === 'contas-pagas' ? 'Pago' : (menuAtivo === 'contas-recebidas' ? 'Recebido' : 'a Pagar')}</th>
                               </tr>
                             </thead>
                             <tbody className="text-sm">
@@ -170,7 +170,7 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                                     </td>
                                   </tr>
 
-                                  {menuAtivo === 'contas-pagas' && Array.isArray(item.contasCorrentes) && item.contasCorrentes.map((ccItem, ccIdx) => (
+                                  {(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') && Array.isArray(item.contasCorrentes) && item.contasCorrentes.map((ccItem, ccIdx) => (
                                     <tr key={`cc-${idx}-${ccIdx}`} className="border-b border-slate-700/10 print:border-slate-200 bg-slate-900/40 print:bg-transparent">
                                       <td className="py-2 print:py-1 px-5 print:px-2 pl-12 text-slate-400 print:text-slate-600 text-xs flex items-center gap-2 border-l-2 border-indigo-500/30 ml-4">
                                         <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 print:bg-slate-400"></div> {ccItem.cc}
@@ -196,7 +196,9 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                       </div>
 
                       {/* BLOCO 2: DETALHAMENTO */}
-                      <h3 className="text-xl font-bold text-indigo-400 mb-4 print:text-slate-900 uppercase tracking-wider print:mb-2 print:mt-4 print:pl-2">Detalhamento Financeiro (Previsão de Fluxo)</h3>
+                      <h3 className="text-xl font-bold text-indigo-400 mb-4 print:text-slate-900 uppercase tracking-wider print:mb-2 print:mt-4 print:pl-2">
+                        Detalhamento Financeiro ({menuAtivo === 'contas-recebidas' ? 'Recebimentos Realizados' : (menuAtivo === 'contas-pagas' ? 'Pagamentos Realizados' : 'Previsão de Fluxo')})
+                      </h3>
                       <div className="overflow-x-auto print:overflow-visible rounded-xl print:rounded-none border border-slate-700/50 print:border-slate-300 print:border shadow-lg shadow-black/20 print:shadow-none print:w-full">
                         <table className="w-full text-left border-collapse whitespace-nowrap">
                           <thead>
@@ -204,9 +206,9 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                               {/* A MÁGICA DA LARGURA: O print:w-auto desabilita as larguras de tela, impedindo que a tabela "vaze" para fora da folha A4 e suma a borda */}
                               <th className="py-4 print:py-1 px-5 print:px-2 text-center w-28 print:w-auto print:min-w-0">Data Emissão</th>
                               <th className="py-4 print:py-1 px-5 print:px-2 w-1/4 min-w-[200px] print:w-auto print:min-w-0">Categoria</th>
-                              <th className="py-4 print:py-1 px-5 print:px-2 w-1/3 min-w-[250px] print:w-auto print:min-w-0">Fornecedor</th>
-                              <th className="py-4 print:py-1 px-5 print:px-2 text-center w-28 print:w-auto print:min-w-0">{menuAtivo === 'contas-pagas' ? 'Data Pagto' : 'Vencimento'}</th>
-                              {menuAtivo === 'contas-pagas' && <th className="py-4 print:py-1 px-5 print:px-2 w-1/5 min-w-[150px] print:w-auto print:min-w-0">Conta Corrente</th>}
+                              <th className="py-4 print:py-1 px-5 print:px-2 w-1/3 min-w-[250px] print:w-auto print:min-w-0">{(menuAtivo === 'recebimentos' || menuAtivo === 'contas-recebidas') ? 'Cliente' : 'Fornecedor'}</th>
+                              <th className="py-4 print:py-1 px-5 print:px-2 text-center w-28 print:w-auto print:min-w-0">{(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') ? 'Data Pagto/Receb' : 'Vencimento'}</th>
+                              {(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') && <th className="py-4 print:py-1 px-5 print:px-2 w-1/5 min-w-[150px] print:w-auto print:min-w-0">Conta Corrente</th>}
                               <th className="py-4 print:py-1 px-5 print:px-2 text-center w-24 print:w-auto print:min-w-0">Nº Nota</th>
                               <th className="py-4 print:py-1 px-5 print:px-2 text-center w-20 print:w-auto print:min-w-0">Parcela</th>
                               <th className="py-4 print:py-1 px-5 print:px-2 text-right w-32 print:w-auto print:min-w-0">Valor</th>
@@ -220,20 +222,20 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                                     <tr className={`border-b border-slate-700/30 print:border-slate-300 text-slate-400 print:text-slate-800 text-xs hover:bg-slate-800/80 print:hover:bg-transparent transition-colors ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}>
                                       <td className="py-3 print:py-1 px-5 print:px-2 text-center">{formatarDataComDia(conta.data_emissao)}</td>
                                       <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[200px] print:max-w-none font-medium text-slate-200 print:text-slate-900">{conta.desc_categoria}</td>
-                                      <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[250px] print:max-w-none font-medium text-slate-300 print:text-slate-900">{conta.nome_fornecedor}</td>
-                                      <td className="py-3 print:py-1 px-5 print:px-2 text-center font-medium text-slate-300 print:text-slate-800">{menuAtivo === 'contas-pagas' ? formatarDataComDia(conta.data_pagamento_br) : formatarDataComDia(conta.data_previsao_br)}</td>
-                                      {menuAtivo === 'contas-pagas' && <td className="py-3 print:py-1 px-5 print:px-2 text-slate-300 truncate max-w-[150px] print:max-w-none">{conta.conta_corrente}</td>}
+                                      <td className="py-3 print:py-1 px-5 print:px-2 truncate max-w-[250px] print:max-w-none font-medium text-slate-300 print:text-slate-900">{conta.nome_cliente || conta.nome_fornecedor}</td>
+                                      <td className="py-3 print:py-1 px-5 print:px-2 text-center font-medium text-slate-300 print:text-slate-800">{(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') ? formatarDataComDia(conta.data_pagamento_br) : formatarDataComDia(conta.data_previsao_br)}</td>
+                                      {(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') && <td className="py-3 print:py-1 px-5 print:px-2 text-slate-300 truncate max-w-[150px] print:max-w-none">{conta.conta_corrente}</td>}
                                       <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_documento_fiscal}</td>
                                       <td className="py-3 print:py-1 px-5 print:px-2 text-center">{conta.numero_parcela}</td>
                                       <td className="py-3 print:py-1 px-5 print:px-2 text-right font-bold text-slate-200 print:text-slate-900">
-                                        R$ {Number((menuAtivo === 'contas-pagas' ? conta.valor_pago : conta.saldo_devedor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                        R$ {Number(((menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') ? conta.valor_pago : conta.saldo_devedor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                       </td>
                                     </tr>
 
                                     {/* --- [BLOCO: Detalhamento de Múltiplas Categorias em Containers] --- */}
                                     {Array.isArray(conta.categorias) && conta.categorias.length > 1 && (
                                       <tr className={`border-b border-slate-700/20 print:border-slate-300 bg-slate-900/40 ${cIdx % 2 === 0 ? 'print:bg-white' : 'print:bg-slate-50 print:!bg-slate-50'}`}>
-                                        <td colSpan={menuAtivo === 'contas-pagas' ? 7 : 6} className="py-1.5 print:py-1 px-5 print:px-2">
+                                        <td colSpan={(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') ? 7 : 6} className="py-1.5 print:py-1 px-5 print:px-2">
                                           <div className="flex flex-wrap items-center gap-2 print:gap-1.5 pl-6 print:pl-4 border-l-2 border-indigo-500/50 print:border-slate-400 ml-2 print:ml-1">
                                             <span className="text-[11px] print:text-[10px] font-bold uppercase tracking-wider text-indigo-400 print:text-slate-600 mr-1 flex items-center gap-1">
                                               <span>↳</span> Rateio:
@@ -264,7 +266,7 @@ export default function ContasView({ menuAtivo, carregandoTela, contasBrutas, to
                                   </React.Fragment>
                                 ))}
                                 <tr className="bg-slate-800/60 print:bg-slate-100 print:!bg-slate-100 border-b-2 border-slate-600 print:border-slate-400">
-                                  <td colSpan={menuAtivo === 'contas-pagas' ? "7" : "6"} className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-slate-300 print:text-slate-900 text-xs uppercase">
+                                  <td colSpan={(menuAtivo === 'contas-pagas' || menuAtivo === 'contas-recebidas') ? "7" : "6"} className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-slate-300 print:text-slate-900 text-xs uppercase">
                                     Subtotal de {grupo.dataReferencia}
                                   </td>
                                   <td className="py-4 print:py-2 px-5 print:px-2 text-right font-bold text-emerald-400 print:text-slate-900">
