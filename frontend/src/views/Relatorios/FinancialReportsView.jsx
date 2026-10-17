@@ -840,14 +840,14 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 409 && data.task_id) {
-          handleGlobalTaskStart(data.task_id, "Efetivando Recebimento", null, "duplicate", data.detail);
+          handleGlobalTaskStart(data.task_id, `Baixa Convênio: ${nomeCliente || 'Lote'}`, null, "duplicate", data.detail);
           return;
         }
         throw new Error(data.detail || "Erro ao processar as notas.");
       }
 
       if (data.task_id) {
-        handleGlobalTaskStart(data.task_id, "Efetivando Recebimento", async (result) => {
+        handleGlobalTaskStart(data.task_id, `Baixa Convênio: ${nomeCliente || 'Lote'}`, async (result) => {
           // O backend já persiste o recibo automaticamente no banco, mesmo para baixas parciais
           const baixas = result?.baixas || [];
           const pagamentosComBaixa = pagamentosTratados
