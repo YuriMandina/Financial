@@ -527,6 +527,7 @@ def bg_sync_catalog(task_id: str, org_id: int):
                     db.flush()
                     families[cod_fam] = family
             fields = {
+                "code": str(prod.get("codigo") or "").strip() or None,
                 "ean": str(prod.get("ean") or "").strip() or None,
                 "unit": str(prod.get("unidade") or "").strip() or None,
                 "ncm": str(prod.get("ncm") or "").strip() or None,

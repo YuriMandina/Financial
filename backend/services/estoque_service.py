@@ -170,6 +170,7 @@ def _new_item(product: models.BoningProduct) -> models.InventoryCountItem:
         product_id=product.id,
         omie_id=product.omie_id,
         product_name=product.name,
+        product_code=product.code,
         unit=product.unit,
         ean=product.ean,
     )
@@ -618,6 +619,7 @@ def build_shortages_rows(count: models.InventoryCount) -> List[Dict[str, Any]]:
         cost = engine.unit_cost_for_valuation(item.cmc, item.reference_cost)
         qty = abs(diff)
         rows.append({
+            "codigo": item.product_code,
             "codigo_omie": item.omie_id,
             "produto": item.product_name,
             "ncm": item.product.ncm if item.product else None,

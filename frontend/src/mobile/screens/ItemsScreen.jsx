@@ -91,7 +91,7 @@ export default function ItemsScreen({ count, pending, fromCache, syncBadge, scan
               <StatusIcon status={status} editable={editable} />
               <div className="flex-1 min-w-0">
                 <p className="truncate">{item.product_name}</p>
-                <p className="text-xs text-slate-500">{item.ean || `Cód. ${item.omie_id}`}</p>
+                <p className="text-xs text-slate-500">{[item.product_code && `Cód. ${item.product_code}`, item.ean].filter(Boolean).join(' · ') || 'Sem código'}</p>
               </div>
               <div className="text-right">
                 <p className="font-semibold tabular-nums">{status === 'PENDENTE' ? '—' : formatQty(total)}</p>

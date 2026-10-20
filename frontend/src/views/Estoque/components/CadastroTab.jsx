@@ -189,7 +189,7 @@ export default function CadastroTab({ api }) {
                       <td className="px-4 py-2.5"><StyledCheckbox checked={p.is_inventory_default} onChange={() => toggleProduct(p)} size="sm" /></td>
                       <td className="px-4 py-2.5">
                         <p className="text-white">{p.name}</p>
-                        <p className="text-xs text-slate-500">{[p.ean || 'sem EAN', p.unit, p.ncm].filter(Boolean).join(' · ')}</p>
+                        <p className="text-xs text-slate-500">{[p.code && `Cód. ${p.code}`, p.ean || 'sem EAN', p.unit, p.ncm].filter(Boolean).join(' · ')}</p>
                       </td>
                       <td className="px-4 py-2.5 text-xs text-slate-300">
                         {p.packagings.map((pk) => `${pk.name} × ${formatQty(pk.factor)}`).join(', ') || '—'}

@@ -134,7 +134,7 @@ def _serialize_item(item: models.InventoryCountItem, blind: bool, with_entries: 
     """blind=True oculta saldo, custos e divergência (contagem cega)."""
     data = {
         "id": item.id, "product_id": item.product_id, "omie_id": item.omie_id,
-        "product_name": item.product_name, "unit": item.unit, "ean": item.ean,
+        "product_name": item.product_name, "product_code": item.product_code, "unit": item.unit, "ean": item.ean,
         "current_round": item.current_round, "counted_qty": item.counted_qty,
         "confirmed_zero": item.confirmed_zero, "count_status": item.count_status,
     }
@@ -364,7 +364,7 @@ def export_shortages(count_id: int, user: models.User = Depends(get_current_user
     if count.snapshot_at is None:
         raise HTTPException(status_code=400, detail="Saldo do sistema ainda não capturado.")
     rows = service.build_shortages_rows(count)
-    columns = ["codigo_omie", "produto", "ncm", "unidade", "quantidade", "custo_unitario",
+    columns = ["codigo", "codigo_omie", "produto", "ncm", "unidade", "quantidade", "custo_unitario",
                "custo_ultima_compra", "total", "motivo", "justificativa"]
 
     def fmt(value):
@@ -396,7 +396,7 @@ def find_by_code(count_id: int, codigo: str, user: models.User = Depends(get_cur
     count = _load_count(db, count_id)
     code = codigo.strip()
     for item in count.items:
-        if item.ean and item.ean == code:
+        if (item.ean and item.ean == code) or (item.product_code and item.product_code == code):
             return {"item_id": item.id, "product_name": item.product_name, "packaging": None}
     product_ids = [i.product_id for i in count.items]
     pack = db.query(models.ProductPackaging).filter(

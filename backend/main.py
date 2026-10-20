@@ -77,6 +77,14 @@ async def startup_event():
             conn.execute(text("ALTER TABLE inventory_count_items ADD COLUMN IF NOT EXISTS verify_status VARCHAR;"))
             # Motivo único por item foi substituído pela distribuição em inventory_item_reasons
             conn.execute(text("ALTER TABLE inventory_count_items DROP COLUMN IF EXISTS reason;"))
+            # Código do produto exibido na Omie (o omie_id é o ID interno)
+            conn.execute(text("ALTER TABLE boning_products ADD COLUMN IF NOT EXISTS code VARCHAR;"))
+            conn.execute(text("ALTER TABLE inventory_count_items ADD COLUMN IF NOT EXISTS product_code VARCHAR;"))
+            conn.execute(text("""
+                UPDATE inventory_count_items i SET product_code = p.code
+                FROM boning_products p
+                WHERE i.product_id = p.id AND i.product_code IS NULL AND p.code IS NOT NULL;
+            """))
             # Salário passa a ser do cargo: herda o maior salário já cadastrado nos colaboradores do cargo
             conn.execute(text("""
                 UPDATE rh_roles r SET base_salary = sub.salary

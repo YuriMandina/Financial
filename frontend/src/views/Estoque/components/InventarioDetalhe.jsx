@@ -161,7 +161,7 @@ export default function InventarioDetalhe({ api, countId, motivos, onBack, onTas
 
   const visibleItems = count.items.filter((item) => {
     const q = query.trim().toLowerCase();
-    if (q && !item.product_name.toLowerCase().includes(q) && !(item.ean || '').includes(q)) return false;
+    if (q && !item.product_name.toLowerCase().includes(q) && !(item.ean || '').includes(q) && !(item.product_code || '').toLowerCase().includes(q)) return false;
     if (filter === 'DIVERGENTES') return item.difference;
     if (filter === 'PENDENCIAS') return issuesByItem[item.id];
     if (filter === 'NEGATIVOS') return item.system_qty < 0;
@@ -320,7 +320,7 @@ export default function InventarioDetalhe({ api, countId, motivos, onBack, onTas
                       )}
                       <td className="px-3 py-2.5">
                         <p className="text-white">{item.product_name}</p>
-                        <p className="text-xs text-slate-500">{item.ean || `Cód. ${item.omie_id}`} · {item.unit || '—'}</p>
+                        <p className="text-xs text-slate-500">{[item.product_code && `Cód. ${item.product_code}`, item.ean, item.unit].filter(Boolean).join(' · ')}</p>
                         {issues && <p className="text-xs text-amber-300 mt-0.5">{issues.join(' · ')}</p>}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{item.count_status === 'PENDENTE' ? '—' : formatQty(item.counted_qty)}</td>

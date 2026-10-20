@@ -34,7 +34,7 @@ describe('quantidade do lançamento', () => {
 describe('totais e busca locais', () => {
   const items = [
     { id: 1, product_name: 'Coca 2L', ean: '789', omie_id: 10, counted_qty: 10, packagings: [{ id: 5, ean: 'DUN789', factor: 6 }] },
-    { id: 2, product_name: 'Agua 500ml', ean: null, omie_id: 11, counted_qty: 0, packagings: [] },
+    { id: 2, product_name: 'Agua 500ml', ean: null, omie_id: 11, product_code: 'AG500', counted_qty: 0, packagings: [] },
   ];
   it('soma pendentes ao contado no servidor, ignorando rejeitados', () => {
     const pending = [
@@ -51,7 +51,8 @@ describe('totais e busca locais', () => {
   });
   it('busca por nome, EAN ou código', () => {
     expect(searchItems(items, 'agua').map((i) => i.id)).toEqual([2]);
-    expect(searchItems(items, '11').map((i) => i.id)).toEqual([2]);
+    expect(searchItems(items, 'ag500').map((i) => i.id)).toEqual([2]);
+    expect(findByCode(items, 'AG500').item.id).toBe(2);
   });
   it('só permite lançar em contagem ou recontagem', () => {
     expect(itemEditable({ status: 'EM_CONTAGEM' }, { count_status: 'PENDENTE' })).toBe(true);

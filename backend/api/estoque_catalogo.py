@@ -143,6 +143,7 @@ def list_products(family_id: int, user: models.User = Depends(get_current_user_a
     return {"produtos": [{
         "id": p.id,
         "omie_id": p.omie_id,
+        "code": p.code,
         "name": p.name,
         "ean": p.ean,
         "unit": p.unit,
@@ -256,7 +257,7 @@ def list_pending_registrations(user: models.User = Depends(get_current_user_and_
         if not p.ncm:
             issues.append("SEM_NCM")
         pendencias.append({
-            "id": p.id, "omie_id": p.omie_id, "name": p.name,
+            "id": p.id, "omie_id": p.omie_id, "code": p.code, "name": p.name,
             "family_name": p.family.name if p.family else None, "issues": issues,
         })
     sem_familia = sum(1 for p in pendencias if "SEM_FAMILIA" in p["issues"])

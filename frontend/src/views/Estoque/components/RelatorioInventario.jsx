@@ -47,7 +47,7 @@ function DiffTable({ items, labels }) {
       <tbody>
         {items.map((i) => (
           <tr key={i.id} className="odd:bg-gray-50">
-            <td className="px-1.5 py-1">{i.omie_id}</td>
+            <td className="px-1.5 py-1">{i.product_code || '—'}</td>
             <td className="px-1.5 py-1">{i.product_name}</td>
             <td className="px-1.5 py-1">{i.unit || '—'}</td>
             <td className="px-1.5 py-1 text-right">{formatQty(i.system_qty)}</td>
@@ -197,7 +197,7 @@ export default function RelatorioInventario({ api, count, summary, motivos, gene
                 <tbody>
                   {semDivergencia.map((i) => (
                     <tr key={i.id}>
-                      <td className="px-1.5 py-1">{i.omie_id}</td>
+                      <td className="px-1.5 py-1">{i.product_code || '—'}</td>
                       <td className="px-1.5 py-1">{i.product_name}</td>
                       <td className="px-1.5 py-1">{i.unit || '—'}</td>
                       <td className="px-1.5 py-1 text-right">{formatQty(i.counted_qty)}</td>

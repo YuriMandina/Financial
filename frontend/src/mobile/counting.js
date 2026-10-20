@@ -132,7 +132,7 @@ export function findByCode(items, code) {
   const target = String(code || '').trim();
   if (!target) return null;
   for (const item of items || []) {
-    if (item.ean && item.ean === target) return { item, packaging: null };
+    if ((item.ean && item.ean === target) || (item.product_code && item.product_code === target)) return { item, packaging: null };
     const pack = (item.packagings || []).find((p) => p.ean && p.ean === target);
     if (pack) return { item, packaging: pack };
   }
@@ -145,7 +145,7 @@ export function searchItems(items, query) {
   return (items || []).filter((item) =>
     item.product_name.toLowerCase().includes(q)
     || (item.ean || '').includes(q)
-    || String(item.omie_id).includes(q));
+    || (item.product_code || '').toLowerCase().includes(q));
 }
 
 // --- [BLOCO: Sincronização da Fila Offline] ---

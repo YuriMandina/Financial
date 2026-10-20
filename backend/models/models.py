@@ -96,6 +96,7 @@ class BoningProduct(Base):
     unit_price = Column(Float, nullable=False)
     is_standard_cut = Column(Boolean, default=False)
     # Cadastro usado pelo Módulo de Inventário (sincronizado da Omie)
+    code = Column(String, nullable=True)  # Código do produto exibido na Omie (campo "codigo"); omie_id é o ID interno
     ean = Column(String, nullable=True, index=True)
     unit = Column(String, nullable=True)
     ncm = Column(String, nullable=True)
@@ -578,6 +579,7 @@ class InventoryCountItem(Base):
     product_id = Column(Integer, ForeignKey("boning_products.id"), nullable=False)
     omie_id = Column(BigInteger, nullable=False)
     product_name = Column(String, nullable=False)  # Congelado na criação para o relatório
+    product_code = Column(String, nullable=True)  # Código do produto na Omie (congelado na criação)
     unit = Column(String, nullable=True)
     ean = Column(String, nullable=True)
     # --- Snapshot da Omie na data de corte ---

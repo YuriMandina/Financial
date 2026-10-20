@@ -42,7 +42,7 @@ export default function NovoInventarioModal({ api, onClose, onCreated, onOpenCad
   }, [api, familyId]);
 
   const visible = useMemo(() => (produtos || []).filter((p) =>
-    p.name.toLowerCase().includes(filter.toLowerCase()) || (p.ean || '').includes(filter)), [produtos, filter]);
+    p.name.toLowerCase().includes(filter.toLowerCase()) || (p.ean || '').includes(filter) || (p.code || '').includes(filter)), [produtos, filter]);
 
   const toggle = (id) => setSelected((prev) => {
     const next = new Set(prev);
@@ -118,7 +118,7 @@ export default function NovoInventarioModal({ api, onClose, onCreated, onOpenCad
                 {visible.map((p) => (
                   <div key={p.id} className="px-3 py-2 hover:bg-slate-800/40">
                     <StyledCheckbox checked={selected.has(p.id)} onChange={() => toggle(p.id)} size="sm"
-                      label={p.name} description={[p.ean, p.unit].filter(Boolean).join(' · ') || 'Sem EAN'} />
+                      label={p.name} description={[p.code && `Cód. ${p.code}`, p.ean, p.unit].filter(Boolean).join(' · ') || 'Sem EAN'} />
                   </div>
                 ))}
                 {!visible.length && <p className="text-sm text-slate-500 p-4 text-center">Nenhum produto.</p>}

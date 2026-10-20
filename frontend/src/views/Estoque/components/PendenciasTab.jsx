@@ -101,7 +101,7 @@ export default function PendenciasTab({ api, onTaskStart, onCountChange }) {
                 <tr key={p.id}>
                   <td className="px-4 py-2.5">
                     <p className="text-white">{p.name}</p>
-                    <p className="text-xs text-slate-500">Cód. Omie {p.omie_id}{p.family_name ? ` · ${p.family_name}` : ''}</p>
+                    <p className="text-xs text-slate-500">{p.code ? `Cód. ${p.code}` : 'Sem código'}{p.family_name ? ` · ${p.family_name}` : ''}</p>
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex flex-wrap gap-1">
