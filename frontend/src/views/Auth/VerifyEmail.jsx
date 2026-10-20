@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { API_BASE } from '../../config/api';
 
 export const VerifyEmail = ({ onVerified }) => {
   const [status, setStatus] = useState('loading'); // loading, success, error
@@ -21,7 +22,7 @@ export const VerifyEmail = ({ onVerified }) => {
       }
 
       try {
-        const res = await fetch(`http://localhost:8000/api/auth/verify-email`, {
+        const res = await fetch(`${API_BASE}/api/auth/verify-email`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

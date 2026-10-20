@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck, Zap, Shield, Building2 } from 'lucide-react';
+import { API_BASE } from '../../config/api';
 
 // Máscaras dos dados da empresa
 const formatCnpjCpf = (value) => {
@@ -77,26 +78,26 @@ export const Settings = ({ token, initialTab }) => {
     setLoading(true);
     try {
       if (activeTab === 'omie') {
-        const res = await fetch('http://localhost:8000/api/settings/omie', {
+        const res = await fetch(`${API_BASE}/api/settings/omie`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
         setAppKey(data.app_key || '');
         setAppSecret(data.app_secret || '');
       } else if (activeTab === 'company') {
-        const res = await fetch('http://localhost:8000/api/settings/company', {
+        const res = await fetch(`${API_BASE}/api/settings/company`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         setCompany(await res.json());
       } else if (activeTab === 'invites') {
-        const res = await fetch('http://localhost:8000/api/invites/list', {
+        const res = await fetch(`${API_BASE}/api/invites/list`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
         setMembers(data.members || []);
         setPendingInvites(data.pending_invites || []);
       } else if (activeTab === 'preferences' || activeTab === 'security') {
-        const res = await fetch('http://localhost:8000/api/settings/preferences', {
+        const res = await fetch(`${API_BASE}/api/settings/preferences`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
@@ -115,7 +116,7 @@ export const Settings = ({ token, initialTab }) => {
     setError('');
     setSuccess('');
     try {
-      const res = await fetch('http://localhost:8000/api/settings/omie', {
+      const res = await fetch(`${API_BASE}/api/settings/omie`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -139,7 +140,7 @@ export const Settings = ({ token, initialTab }) => {
     setError('');
     setSuccess('');
     try {
-      const res = await fetch('http://localhost:8000/api/settings/company', {
+      const res = await fetch(`${API_BASE}/api/settings/company`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -163,7 +164,7 @@ export const Settings = ({ token, initialTab }) => {
     setError('');
     setSuccess('');
     try {
-      const res = await fetch('http://localhost:8000/api/invites', {
+      const res = await fetch(`${API_BASE}/api/invites`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -189,7 +190,7 @@ export const Settings = ({ token, initialTab }) => {
     setError('');
     setSuccess('');
     try {
-      const res = await fetch(`http://localhost:8000/api/invites/${inviteId}`, {
+      const res = await fetch(`${API_BASE}/api/invites/${inviteId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -210,7 +211,7 @@ export const Settings = ({ token, initialTab }) => {
     setError('');
     setSuccess('');
     try {
-      const res = await fetch(`http://localhost:8000/api/invites/users/${userId}/toggle-status`, {
+      const res = await fetch(`${API_BASE}/api/invites/users/${userId}/toggle-status`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -239,7 +240,7 @@ export const Settings = ({ token, initialTab }) => {
     setError('');
     setSuccess('');
     try {
-      const res = await fetch('http://localhost:8000/api/settings/preferences', {
+      const res = await fetch(`${API_BASE}/api/settings/preferences`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

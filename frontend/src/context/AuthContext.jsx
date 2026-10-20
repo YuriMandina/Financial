@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '../config/api';
 
 // --- [BLOCO: Definição do Contexto e Hook] ---
 const AuthContext = createContext(null);
@@ -62,7 +63,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (token) {
       setLoadingUser(true);
-      fetchWithAuth('http://localhost:8000/api/auth/me')
+      fetchWithAuth(`${API_BASE}/api/auth/me`)
         .then((res) => {
           if (!res.ok) throw new Error('Falha ao autenticar usuário');
           return res.json();

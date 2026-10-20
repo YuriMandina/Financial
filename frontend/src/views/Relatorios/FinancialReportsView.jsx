@@ -18,6 +18,7 @@ import ReciboCobranca from '../../components/modals/ReciboCobranca';
 import { useAuth } from '../../context/AuthContext';
 import { useTaskSync } from '../../context/TaskSyncContext';
 import { converterDataBrParaDate } from '../../utils/formatters';
+import { API_BASE } from '../../config/api';
 
 export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
   const { token, userName, fetchWithAuth } = useAuth();
@@ -135,7 +136,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
           return;
         }
 
-        const urlSync = `http://localhost:8000/api/relatorios/${endpointBase}/sync`;
+        const urlSync = `${API_BASE}/api/relatorios/${endpointBase}/sync`;
         const resSync = await fetchWithAuth(urlSync, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -177,10 +178,10 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
     try {
       if (menuAtivo === 'dashboard') {
-        const urlPagar = `http://localhost:8000/api/relatorios/contas-a-pagar/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
-        const urlPagas = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
-        const urlRecebidas = `http://localhost:8000/api/relatorios/contas-recebidas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
-        const urlRec = `http://localhost:8000/api/relatorios/recebimentos/dados`;
+        const urlPagar = `${API_BASE}/api/relatorios/contas-a-pagar/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const urlPagas = `${API_BASE}/api/relatorios/contas-pagas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const urlRecebidas = `${API_BASE}/api/relatorios/contas-recebidas/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const urlRec = `${API_BASE}/api/relatorios/recebimentos/dados`;
         
         const [resPagar, resPagas, resRecebidas, resRec] = await Promise.all([
           fetchWithAuth(urlPagar),
@@ -203,7 +204,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
           });
         });
       } else if (menuAtivo === 'curva-abc') {
-        const url = `http://localhost:8000/api/relatorios/curva-abc/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+        const url = `${API_BASE}/api/relatorios/curva-abc/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
         const resposta = await fetchWithAuth(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
         const dados = await resposta.json();
@@ -220,8 +221,8 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
           : menuAtivo === 'recebimentos' ? 'recebimentos' 
           : 'contas-a-pagar';
         const url = menuAtivo === 'recebimentos' 
-          ? `http://localhost:8000/api/relatorios/recebimentos/dados`
-          : `http://localhost:8000/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
+          ? `${API_BASE}/api/relatorios/recebimentos/dados`
+          : `${API_BASE}/api/relatorios/${endpoint}/dados?data_inicio=${dataInicial}&data_fim=${dataFinal}`;
 
         const resposta = await fetchWithAuth(url);
         if (!resposta.ok) throw new Error("Erro de comunicação com o servidor.");
@@ -234,7 +235,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
         });
 
         if (menuAtivo === 'recebimentos' || menuAtivo === 'contas-recebidas') {
-          fetchWithAuth('http://localhost:8000/api/geral/bancos')
+          fetchWithAuth(`${API_BASE}/api/geral/bancos`)
             .then(res => res.json())
             .then(data => setListaBancos(Array.isArray(data) ? data : []))
             .catch(e => console.error(e));
@@ -551,7 +552,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
   const handleCarregarHistoricoRecibos = async () => {
     setCarregandoHistorico(true);
     try {
-      const res = await fetchWithAuth('http://localhost:8000/api/recibos');
+      const res = await fetchWithAuth(`${API_BASE}/api/recibos`);
       if (res.ok) {
         const data = await res.json();
         setHistoricoRecibos(data);
@@ -566,7 +567,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
   const handleDesfazerBaixa = async (recibo) => {
     if (!window.confirm(`Deseja realmente desfazer as baixas do recibo #${recibo.id} na Omie? Isso não pode ser revertido e o recibo será excluído do histórico.`)) return;
     try {
-      const res = await fetchWithAuth(`http://localhost:8000/api/recibos/${recibo.id}/desfazer`, { method: 'POST' });
+      const res = await fetchWithAuth(`${API_BASE}/api/recibos/${recibo.id}/desfazer`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 409 && data.task_id) {
@@ -831,7 +832,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
       setModalBaixa({ aberto: false, cliente: '', contas: [] });
 
-      const res = await fetchWithAuth('http://localhost:8000/api/relatorios/recebimentos/baixar', {
+      const res = await fetchWithAuth(`${API_BASE}/api/relatorios/recebimentos/baixar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -890,7 +891,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
         };
 
         try {
-          await fetchWithAuth('http://localhost:8000/api/recibos', {
+          await fetchWithAuth(`${API_BASE}/api/recibos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(novoRecibo)
@@ -912,7 +913,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
   // --- [BLOCO: Gerenciamento de Snapshots] ---
   const carregarSnapshots = async () => {
     try {
-      const res = await fetchWithAuth('http://localhost:8000/api/snapshots');
+      const res = await fetchWithAuth(`${API_BASE}/api/snapshots`);
       const dados = await res.json();
       setListaSnapshots(dados);
     } catch (e) {
@@ -928,7 +929,7 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
   const handleDeletarSnapshot = async (id) => {
     try {
-      await fetchWithAuth(`http://localhost:8000/api/snapshots/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`${API_BASE}/api/snapshots/${id}`, { method: 'DELETE' });
       carregarSnapshots();
     } catch (e) {
       console.error(e);
@@ -937,20 +938,20 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
   const handleResincronizarSnapshot = async (snap) => {
     try {
-      await fetchWithAuth(`http://localhost:8000/api/snapshots/${snap.id}`, { method: 'DELETE' });
+      await fetchWithAuth(`${API_BASE}/api/snapshots/${snap.id}`, { method: 'DELETE' });
       let url = "";
       if (snap.tipo_relatorio === 'Contas Pagas') {
-        url = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+        url = `${API_BASE}/api/relatorios/contas-pagas/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
       } else if (snap.tipo_relatorio === 'Contas Recebidas (Convênios)') {
-        url = `http://localhost:8000/api/relatorios/contas-recebidas/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+        url = `${API_BASE}/api/relatorios/contas-recebidas/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
       } else if (snap.tipo_relatorio === 'Vendas PDV' || snap.tipo_relatorio.includes('CMC')) {
-        url = `http://localhost:8000/api/relatorios/curva-abc/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+        url = `${API_BASE}/api/relatorios/curva-abc/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
       } else if (snap.tipo_relatorio.includes('Pagar')) {
-        url = `http://localhost:8000/api/relatorios/contas-a-pagar/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+        url = `${API_BASE}/api/relatorios/contas-a-pagar/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
       } else if (snap.tipo_relatorio.includes('Receber')) {
-        url = `http://localhost:8000/api/relatorios/recebimentos/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
+        url = `${API_BASE}/api/relatorios/recebimentos/dados?data_inicio=${snap.data_referencia}&data_fim=${snap.data_referencia}`;
       } else if (snap.tipo_relatorio.includes('Dicionário') || snap.tipo_relatorio.includes('Famílias')) {
-        url = `http://localhost:8000/api/relatorios/contas-pagas/dados?data_inicio=2026-01-01&data_fim=2026-01-01`;
+        url = `${API_BASE}/api/relatorios/contas-pagas/dados?data_inicio=2026-01-01&data_fim=2026-01-01`;
       }
       if (url) await fetchWithAuth(url);
       carregarSnapshots();

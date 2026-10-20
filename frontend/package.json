@@ -8,16 +8,26 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typegen": "openapi-typescript ../backend/openapi.json -o ./src/types/api.ts"
+    "typegen": "openapi-typescript ../backend/openapi.json -o ./src/types/api.ts",
+    "test": "vitest run",
+    "dev:mobile": "vite --config vite.mobile.config.js",
+    "build:mobile": "vite build --config vite.mobile.config.js",
+    "apk": "node scripts/build-apk.mjs"
   },
   "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "8.2.1",
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/network": "8.0.1",
     "html2canvas": "^1.4.1",
+    "idb": "8.0.3",
     "lucide-react": "^1.0.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-number-format": "^5.4.5"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.2",
     "@eslint/js": "^9.39.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -31,6 +41,7 @@
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "typescript": "^7.0.2",
-    "vite": "^8.0.1"
+    "vite": "^8.0.1",
+    "vitest": "5.0.3"
   }
 }

@@ -7,6 +7,7 @@ import { Download, Calculator, FileText, CheckCircle2, Settings, List, Plus, Tra
 import { NumericFormat } from 'react-number-format';
 import DatePicker from '../../components/common/DatePicker';
 import ProgressModal from '../../components/common/ProgressModal';
+import { API_BASE } from '../../config/api';
 
 export default function RateioECusteio({ token, onTaskStart, refreshCounter }) {
   const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('desossa_activeTab') || 'sync');
@@ -72,11 +73,11 @@ function SyncTab({ token, onTaskStart, refreshCounter }) {
 
   const loadData = async () => {
     try {
-      const resF = await fetch('http://localhost:8000/api/boning/families', { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
+      const resF = await fetch(`${API_BASE}/api/boning/families`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
       const dataF = await resF.json();
       setFamilies(dataF.families || []);
 
-      const resP = await fetch('http://localhost:8000/api/boning/products', { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
+      const resP = await fetch(`${API_BASE}/api/boning/products`, { headers: { 'Authorization': `Bearer ${token}` }, cache: 'no-store' });
       const dataP = await resP.json();
       setProducts(dataP.products || []);
     } catch (e) { console.error(e); }
@@ -84,7 +85,7 @@ function SyncTab({ token, onTaskStart, refreshCounter }) {
 
   const handleSync = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/boning/sync-omie', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_BASE}/api/boning/sync-omie`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok && data.task_id) {
         onTaskStart(data.task_id, 'Sincronizando Famílias e Produtos', 'desossa');
@@ -100,14 +101,14 @@ function SyncTab({ token, onTaskStart, refreshCounter }) {
 
   const toggleStandard = async (id) => {
     try {
-      await fetch(`http://localhost:8000/api/boning/products/${id}/toggle-standard`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
+      await fetch(`${API_BASE}/api/boning/products/${id}/toggle-standard`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
       await loadData();
     } catch (e) { console.error(e); }
   };
 
   const toggleFamilyActive = async (id) => {
     try {
-      await fetch(`http://localhost:8000/api/boning/families/${id}/toggle-active`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
+      await fetch(`${API_BASE}/api/boning/families/${id}/toggle-active`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
       await loadData();
     } catch (e) { console.error(e); }
   };
@@ -242,15 +243,15 @@ function TemplatesTab({ token }) {
 
   const loadData = async () => {
     try {
-      const resT = await fetch('http://localhost:8000/api/boning/templates', { headers: { 'Authorization': `Bearer ${token}` } });
+      const resT = await fetch(`${API_BASE}/api/boning/templates`, { headers: { 'Authorization': `Bearer ${token}` } });
       const dataT = await resT.json();
       setTemplates(dataT.templates || []);
 
-      const resP = await fetch('http://localhost:8000/api/boning/products', { headers: { 'Authorization': `Bearer ${token}` } });
+      const resP = await fetch(`${API_BASE}/api/boning/products`, { headers: { 'Authorization': `Bearer ${token}` } });
       const dataP = await resP.json();
       setProducts(dataP.products?.filter(p => p.is_standard_cut) || []);
 
-      const resF = await fetch('http://localhost:8000/api/boning/families', { headers: { 'Authorization': `Bearer ${token}` } });
+      const resF = await fetch(`${API_BASE}/api/boning/families`, { headers: { 'Authorization': `Bearer ${token}` } });
       const dataF = await resF.json();
       setFamilies(dataF.families || []);
     } catch (e) { console.error(e); }
@@ -364,8 +365,8 @@ function TemplatesTab({ token }) {
     };
 
     const url = editingTemplateId 
-      ? `http://localhost:8000/api/boning/templates/${editingTemplateId}` 
-      : 'http://localhost:8000/api/boning/templates';
+      ? `${API_BASE}/api/boning/templates/${editingTemplateId}` 
+      : `${API_BASE}/api/boning/templates`;
     const method = editingTemplateId ? 'PUT' : 'POST';
 
     try {
@@ -428,7 +429,7 @@ function TemplatesTab({ token }) {
   const deleteTemplate = async (id) => {
     if (!confirm('Excluir padrão de rendimento?')) return;
     try {
-      await fetch(`http://localhost:8000/api/boning/templates/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      await fetch(`${API_BASE}/api/boning/templates/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
       loadData();
     } catch (e) { console.error(e); }
   };
@@ -675,11 +676,11 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
 
   const loadData = async () => {
     try {
-      const resT = await fetch('http://localhost:8000/api/boning/templates', { headers: { 'Authorization': `Bearer ${token}` } });
+      const resT = await fetch(`${API_BASE}/api/boning/templates`, { headers: { 'Authorization': `Bearer ${token}` } });
       const dataT = await resT.json();
       setTemplates(dataT.templates || []);
 
-      const resP = await fetch('http://localhost:8000/api/boning/products', { headers: { 'Authorization': `Bearer ${token}` } });
+      const resP = await fetch(`${API_BASE}/api/boning/products`, { headers: { 'Authorization': `Bearer ${token}` } });
       const dataP = await resP.json();
       setProducts(dataP.products?.filter(p => p.is_standard_cut) || []);
     } catch (e) { console.error(e); }
@@ -737,7 +738,7 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
     }
 
     try {
-      const res = await fetch('http://localhost:8000/api/boning/calculate-apportionment', {
+      const res = await fetch(`${API_BASE}/api/boning/calculate-apportionment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(payload)
@@ -756,7 +757,7 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
     setCheckingStocks(true);
     try {
       const productIds = calculationResult.items.map(i => i.product_id);
-      const res = await fetch('http://localhost:8000/api/boning/check-stocks', {
+      const res = await fetch(`${API_BASE}/api/boning/check-stocks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ date: exportDate, product_ids: productIds })
@@ -808,7 +809,7 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
     }
 
     try {
-      const res = await fetch('http://localhost:8000/api/boning/fix-stocks', {
+      const res = await fetch(`${API_BASE}/api/boning/fix-stocks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ date: exportDate, items: itemsToFix })
@@ -832,7 +833,7 @@ function OperationTab({ token, onTaskStart, refreshCounter, calculationResult, s
     if (!calculationResult || !calculationResult.process_id) return;
     setExporting(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/boning/process/${calculationResult.process_id}/export-cmc`, {
+      const res = await fetch(`${API_BASE}/api/boning/process/${calculationResult.process_id}/export-cmc`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
@@ -1196,7 +1197,7 @@ function HistoryTab({ token, onTaskStart, refreshCounter }) {
   const loadHistorico = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/boning/snapshots/historico', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_BASE}/api/boning/snapshots/historico`, { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       setSnapshots(Array.isArray(data) ? data : (data.snapshots || []));
     } catch (e) {
@@ -1213,7 +1214,7 @@ function HistoryTab({ token, onTaskStart, refreshCounter }) {
     if (!window.confirm(`Tem certeza que deseja reverter e EXCLUIR TODOS OS LANÇAMENTOS da Omie vinculados ao snapshot ID ${snap.id}?`)) return;
 
     try {
-      const res = await fetch(`http://localhost:8000/api/boning/revert-snapshot/${snap.id}`, {
+      const res = await fetch(`${API_BASE}/api/boning/revert-snapshot/${snap.id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -1296,7 +1297,7 @@ function SimulatorTab({ token, onTaskStart, calculationResult }) {
   const [activeData, setActiveData] = useState(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/boning/processes', { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${API_BASE}/api/boning/processes`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => res.json())
       .then(data => {
          setProcesses(data.processes || []);
@@ -1335,7 +1336,7 @@ function SimulatorTab({ token, onTaskStart, calculationResult }) {
     }));
 
     try {
-      const res = await fetch('http://localhost:8000/api/boning/update-prices', {
+      const res = await fetch(`${API_BASE}/api/boning/update-prices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ items: itemsToUpdate })

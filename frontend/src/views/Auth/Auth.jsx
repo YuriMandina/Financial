@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, Mail, Lock, UserPlus, LogIn, Settings, Users, Link } from 'lucide-react';
+import { API_BASE } from '../../config/api';
 
 export const AuthScreen = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -45,7 +46,7 @@ export const AuthScreen = ({ onLogin }) => {
         payload.invite_token = inviteToken;
       }
       
-      const res = await fetch(`http://localhost:8000${endpoint}`, {
+      const res = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -63,7 +64,7 @@ export const AuthScreen = ({ onLogin }) => {
         // If there was an invite token, accept it now
         if (inviteToken) {
           try {
-            await fetch('http://localhost:8000/api/invites/accept', {
+            await fetch(`${API_BASE}/api/invites/accept`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',

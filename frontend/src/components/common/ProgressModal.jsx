@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Loader2, CheckCircle2, XCircle, ChevronDown, Check, X } from 'lucide-react';
+import { API_BASE } from '../../config/api';
 
 export default function ProgressModal({ taskId, onClose, manualState, onSuccess, title, onReprocess }) {
   const [task, setTask] = useState(null);
@@ -16,7 +17,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
     
     const fetchTask = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/tasks/${taskId}`);
+        const response = await fetch(`${API_BASE}/api/tasks/${taskId}`);
         if (!response.ok) throw new Error('Falha ao buscar task');
         const data = await response.json();
         setTask(data);
@@ -41,7 +42,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
     if (e) e.stopPropagation();
     if (!taskId) return;
     try {
-      await fetch(`http://localhost:8000/api/tasks/${taskId}`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/api/tasks/${taskId}`, { method: 'DELETE' });
     } catch (err) {
       console.error("Erro ao cancelar:", err);
     }
@@ -257,7 +258,7 @@ export default function ProgressModal({ taskId, onClose, manualState, onSuccess,
                         disabled={countdown > 0}
                         onClick={async () => {
                            try {
-                             await fetch(`http://localhost:8000/api/boning/revert-snapshot/${task.result.snapshot_id}`, { method: 'DELETE' });
+                             await fetch(`${API_BASE}/api/boning/revert-snapshot/${task.result.snapshot_id}`, { method: 'DELETE' });
                            } catch(e) {}
                            setMinimized(true);
                            onClose();

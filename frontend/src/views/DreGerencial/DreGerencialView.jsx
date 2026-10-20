@@ -3,6 +3,7 @@ import { Target, DollarSign, Loader2, ArrowUpCircle, ArrowDownCircle, Database }
 import Skeleton from '../../components/common/Skeleton';
 import DateRangePicker from '../../components/common/DateRangePicker';
 import ProgressModal from '../../components/common/ProgressModal';
+import { API_BASE } from '../../config/api';
 
 export const DreGerencial = ({ token, onTaskStart, refreshCounter }) => {
   const [loading, setLoading] = useState(false);
@@ -28,7 +29,7 @@ export const DreGerencial = ({ token, onTaskStart, refreshCounter }) => {
 
     if (isSync) {
         try {
-            const res = await fetch(`http://localhost:8000/api/relatorios/dre/sync`, {
+            const res = await fetch(`${API_BASE}/api/relatorios/dre/sync`, {
                 method: 'POST',
                 headers: { 
                     'Authorization': `Bearer ${token}`,
@@ -62,7 +63,7 @@ export const DreGerencial = ({ token, onTaskStart, refreshCounter }) => {
 
 
     try {
-      const res = await fetch(`http://localhost:8000/api/relatorios/dre/dados?data_inicio=${dataInicio}&data_fim=${dataFim}`, {
+      const res = await fetch(`${API_BASE}/api/relatorios/dre/dados?data_inicio=${dataInicio}&data_fim=${dataFim}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const json = await res.json();

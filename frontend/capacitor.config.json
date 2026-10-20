@@ -1,0 +1,9 @@
+{
+  "appId": "com.gabaritobi.contagem",
+  "appName": "Contagem Estoque",
+  "webDir": "dist-mobile",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}

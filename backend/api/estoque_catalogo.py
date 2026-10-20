@@ -2,9 +2,12 @@
 Cadastro do Módulo de Inventário: famílias habilitadas, produtos do escopo padrão,
 embalagens/tara, pendências de cadastro e papéis de usuário.
 """
+import json
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -265,6 +268,42 @@ async def sync_catalog(user: models.User = Depends(get_current_user_and_set_org)
     task_id = TaskManager.create_task(action_id)
     await TaskQueue.enqueue(omie_service.bg_sync_catalog, task_id, org.id)
     return {"task_id": task_id}
+
+
+# ==============================================================================
+# --- [BLOCO: Distribuição do App de Contagem (Android)] ---
+# ==============================================================================
+# Públicos: o celular consulta a versão antes do login e baixa o APK pela rede da loja.
+# Arquivos gerados pelo build do app em backend/static/mobile/ (version.json + contagem.apk).
+
+MOBILE_DIR = Path(__file__).resolve().parent.parent / "static" / "mobile"
+
+
+def _mobile_version() -> dict:
+    try:
+        data = json.loads((MOBILE_DIR / "version.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"version_name": None, "version_code": 0, "available": False}
+    return {
+        "version_name": data.get("versionName"),
+        "version_code": int(data.get("versionCode") or 0),
+        "available": (MOBILE_DIR / "contagem.apk").is_file(),
+    }
+
+
+@router.get("/app/versao")
+def mobile_app_version():
+    return _mobile_version()
+
+
+@router.get("/app/apk")
+def mobile_app_apk():
+    apk = MOBILE_DIR / "contagem.apk"
+    if not apk.is_file():
+        raise HTTPException(status_code=404, detail="APK ainda não publicado.")
+    version = _mobile_version().get("version_name") or "atual"
+    return FileResponse(apk, media_type="application/vnd.android.package-archive",
+                        filename=f"contagem-{version}.apk")
 
 
 # ==============================================================================

@@ -19,8 +19,8 @@ import RHFichaCadastral from './components/RHFichaCadastral';
 import { PROFILE_TABS, profileCompleteness } from './components/employeeProfileSchema';
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
+import { API_BASE } from '../../config/api';
 
-const API_BASE = 'http://localhost:8000';
 
 // ==============================================================================
 // --- [BLOCO: CONSTANTES & CONFIGURAÇÕES DE STATUS] ---

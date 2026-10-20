@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Contagem Estoque</string>
+    <string name="title_activity_main">Contagem Estoque</string>
+    <string name="package_name">com.gabaritobi.contagem</string>
+    <string name="custom_url_scheme">com.gabaritobi.contagem</string>
+</resources>

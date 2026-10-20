@@ -30,3 +30,5 @@ build/
 Thumbs.db
 .vscode/
 .idea/
+# APK do app de contagem publicado pelo build
+backend/static/mobile/

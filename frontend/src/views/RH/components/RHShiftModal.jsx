@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Clock, Plus, Trash2, Edit2, CheckCircle2, AlertCircle, X, RotateCcw } from 'lucide-react';
 import TimePicker from '../../../components/common/TimePicker';
+import { API_BASE } from '../../../config/api';
 
 // ==============================================================================
 // --- [BLOCO: MODAL DE GESTÃO, EDIÇÃO E CADASTRO DE TURNOS (RHShiftModal)] ---
@@ -100,8 +101,8 @@ export default function RHShiftModal({
     try {
       const isEditing = Boolean(editingShiftId);
       const url = isEditing
-        ? `http://localhost:8000/api/rh/shifts/${editingShiftId}`
-        : 'http://localhost:8000/api/rh/shifts';
+        ? `${API_BASE}/api/rh/shifts/${editingShiftId}`
+        : `${API_BASE}/api/rh/shifts`;
 
       const method = isEditing ? 'PUT' : 'POST';
 
@@ -134,7 +135,7 @@ export default function RHShiftModal({
   const handleDelete = async (shiftId) => {
     if (!window.confirm('Deseja realmente remover este turno?')) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/rh/shifts/${shiftId}`, {
+      const res = await fetch(`${API_BASE}/api/rh/shifts/${shiftId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
