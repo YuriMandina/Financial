@@ -109,7 +109,7 @@ def item_to_engine(item: models.InventoryCountItem) -> Dict[str, Any]:
         "counted_qty": item.counted_qty,
         "confirmed_zero": item.confirmed_zero,
         "count_status": item.count_status,
-        "reason": item.reason,
+        "reasons": [{"reason": r.reason, "quantity": r.quantity} for r in item.reasons],
         "justification": item.justification,
         "case": item.adjustment_case,
         "has_entries": any(not e.voided and e.round == item.current_round for e in item.entries),
@@ -425,17 +425,16 @@ def request_suggested_recounts(db: Session, user: models.User, count: models.Inv
     return flagged
 
 
-def update_review(db: Session, user: models.User, item: models.InventoryCountItem, data: Dict[str, Any]):
-    """Grava motivo, justificativa, par, custo de referência e aprovação de correção de CMC."""
+def _require_review(user: models.User, count: models.InventoryCount):
     require_manager(user)
-    if item.count.status != engine.CONFERENCIA:
+    if count.status != engine.CONFERENCIA:
         raise InventoryError("A conferência só pode ser editada com o inventário em conferência.")
 
-    if "reason" in data:
-        reason = data["reason"]
-        if reason and reason not in engine.FALTA_REASONS and reason not in engine.SOBRA_REASONS:
-            raise InventoryError(f"Motivo inválido: {reason}")
-        item.reason = reason or None
+
+def update_review(db: Session, user: models.User, item: models.InventoryCountItem, data: Dict[str, Any]):
+    """Grava justificativa, par, custo de referência e aprovação de correção de CMC."""
+    _require_review(user, item.count)
+
     if "justification" in data:
         item.justification = (data["justification"] or "").strip() or None
     if "reference_cost" in data:
@@ -443,6 +442,7 @@ def update_review(db: Session, user: models.User, item: models.InventoryCountIte
         if ref is not None and float(ref) < 0:
             raise InventoryError("Custo de referência não pode ser negativo.")
         item.reference_cost = None if ref is None else float(ref)
+        item.reference_cost_source = None if ref is None else "MANUAL"
     if "cmc_correction_approved" in data:
         item.cmc_correction_approved = bool(data["cmc_correction_approved"])
     if "pair_item_id" in data:
@@ -450,6 +450,67 @@ def update_review(db: Session, user: models.User, item: models.InventoryCountIte
 
     recompute_item(item, item.count.cmc_tolerance_pct)
     db.commit()
+
+
+def _validated_allocations(item: models.InventoryCountItem, allocations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    diff = engine.compute_difference(item.counted_qty, item.system_qty)
+    allowed = engine.reasons_for_sign(diff) if diff else {**engine.FALTA_REASONS, **engine.SOBRA_REASONS}
+    clean = []
+    for alloc in allocations:
+        reason = alloc.get("reason")
+        qty = engine.round_qty(alloc.get("quantity"))
+        if reason not in allowed:
+            raise InventoryError(f"Motivo inválido para {item.product_name}: {reason}")
+        if qty <= 0:
+            raise InventoryError("A quantidade de cada motivo deve ser maior que zero.")
+        clean.append({"reason": reason, "quantity": qty, "note": (alloc.get("note") or "").strip() or None})
+    return clean
+
+
+def set_reasons(db: Session, user: models.User, item: models.InventoryCountItem, allocations: List[Dict[str, Any]]):
+    """Substitui a distribuição da divergência do item entre motivos.
+
+    A soma pode ficar parcial durante a edição; o fechamento exato é exigido no envio para aprovação.
+    """
+    _require_review(user, item.count)
+    clean = _validated_allocations(item, allocations)
+    item.reasons = [models.InventoryItemReason(**c) for c in clean]
+    db.commit()
+
+
+def batch_review(db: Session, user: models.User, count: models.InventoryCount, item_ids: List[int],
+                 reason: Optional[str] = None, justification: Optional[str] = None,
+                 note: Optional[str] = None) -> Dict[str, Any]:
+    """Conferência em lote: atribui o restante da divergência de cada item a um motivo e/ou aplica justificativa."""
+    _require_review(user, count)
+    items = {it.id: it for it in count.items}
+    updated, skipped = [], []
+    justification = (justification or "").strip() or None
+    for item_id in item_ids:
+        item = items.get(item_id)
+        if not item:
+            skipped.append({"item_id": item_id, "reason": "Item não pertence ao inventário."})
+            continue
+        if reason:
+            diff = engine.compute_difference(item.counted_qty, item.system_qty)
+            if not diff:
+                skipped.append({"item_id": item_id, "reason": "Item sem divergência."})
+                continue
+            if reason not in engine.reasons_for_sign(diff):
+                skipped.append({"item_id": item_id, "reason": "Motivo incompatível com o tipo de divergência."})
+                continue
+            remaining = engine.remaining_to_allocate(diff, [{"quantity": r.quantity} for r in item.reasons])
+            if remaining > 0:
+                existing = next((r for r in item.reasons if r.reason == reason), None)
+                if existing:
+                    existing.quantity = engine.round_qty(existing.quantity + remaining)
+                else:
+                    item.reasons.append(models.InventoryItemReason(reason=reason, quantity=remaining, note=note))
+        if justification:
+            item.justification = justification
+        updated.append(item_id)
+    db.commit()
+    return {"updated": updated, "skipped": skipped}
 
 
 def _set_pair(item: models.InventoryCountItem, pair_item_id: Optional[int]):
@@ -476,6 +537,8 @@ def _set_pair(item: models.InventoryCountItem, pair_item_id: Optional[int]):
 def apply_transition(db: Session, user: models.User, count: models.InventoryCount, action: str) -> models.InventoryCount:
     # Todas as transições são da gerência; o papel CONTADOR apenas lança contagens
     require_manager(user)
+    if action in engine.OMIE_ACTIONS:
+        raise InventoryError(f"A ação '{action}' é executada pela integração com a Omie.")
     try:
         target = engine.check_transition(action, count.status)
     except ValueError as exc:
@@ -531,7 +594,7 @@ def build_shortages_rows(count: models.InventoryCount) -> List[Dict[str, Any]]:
             "custo_unitario": round(cost, 6),
             "custo_ultima_compra": item.reference_cost,
             "total": engine.round_money(qty * cost),
-            "motivo": engine.FALTA_REASONS.get(item.reason, item.reason),
+            "motivo": engine.allocation_label([{"reason": r.reason, "quantity": r.quantity} for r in item.reasons], item.unit),
             "justificativa": item.justification,
         })
     return rows

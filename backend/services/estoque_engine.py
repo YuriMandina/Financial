@@ -26,14 +26,18 @@ APROVADO = "APROVADO"
 EFETIVANDO = "EFETIVANDO"
 EFETIVANDO_COM_ERRO = "EFETIVANDO_COM_ERRO"
 EFETIVADO = "EFETIVADO"
+REVERTENDO = "REVERTENDO"
+REVERSAO_COM_ERRO = "REVERSAO_COM_ERRO"
 CONCLUIDO = "CONCLUIDO"
 CANCELADO = "CANCELADO"
 
 # Status que impedem abrir outro inventário da mesma família/produto
 OPEN_STATUSES = {
     RASCUNHO, EM_CONTAGEM, CONFERENCIA, AGUARDANDO_APROVACAO,
-    APROVADO, EFETIVANDO, EFETIVANDO_COM_ERRO,
+    APROVADO, EFETIVANDO, EFETIVANDO_COM_ERRO, REVERTENDO, REVERSAO_COM_ERRO,
 }
+# Status em que a Omie já pode ter recebido ajustes deste inventário
+OMIE_TOUCHED_STATUSES = {EFETIVANDO, EFETIVANDO_COM_ERRO, EFETIVADO, REVERTENDO, REVERSAO_COM_ERRO}
 
 # Ação -> (status de origem permitidos, status de destino)
 TRANSITIONS = {
@@ -43,9 +47,16 @@ TRANSITIONS = {
     "enviar": ({CONFERENCIA}, AGUARDANDO_APROVACAO),
     "rejeitar": ({AGUARDANDO_APROVACAO}, CONFERENCIA),
     "aprovar": ({AGUARDANDO_APROVACAO}, APROVADO),
-    "cancelar": ({RASCUNHO, EM_CONTAGEM, CONFERENCIA, AGUARDANDO_APROVACAO}, CANCELADO),
+    "desaprovar": ({APROVADO}, CONFERENCIA),
+    "cancelar": ({RASCUNHO, EM_CONTAGEM, CONFERENCIA, AGUARDANDO_APROVACAO, APROVADO}, CANCELADO),
+    # --- Integração Omie (efeitos colaterais executados pela fila) ---
+    "efetivar": ({APROVADO}, EFETIVANDO),
+    "reprocessar": ({EFETIVANDO_COM_ERRO}, EFETIVANDO),
+    "reverter": ({EFETIVADO, EFETIVANDO_COM_ERRO, REVERSAO_COM_ERRO}, REVERTENDO),
     "concluir": ({EFETIVADO}, CONCLUIDO),
 }
+# Ações executadas pela integração Omie (estoque_omie_service), não pela transição genérica
+OMIE_ACTIONS = {"efetivar", "reprocessar", "reverter"}
 
 # --- Status de contagem do item ---
 ITEM_PENDENTE = "PENDENTE"
@@ -281,9 +292,46 @@ def build_adjustment(system_qty: float, counted_qty: float, cmc: Optional[float]
     return {"tipo": "ENT", "motivo": "INV", "quan": diff, "valor": valor}
 
 
-def adjustment_integration_code(count_id: int, item_id: int) -> str:
-    """Código de integração do ajuste (cod_int_ajuste) usado para idempotência na Omie."""
-    return f"INV-{count_id}-{item_id}"
+def adjustment_integration_code(count_id: int, item_id: int, seq: int = 1) -> str:
+    """Código de integração do ajuste (cod_int_ajuste) usado para idempotência na Omie.
+
+    seq muda a cada reversão do inventário, para que uma nova efetivação não colida com o código anterior.
+    """
+    return f"INV-{count_id}-{item_id}-{seq}"
+
+
+# ==============================================================================
+# --- [BLOCO: Distribuição da Divergência por Motivo] ---
+# ==============================================================================
+
+def reasons_for_sign(diff: Optional[float]) -> Dict[str, str]:
+    """Motivos permitidos conforme o sinal da divergência (falta ou sobra)."""
+    if not diff:
+        return {}
+    return FALTA_REASONS if diff < 0 else SOBRA_REASONS
+
+
+def allocated_qty(reasons: Iterable[Dict[str, Any]]) -> float:
+    return round_qty(sum(float(r.get("quantity") or 0.0) for r in reasons or []))
+
+
+def remaining_to_allocate(diff: Optional[float], reasons: Iterable[Dict[str, Any]]) -> float:
+    """Quantidade da divergência ainda sem motivo (negativa = distribuído a mais)."""
+    if not diff:
+        return round_qty(-allocated_qty(reasons))
+    return round_qty(abs(diff) - allocated_qty(reasons))
+
+
+def allocation_label(reasons: Iterable[Dict[str, Any]], unit: Optional[str] = None) -> str:
+    """Texto resumido da distribuição, ex: '2 UN Avaria / Deterioração; 3 UN Desaparecimento'."""
+    labels = {**FALTA_REASONS, **SOBRA_REASONS}
+    suffix = f" {unit}" if unit else ""
+    parts = []
+    for r in reasons or []:
+        qty = round_qty(r.get("quantity"))
+        qty_txt = f"{qty:g}".replace(".", ",")
+        parts.append(f"{qty_txt}{suffix} {labels.get(r.get('reason'), r.get('reason'))}")
+    return "; ".join(parts)
 
 
 # ==============================================================================
@@ -294,7 +342,7 @@ def validate_items_for_approval(items: List[Dict[str, Any]]) -> List[Dict[str, A
     """Retorna a lista de pendências que impedem enviar/aprovar o inventário.
 
     Cada item: product_name, system_qty, counted_qty, confirmed_zero, count_status,
-    reason, justification, case, has_entries, reference_cost, cmc.
+    reasons [{reason, quantity}], justification, case, has_entries, reference_cost, cmc.
     """
     issues = []
 
@@ -313,14 +361,25 @@ def validate_items_for_approval(items: List[Dict[str, Any]]) -> List[Dict[str, A
             continue
 
         diff = compute_difference(item.get("counted_qty"), item.get("system_qty"))
-        reason = item.get("reason")
-        if diff and diff < 0 and reason not in FALTA_REASONS:
-            add(item, "MOTIVO_OBRIGATORIO", "Informe o motivo da falta.")
-        elif diff and diff > 0 and reason not in SOBRA_REASONS:
-            add(item, "MOTIVO_OBRIGATORIO", "Informe o motivo da sobra.")
-        if reason in BLOCKING_REASONS:
+        reasons = item.get("reasons") or []
+        allowed = reasons_for_sign(diff)
+        used = {r.get("reason") for r in reasons}
+        remaining = remaining_to_allocate(diff, reasons)
+        kind = "falta" if diff and diff < 0 else "sobra"
+
+        if not diff and reasons:
+            add(item, "MOTIVO_SEM_DIVERGENCIA", "Item sem divergência possui motivos lançados. Remova-os.")
+        elif diff:
+            invalid = [r for r in used if r not in allowed]
+            if invalid:
+                add(item, "MOTIVO_INVALIDO", f"Motivo(s) incompatível(is) com {kind}: {', '.join(invalid)}.")
+            if remaining > 0:
+                add(item, "MOTIVO_DISTRIBUICAO", f"Distribua {remaining:g} da {kind} entre os motivos.")
+            elif remaining < 0:
+                add(item, "MOTIVO_DISTRIBUICAO", f"Motivos somam {abs(remaining):g} a mais que a {kind}.")
+        if used & BLOCKING_REASONS:
             add(item, "NF_ENTRADA_PENDENTE", "Lance a NF de entrada na Omie e recapture o saldo antes de aprovar.")
-        if reason == "NAO_IDENTIFICADA" and not (item.get("justification") or "").strip():
+        if "NAO_IDENTIFICADA" in used and not (item.get("justification") or "").strip():
             add(item, "JUSTIFICATIVA_OBRIGATORIA", "Sobra não identificada exige justificativa.")
 
         case = item.get("case")
@@ -392,18 +451,25 @@ def summarize(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         diff = compute_difference(item.get("counted_qty"), item.get("system_qty"))
         if not diff:
             continue
-        value = round_money(diff * unit_cost_for_valuation(item.get("cmc"), item.get("reference_cost")))
-        reason = item.get("reason") or "SEM_MOTIVO"
-        bucket = by_reason.setdefault(reason, {"qty_items": 0, "value": 0.0})
-        bucket["qty_items"] += 1
-        bucket["value"] = round_money(bucket["value"] + value)
-        if diff < 0:
-            if reason == "QUEBRA_TECNICA":
-                quebra_tecnica += value
+        sign = -1.0 if diff < 0 else 1.0
+        cost = unit_cost_for_valuation(item.get("cmc"), item.get("reference_cost"))
+        parts = [(r.get("reason"), float(r.get("quantity") or 0.0)) for r in item.get("reasons") or []]
+        remaining = remaining_to_allocate(diff, item.get("reasons"))
+        if remaining > 0:
+            parts.append(("SEM_MOTIVO", remaining))
+        for reason, qty in parts:
+            value = round_money(sign * qty * cost)
+            bucket = by_reason.setdefault(reason, {"qty_items": 0, "quantity": 0.0, "value": 0.0})
+            bucket["qty_items"] += 1
+            bucket["quantity"] = round_qty(bucket["quantity"] + qty)
+            bucket["value"] = round_money(bucket["value"] + value)
+            if sign < 0:
+                if reason == "QUEBRA_TECNICA":
+                    quebra_tecnica += value
+                else:
+                    perdas += value
             else:
-                perdas += value
-        else:
-            sobras += value
+                sobras += value
     return {
         "total_items": len(items),
         "counted_items": counted,
@@ -425,7 +491,9 @@ def snapshot_hash(items: List[Dict[str, Any]]) -> str:
                 "counted_qty": round_qty(i.get("counted_qty")),
                 "cmc": round(float(i.get("cmc") or 0.0), 6),
                 "reference_cost": round(float(i.get("reference_cost") or 0.0), 6),
-                "reason": i.get("reason"),
+                "reasons": sorted(
+                    [[r.get("reason"), round_qty(r.get("quantity"))] for r in i.get("reasons") or []]
+                ),
                 "case": i.get("case"),
             }
             for i in items

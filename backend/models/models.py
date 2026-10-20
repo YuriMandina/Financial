@@ -550,6 +550,9 @@ class InventoryCount(Base):
     cmc_tolerance_pct = Column(Float, nullable=False, default=30.0)
     snapshot_at = Column(DateTime(timezone=True), nullable=True)
     snapshot_hash = Column(String, nullable=True)
+    omie_task_id = Column(String, nullable=True)  # Task de snapshot/efetivação/reversão em andamento
+    effectivation_seq = Column(Integer, nullable=False, default=1)  # Incrementa a cada reversão (novo cod_int_ajuste)
+    last_error = Column(Text, nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     approved_at = Column(DateTime(timezone=True), nullable=True)
@@ -588,14 +591,20 @@ class InventoryCountItem(Base):
     confirmed_zero = Column(Boolean, nullable=False, default=False)
     count_status = Column(String, nullable=False, default="PENDENTE")
     # --- Conferência ---
+    reference_cost_source = Column(String, nullable=True)  # OMIE ou MANUAL
     adjustment_case = Column(String, nullable=True)  # A, B, C ou D
-    reason = Column(String, nullable=True)
     justification = Column(Text, nullable=True)
     pair_item_id = Column(Integer, ForeignKey("inventory_count_items.id", ondelete="SET NULL"), nullable=True)
     cmc_correction_approved = Column(Boolean, nullable=False, default=False)
+    # --- Conferência pós-efetivação (saldo/CMC lidos da Omie após o ajuste) ---
+    verified_qty = Column(Float, nullable=True)
+    verified_cmc = Column(Float, nullable=True)
+    verify_status = Column(String, nullable=True)  # OK ou DIVERGENTE
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     count = relationship("InventoryCount", back_populates="items", foreign_keys=[count_id])
+    reasons = relationship("InventoryItemReason", back_populates="item", cascade="all, delete-orphan",
+                           order_by="InventoryItemReason.id")
     product = relationship("BoningProduct")
     entries = relationship("InventoryCountEntry", back_populates="item", cascade="all, delete-orphan",
                            order_by="InventoryCountEntry.id")
@@ -604,6 +613,20 @@ class InventoryCountItem(Base):
     __table_args__ = (
         UniqueConstraint("count_id", "product_id", name="uq_inventory_item_product"),
     )
+
+
+class InventoryItemReason(Base):
+    """Distribuição da divergência do item entre motivos (ex: 2 un avaria + 3 un não identificadas)."""
+    __tablename__ = "inventory_item_reasons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("inventory_count_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    reason = Column(String, nullable=False)
+    quantity = Column(Float, nullable=False)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    item = relationship("InventoryCountItem", back_populates="reasons")
 
 
 class InventoryCountEntry(Base):

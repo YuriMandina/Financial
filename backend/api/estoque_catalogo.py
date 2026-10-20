@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 import models.models as models
 from core.database import get_db
 from core.deps import get_current_user_and_set_org, current_org
+from api.tasks import TaskManager, TaskQueue
+from services import estoque_omie_service as omie_service
 from services import estoque_service as service
 
 router = APIRouter(prefix="/api/estoque", tags=["estoque"])
@@ -42,6 +44,10 @@ class PackagingUpdate(BaseModel):
     ean: Optional[str] = None
     tare_kg: Optional[float] = Field(None, ge=0)
     is_active: Optional[bool] = None
+
+
+class FamilyAssign(BaseModel):
+    family_id: int
 
 
 class UserRoleUpdate(BaseModel):
@@ -235,6 +241,30 @@ def list_pending_registrations(user: models.User = Depends(get_current_user_and_
         })
     sem_familia = sum(1 for p in pendencias if "SEM_FAMILIA" in p["issues"])
     return {"total": len(pendencias), "sem_familia": sem_familia, "pendencias": pendencias}
+
+
+@router.put("/pendencias/{product_id}/familia")
+def assign_family(product_id: int, req: FamilyAssign,
+                  user: models.User = Depends(get_current_user_and_set_org), db: Session = Depends(get_db)):
+    """Atribui a família na Omie (conferindo que nada mais do cadastro mudou) e no sistema."""
+    prod = guard(lambda: omie_service.assign_family(db, user, current_org.get().id, product_id, req.family_id))
+    return {"id": prod.id, "family_id": prod.family_id, "family_name": prod.family.name if prod.family else None}
+
+
+@router.post("/catalogo/sincronizar")
+async def sync_catalog(user: models.User = Depends(get_current_user_and_set_org)):
+    """Sincroniza EAN, unidade, NCM e família de todos os produtos da Omie (inclui produtos sem família)."""
+    guard(lambda: service.require_manager(user))
+    org = current_org.get()
+    if not org.omie_app_key:
+        raise HTTPException(status_code=400, detail="Credenciais da Omie não configuradas.")
+    action_id = f"inventario_catalogo_{org.id}"
+    active = TaskManager.get_active_task_id(action_id)
+    if active:
+        raise HTTPException(status_code=409, detail={"message": "Sincronização já em andamento.", "task_id": active})
+    task_id = TaskManager.create_task(action_id)
+    await TaskQueue.enqueue(omie_service.bg_sync_catalog, task_id, org.id)
+    return {"task_id": task_id}
 
 
 # ==============================================================================

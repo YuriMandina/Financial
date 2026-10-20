@@ -14,6 +14,7 @@ TABLES = [
     models.ProductPackaging.__table__, models.InventoryCount.__table__,
     models.InventoryCountItem.__table__, models.InventoryCountEntry.__table__,
     models.InventoryAdjustment.__table__, models.InventoryDocument.__table__,
+    models.InventoryItemReason.__table__,
 ]
 
 
@@ -122,12 +123,18 @@ class TestFluxoInventario(unittest.TestCase):
         with self.assertRaises(service.InventoryError) as ctx:
             service.apply_transition(self.db, self.gerente, count, "enviar")
         codes = {i["code"] for i in ctx.exception.details}
-        self.assertIn("MOTIVO_OBRIGATORIO", codes)
+        self.assertIn("MOTIVO_DISTRIBUICAO", codes)
         self.assertIn("JUSTIFICATIVA_NEGATIVO", codes)
 
-        service.update_review(self.db, self.gerente, coca, {"reason": "AVARIA"})
-        service.update_review(self.db, self.gerente, agua, {"reason": "ERRO_PDV",
-                                                           "justification": "Vendas a mais registradas no PDV"})
+        # Falta de 12: 4 avariadas e o restante (8) em lote como desaparecimento
+        service.set_reasons(self.db, self.gerente, coca, [{"reason": "AVARIA", "quantity": 4}])
+        lote = service.batch_review(self.db, self.gerente, count, [coca.id, agua.id], reason="DESAPARECIMENTO")
+        self.assertEqual(lote["updated"], [coca.id])  # agua é sobra: motivo de falta é ignorado
+        self.assertEqual(sorted((r.reason, r.quantity) for r in coca.reasons), [("AVARIA", 4.0), ("DESAPARECIMENTO", 8.0)])
+        service.batch_review(self.db, self.gerente, count, [agua.id], reason="ERRO_PDV",
+                             justification="Saneamento inicial: estoque negativo histórico")
+        with self.assertRaises(service.InventoryError):
+            service.set_reasons(self.db, self.gerente, agua, [{"reason": "AVARIA", "quantity": 6}])
         service.apply_transition(self.db, self.gerente, count, "enviar")
         service.apply_transition(self.db, self.gerente, count, "aprovar")
         self.assertEqual(count.status, engine.APROVADO)
@@ -137,6 +144,7 @@ class TestFluxoInventario(unittest.TestCase):
         self.assertEqual(len(faltas), 1)
         self.assertEqual(faltas[0]["quantidade"], 12.0)
         self.assertEqual(faltas[0]["total"], 60.0)
+        self.assertEqual(faltas[0]["motivo"], "4 UN Avaria / Deterioração; 8 UN Desaparecimento (não identificado)")
 
     def test_pares_vinculados_nos_dois_lados(self):
         count = self._create()

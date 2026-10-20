@@ -68,6 +68,15 @@ async def startup_event():
             conn.execute(text("ALTER TABLE boning_products ADD COLUMN IF NOT EXISTS ncm VARCHAR;"))
             conn.execute(text("ALTER TABLE boning_products ADD COLUMN IF NOT EXISTS is_inventory_default BOOLEAN DEFAULT TRUE;"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_boning_products_ean ON boning_products (ean);"))
+            conn.execute(text("ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS omie_task_id VARCHAR;"))
+            conn.execute(text("ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS last_error TEXT;"))
+            conn.execute(text("ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS effectivation_seq INTEGER NOT NULL DEFAULT 1;"))
+            conn.execute(text("ALTER TABLE inventory_count_items ADD COLUMN IF NOT EXISTS reference_cost_source VARCHAR;"))
+            conn.execute(text("ALTER TABLE inventory_count_items ADD COLUMN IF NOT EXISTS verified_qty FLOAT;"))
+            conn.execute(text("ALTER TABLE inventory_count_items ADD COLUMN IF NOT EXISTS verified_cmc FLOAT;"))
+            conn.execute(text("ALTER TABLE inventory_count_items ADD COLUMN IF NOT EXISTS verify_status VARCHAR;"))
+            # Motivo único por item foi substituído pela distribuição em inventory_item_reasons
+            conn.execute(text("ALTER TABLE inventory_count_items DROP COLUMN IF EXISTS reason;"))
             # Salário passa a ser do cargo: herda o maior salário já cadastrado nos colaboradores do cargo
             conn.execute(text("""
                 UPDATE rh_roles r SET base_salary = sub.salary

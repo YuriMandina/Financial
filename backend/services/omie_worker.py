@@ -7,6 +7,14 @@ from api.tasks import TaskManager
 from services import omie_products
 import json
 
+# --- [BLOCO: Registro de Handlers por Módulo] ---
+# Módulos independentes (ex: Inventário) registram aqui seus action_types; o worker apenas despacha.
+# Assinatura: async handler(db, job) -> None (o handler gerencia status do job e da sua task).
+JOB_HANDLERS = {}
+
+def register_job_handler(action_type, handler):
+    JOB_HANDLERS[action_type] = handler
+
 async def start_omie_queue_worker():
     print("[WORKER] Omie Queue Worker Iniciado.")
     while True:
@@ -43,6 +51,11 @@ async def process_next_job():
             job.status = "FAILED"
             job.error_msg = "Organização não localizada."
             db.commit()
+            return
+
+        handler = JOB_HANDLERS.get(action)
+        if handler:
+            await handler(db, job)
             return
             
         sucesso, msg = False, ""

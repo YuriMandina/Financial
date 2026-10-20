@@ -12,6 +12,8 @@ from services.estoque_engine import (
     summarize,
     snapshot_hash,
     check_transition,
+    remaining_to_allocate,
+    allocation_label,
     CASE_A, CASE_B, CASE_C, CASE_D,
     EM_CONTAGEM, CONFERENCIA, EFETIVADO, CANCELADO,
 )
@@ -21,7 +23,7 @@ def make_item(**kwargs):
     base = {
         "id": 1, "product_id": 1, "product_name": "Produto", "unit": "UN",
         "system_qty": 10.0, "counted_qty": 10.0, "confirmed_zero": False,
-        "count_status": "CONTADO", "reason": None, "justification": None,
+        "count_status": "CONTADO", "reasons": [], "justification": None,
         "case": CASE_A, "has_entries": True, "cmc": 5.0, "reference_cost": 5.0,
         "cmc_correction_approved": False,
     }
@@ -153,22 +155,42 @@ class TestValidacaoAprovacao(unittest.TestCase):
 
     def test_nao_contado_bloqueia_e_zerado_confirmado_libera(self):
         self.assertIn("NAO_CONTADO", self.codes([make_item(has_entries=False, counted_qty=0)]))
-        ok = make_item(has_entries=False, confirmed_zero=True, counted_qty=0, reason="DESAPARECIMENTO")
+        ok = make_item(has_entries=False, confirmed_zero=True, counted_qty=0,
+                       reasons=[{"reason": "DESAPARECIMENTO", "quantity": 10}])
         self.assertEqual(self.codes([ok]), set())
 
     def test_sem_snapshot(self):
         self.assertIn("SEM_SNAPSHOT", self.codes([make_item(system_qty=None)]))
 
     def test_motivo_obrigatorio(self):
-        self.assertIn("MOTIVO_OBRIGATORIO", self.codes([make_item(counted_qty=8)]))
+        self.assertIn("MOTIVO_DISTRIBUICAO", self.codes([make_item(counted_qty=8)]))
         # Motivo de sobra não vale para falta
-        self.assertIn("MOTIVO_OBRIGATORIO", self.codes([make_item(counted_qty=8, reason="ERRO_PDV")]))
+        self.assertIn("MOTIVO_INVALIDO", self.codes([make_item(counted_qty=8, reasons=[{"reason": "ERRO_PDV", "quantity": 2}])]))
+
+    def test_falta_dividida_entre_motivos(self):
+        # Falta de 5 latas: 2 avariadas + 3 não identificadas
+        reasons = [{"reason": "AVARIA", "quantity": 2}, {"reason": "DESAPARECIMENTO", "quantity": 3}]
+        self.assertEqual(self.codes([make_item(system_qty=10, counted_qty=5, reasons=reasons)]), set())
+        self.assertEqual(remaining_to_allocate(-5, reasons), 0.0)
+        self.assertEqual(allocation_label(reasons, "UN"), "2 UN Avaria / Deterioração; 3 UN Desaparecimento (não identificado)")
+
+    def test_distribuicao_incompleta_ou_excedente(self):
+        parcial = [{"reason": "AVARIA", "quantity": 2}]
+        self.assertIn("MOTIVO_DISTRIBUICAO", self.codes([make_item(system_qty=10, counted_qty=5, reasons=parcial)]))
+        excedente = [{"reason": "AVARIA", "quantity": 7}]
+        self.assertIn("MOTIVO_DISTRIBUICAO", self.codes([make_item(system_qty=10, counted_qty=5, reasons=excedente)]))
+
+    def test_motivo_em_item_sem_divergencia(self):
+        item = make_item(reasons=[{"reason": "AVARIA", "quantity": 1}])
+        self.assertIn("MOTIVO_SEM_DIVERGENCIA", self.codes([item]))
 
     def test_nf_entrada_pendente_bloqueia(self):
-        self.assertIn("NF_ENTRADA_PENDENTE", self.codes([make_item(counted_qty=12, reason="NF_ENTRADA_PENDENTE")]))
+        self.assertIn("NF_ENTRADA_PENDENTE", self.codes([make_item(counted_qty=12,
+                                                            reasons=[{"reason": "NF_ENTRADA_PENDENTE", "quantity": 2}])]))
 
     def test_negativo_exige_justificativa(self):
-        item = make_item(system_qty=-6, counted_qty=0, case=CASE_D, reason="NAO_IDENTIFICADA", justification=None)
+        item = make_item(system_qty=-6, counted_qty=0, case=CASE_D,
+                         reasons=[{"reason": "ERRO_PDV", "quantity": 6}], justification=None)
         self.assertIn("JUSTIFICATIVA_NEGATIVO", self.codes([item]))
         item["justification"] = "Venda registrada em produto errado"
         self.assertEqual(self.codes([item]), set())
@@ -192,22 +214,29 @@ class TestParesEResumo(unittest.TestCase):
 
     def test_resumo_separa_quebra_tecnica(self):
         items = [
-            make_item(id=1, system_qty=10, counted_qty=8, cmc=5.0, reason="AVARIA"),
-            make_item(id=2, system_qty=20, counted_qty=19, cmc=40.0, reason="QUEBRA_TECNICA"),
-            make_item(id=3, system_qty=5, counted_qty=6, cmc=3.0, reason="ERRO_PDV"),
+            make_item(id=1, system_qty=10, counted_qty=5, cmc=5.0,
+                      reasons=[{"reason": "AVARIA", "quantity": 2}, {"reason": "DESAPARECIMENTO", "quantity": 1}]),
+            make_item(id=2, system_qty=20, counted_qty=19, cmc=40.0, reasons=[{"reason": "QUEBRA_TECNICA", "quantity": 1}]),
+            make_item(id=3, system_qty=5, counted_qty=6, cmc=3.0, reasons=[{"reason": "ERRO_PDV", "quantity": 1}]),
         ]
         s = summarize(items)
-        self.assertEqual(s["perdas_value"], -10.0)
+        # Item 1: falta 5 (2 avaria + 1 desaparecimento + 2 sem motivo) a R$ 5
+        self.assertEqual(s["perdas_value"], -25.0)
+        self.assertEqual(s["by_reason"]["AVARIA"]["value"], -10.0)
+        self.assertEqual(s["by_reason"]["SEM_MOTIVO"]["quantity"], 2.0)
         self.assertEqual(s["quebra_tecnica_value"], -40.0)
         self.assertEqual(s["sobras_value"], 3.0)
-        self.assertEqual(s["net_value"], -47.0)
+        self.assertEqual(s["net_value"], -62.0)
 
     def test_hash_determinístico_e_sensivel(self):
         items = [make_item(id=1, product_id=1), make_item(id=2, product_id=2, counted_qty=9)]
         h1 = snapshot_hash(items)
         self.assertEqual(h1, snapshot_hash(list(reversed(items))))
         items[1]["counted_qty"] = 8
-        self.assertNotEqual(h1, snapshot_hash(items))
+        h2 = snapshot_hash(items)
+        self.assertNotEqual(h1, h2)
+        items[1]["reasons"] = [{"reason": "AVARIA", "quantity": 2}]
+        self.assertNotEqual(h2, snapshot_hash(items))
 
 
 class TestTransicoes(unittest.TestCase):

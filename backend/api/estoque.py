@@ -15,9 +15,11 @@ from sqlalchemy.orm import Session, selectinload
 
 import models.models as models
 from api.estoque_catalogo import guard
+from api.tasks import TaskQueue
 from core.database import get_db
 from core.deps import get_current_user_and_set_org, current_org
 from services import estoque_engine as engine
+from services import estoque_omie_service as omie_service
 from services import estoque_service as service
 
 router = APIRouter(prefix="/api/estoque", tags=["estoque"])
@@ -71,11 +73,27 @@ class ConfirmZero(BaseModel):
 
 
 class ReviewUpdate(BaseModel):
-    reason: Optional[str] = None
     justification: Optional[str] = None
     reference_cost: Optional[float] = None
     cmc_correction_approved: Optional[bool] = None
     pair_item_id: Optional[int] = None
+
+
+class ReasonAllocation(BaseModel):
+    reason: str
+    quantity: float = Field(..., gt=0)
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class ReasonsUpdate(BaseModel):
+    reasons: List[ReasonAllocation] = Field(default_factory=list, max_length=20)
+
+
+class BatchReview(BaseModel):
+    item_ids: List[int] = Field(..., min_length=1, max_length=1000)
+    reason: Optional[str] = None  # Atribui o restante da divergência a este motivo
+    justification: Optional[str] = Field(None, max_length=1000)
+    note: Optional[str] = Field(None, max_length=500)
 
 
 # ==============================================================================
@@ -105,6 +123,13 @@ def _serialize_entry(e: models.InventoryCountEntry):
     }
 
 
+def _serialize_adjustment(adj: Optional[models.InventoryAdjustment]):
+    if not adj:
+        return None
+    return {"tipo": adj.tipo, "motivo": adj.motivo, "quantity": adj.quantity, "unit_value": adj.unit_value,
+            "status": adj.status, "omie_ajuste_id": adj.omie_ajuste_id, "error_msg": adj.error_msg}
+
+
 def _serialize_item(item: models.InventoryCountItem, blind: bool, with_entries: bool = True):
     """blind=True oculta saldo, custos e divergência (contagem cega)."""
     data = {
@@ -128,8 +153,14 @@ def _serialize_item(item: models.InventoryCountItem, blind: bool, with_entries: 
         "adjustment_case": item.adjustment_case,
         "cmc_suspicious": engine.is_cmc_suspicious(item.cmc, item.reference_cost)
         if item.system_qty is not None else None,
-        "reason": item.reason, "justification": item.justification,
+        "reference_cost_source": item.reference_cost_source,
+        "reasons": [{"id": r.id, "reason": r.reason, "quantity": r.quantity, "note": r.note} for r in item.reasons],
+        "remaining_to_allocate": engine.remaining_to_allocate(
+            diff, [{"quantity": r.quantity} for r in item.reasons]) if diff is not None else None,
+        "justification": item.justification,
         "pair_item_id": item.pair_item_id, "cmc_correction_approved": item.cmc_correction_approved,
+        "verified_qty": item.verified_qty, "verified_cmc": item.verified_cmc, "verify_status": item.verify_status,
+        "adjustment": _serialize_adjustment(item.adjustment),
     })
     if with_entries:
         data["history"] = [_serialize_entry(e) for e in item.entries if e.round != item.current_round]
@@ -155,6 +186,7 @@ def _serialize_count(count: models.InventoryCount, blind: bool, with_items: bool
             "approved_by": count.approved_by.name if count.approved_by else None,
             "approved_at": count.approved_at, "effective_at": count.effective_at,
             "concluded_at": count.concluded_at,
+            "omie_task_id": count.omie_task_id, "last_error": count.last_error,
             "documents": [{"id": d.id, "kind": d.kind, "filename": d.filename, "created_at": d.created_at}
                           for d in count.documents],
         })
@@ -242,11 +274,34 @@ def delete_draft(count_id: int, user: models.User = Depends(get_current_user_and
 
 
 @router.post("/inventarios/{count_id}/transicao")
-def transition(count_id: int, req: TransitionRequest, user: models.User = Depends(get_current_user_and_set_org),
-               db: Session = Depends(get_db)):
+async def transition(count_id: int, req: TransitionRequest, user: models.User = Depends(get_current_user_and_set_org),
+                     db: Session = Depends(get_db)):
+    """Transições de status. efetivar/reprocessar/reverter disparam a integração com a Omie (retornam task_id)."""
     count = _load_count(db, count_id)
-    guard(lambda: service.apply_transition(db, user, count, req.action))
-    return _serialize_count(_load_count(db, count_id), blind=False)
+    task_id = None
+    if req.action == "efetivar":
+        task_id = guard(lambda: omie_service.start_effectivation(db, user, count))
+        await TaskQueue.enqueue(omie_service.bg_prepare_effectivation, task_id, count_id)
+    elif req.action == "reprocessar":
+        task_id = guard(lambda: omie_service.start_reprocess(db, user, count))
+    elif req.action == "reverter":
+        task_id = guard(lambda: omie_service.start_revert(db, user, count))
+    else:
+        guard(lambda: service.apply_transition(db, user, count, req.action))
+    db.expire_all()
+    data = _serialize_count(_load_count(db, count_id), blind=False)
+    data["task_id"] = task_id
+    return data
+
+
+@router.post("/inventarios/{count_id}/snapshot")
+async def capture_snapshot(count_id: int, user: models.User = Depends(get_current_user_and_set_org),
+                           db: Session = Depends(get_db)):
+    """Captura saldo/CMC e último custo de compra na Omie para a data de corte (conferência)."""
+    count = _load_count(db, count_id)
+    task_id = guard(lambda: omie_service.start_snapshot(db, user, count))
+    await TaskQueue.enqueue(omie_service.bg_capture_snapshot, task_id, count_id)
+    return {"task_id": task_id}
 
 
 @router.get("/inventarios/{count_id}/pendencias")
@@ -378,6 +433,25 @@ def update_review(item_id: int, req: ReviewUpdate, user: models.User = Depends(g
     item = guard(lambda: service.get_item(db, current_org.get().id, item_id))
     guard(lambda: service.update_review(db, user, item, req.model_dump(exclude_unset=True)))
     return _serialize_item(item, blind=False)
+
+
+@router.put("/itens/{item_id}/motivos")
+def update_reasons(item_id: int, req: ReasonsUpdate, user: models.User = Depends(get_current_user_and_set_org),
+                   db: Session = Depends(get_db)):
+    """Distribui a divergência do item entre motivos (ex: 2 un avaria + 3 un desaparecimento)."""
+    item = guard(lambda: service.get_item(db, current_org.get().id, item_id))
+    guard(lambda: service.set_reasons(db, user, item, [r.model_dump() for r in req.reasons]))
+    return _serialize_item(item, blind=False)
+
+
+@router.post("/inventarios/{count_id}/conferencia-lote")
+def batch_review(count_id: int, req: BatchReview, user: models.User = Depends(get_current_user_and_set_org),
+                 db: Session = Depends(get_db)):
+    """Aplica a vários itens: motivo para o restante da divergência e/ou justificativa única."""
+    if not req.reason and not (req.justification or "").strip():
+        raise HTTPException(status_code=400, detail="Informe um motivo e/ou uma justificativa.")
+    count = _load_count(db, count_id)
+    return guard(lambda: service.batch_review(db, user, count, req.item_ids, req.reason, req.justification, req.note))
 
 
 # ==============================================================================
