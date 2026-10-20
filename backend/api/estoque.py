@@ -20,7 +20,6 @@ from core.database import get_db
 from core.deps import get_current_user_and_set_org, current_org
 from services import estoque_engine as engine
 from services import estoque_omie_service as omie_service
-from services import estoque_report as report
 from services import estoque_service as service
 
 router = APIRouter(prefix="/api/estoque", tags=["estoque"])
@@ -384,19 +383,6 @@ def export_shortages(count_id: int, user: models.User = Depends(get_current_user
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-@router.get("/inventarios/{count_id}/relatorio.pdf")
-def loss_report(count_id: int, user: models.User = Depends(get_current_user_and_set_org), db: Session = Depends(get_db)):
-    """Relatório de inventário e perdas para assinatura (prévia com marca d'água antes da aprovação)."""
-    guard(lambda: service.require_manager(user))
-    count = _load_count(db, count_id)
-    if count.snapshot_at is None:
-        raise HTTPException(status_code=400, detail="Capture o saldo do sistema antes de gerar o relatório.")
-    org = current_org.get()
-    pdf = report.build_report(count, org.company, org.name, generated_by=user.name or user.email)
-    return Response(content=pdf, media_type="application/pdf",
-                    headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(report.report_filename(count))}"})
 
 
 # ==============================================================================

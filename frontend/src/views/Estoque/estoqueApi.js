@@ -68,16 +68,10 @@ export function createEstoqueApi(token) {
       form.append('file', file);
       return request(`/inventarios/${id}/via-assinada`, { method: 'POST', body: form });
     },
-    // Abre o PDF em nova aba (a aba é aberta antes da requisição para não ser bloqueada como pop-up)
-    abrirPdf: async (path) => {
-      const tab = window.open('', '_blank');
-      try {
-        const res = await request(path, { raw: true });
-        tab.location.href = URL.createObjectURL(await res.blob());
-      } catch (e) {
-        tab?.close();
-        throw e;
-      }
+    // Dados cadastrais da empresa (cabeçalho do relatório impresso)
+    empresa: async () => {
+      const res = await fetch(`${API_BASE}/api/settings/company`, { headers: { Authorization: `Bearer ${token}` } });
+      return res.ok ? res.json() : {};
     },
     baixar: async (path, filename) => {
       const res = await request(path, { raw: true });

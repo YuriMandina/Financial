@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, Ban, CheckCheck, ClipboardCheck, Database, Download, FileText, FileUp, Link2, Play, RefreshCw, RotateCcw,
-  Search, Send, ShieldCheck, Square, Undo2, Upload, XCircle,
+  ArrowLeft, Ban, CheckCheck, ClipboardCheck, Database, Download, FileUp, Link2, Play, RefreshCw, RotateCcw,
+  Printer, Search, Send, ShieldCheck, Square, Undo2, Upload, XCircle,
 } from 'lucide-react';
 import Skeleton from '../../../components/common/Skeleton';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
 import { Alert, Button, ConfirmModal, StatCard, StatusBadge, Tabs, inputClass } from './ui';
 import { BatchReviewModal, ItemReviewModal } from './ConferenciaModals';
+import RelatorioInventario from './RelatorioInventario';
+import { useAuth } from '../../../context/AuthContext';
 import { formatDate, formatDateTime, formatMoney, formatQty } from '../estoqueApi';
 
 const POLL_STATUSES = ['EFETIVANDO', 'REVERTENDO'];
@@ -58,6 +60,8 @@ export default function InventarioDetalhe({ api, countId, motivos, onBack, onTas
   const [busy, setBusy] = useState(null);
   const [summary, setSummary] = useState(null);
   const [pairs, setPairs] = useState([]);
+  const [printing, setPrinting] = useState(false);
+  const { userName } = useAuth();
 
   const allLabels = useMemo(() => ({ ...motivos.falta, ...motivos.sobra }), [motivos]);
 
@@ -201,8 +205,7 @@ export default function InventarioDetalhe({ api, countId, motivos, onBack, onTas
       <Button key="r" tone="danger" icon={Undo2} onClick={() => setConfirm('reverter')}>Reverter</Button>,
     ],
     EFETIVADO: [
-      <Button key="pdf" icon={FileText} loading={busy === 'pdf'}
-        onClick={() => run('pdf', () => api.abrirPdf(`/inventarios/${countId}/relatorio.pdf`))}>Relatório para assinatura</Button>,
+      <Button key="pdf" icon={Printer} onClick={() => setPrinting(true)}>Imprimir relatório</Button>,
       <Button key="c" tone="success" icon={ClipboardCheck} disabled={!hasSigned} title={hasSigned ? '' : 'Envie a via assinada'} onClick={() => setConfirm('concluir')}>Concluir</Button>,
       <Button key="r" tone="danger" icon={Undo2} onClick={() => setConfirm('reverter')}>Reverter</Button>,
     ],
@@ -232,7 +235,10 @@ export default function InventarioDetalhe({ api, countId, motivos, onBack, onTas
             {count.notes && <p className="text-sm text-slate-500 mt-0.5">{count.notes}</p>}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">{actions.filter(Boolean)}</div>
+        <div className="flex flex-wrap gap-2">
+          {actions.filter(Boolean)}
+          {status !== 'EFETIVADO' && <Button icon={Printer} onClick={() => setPrinting(true)}>Imprimir</Button>}
+        </div>
       </div>
 
       {error && <Alert onClose={() => setError(null)}>{error}</Alert>}
@@ -387,14 +393,8 @@ export default function InventarioDetalhe({ api, countId, motivos, onBack, onTas
       {/* --- [BLOCO: Aba Documentos] --- */}
       {tab === 'documentos' && (
         <div className="bg-slate-900/80 border border-white/[0.05] rounded-2xl p-5 space-y-5">
-          {hasSnapshot && !['APROVADO', 'EFETIVANDO', 'EFETIVANDO_COM_ERRO', 'EFETIVADO', 'REVERTENDO', 'REVERSAO_COM_ERRO', 'CONCLUIDO'].includes(status) && (
-            <Alert tone="warn">Antes da aprovação o relatório sai como prévia (marca d&apos;água) e não deve ser assinado.</Alert>
-          )}
           <div className="flex flex-wrap gap-3">
-            <Button tone="primary" icon={FileText} disabled={!hasSnapshot} loading={busy === 'pdf'}
-              onClick={() => run('pdf', () => api.abrirPdf(`/inventarios/${countId}/relatorio.pdf`))}>
-              Relatório de inventário e perdas (PDF)
-            </Button>
+            <Button tone="primary" icon={Printer} onClick={() => setPrinting(true)}>Imprimir relatório de inventário e perdas</Button>
             <Button icon={Download} disabled={!hasSnapshot}
               onClick={() => run('csv', () => api.baixar(`/inventarios/${countId}/faltas.csv`, `faltas_inventario_${countId}.csv`))}>
               Planilha de faltas (fiscal)
@@ -432,6 +432,10 @@ export default function InventarioDetalhe({ api, countId, motivos, onBack, onTas
       {batchOpen && (
         <BatchReviewModal api={api} count={count} itemIds={[...selected]} motivos={motivos}
           onClose={() => { setBatchOpen(false); setSelected(new Set()); }} onDone={load} />
+      )}
+      {printing && (
+        <RelatorioInventario api={api} count={count} summary={summary} motivos={motivos} generatedBy={userName}
+          onClose={() => setPrinting(false)} />
       )}
       {confirmInfo && (
         <ConfirmModal title={confirmInfo.title} message={<p>{confirmInfo.message}</p>} confirmLabel={confirmInfo.label}
