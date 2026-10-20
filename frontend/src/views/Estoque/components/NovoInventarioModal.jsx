@@ -52,13 +52,16 @@ export default function NovoInventarioModal({ api, onClose, onCreated, onOpenCad
 
   // --- [BLOCO: Criação] ---
   const canCreate = familyId && selected.size > 0 && cutoff && checks.every(Boolean);
-  const create = async () => {
-    setSaving(true);
+  // startCounting: já libera para o app de contagem (o rascunho não aparece nos celulares)
+  const create = async (startCounting) => {
+    setSaving(startCounting ? 'start' : 'draft');
     setError(null);
     try {
       const count = await api.criarInventario({
         family_id: familyId, cutoff_date: cutoff, product_ids: [...selected], notes: notes.trim() || null,
       });
+      // Se o início falhar, abre o rascunho criado (lá o botão "Iniciar contagem" continua disponível)
+      if (startCounting) await api.transicao(count.id, 'iniciar').catch(() => null);
       onCreated(count);
     } catch (e) {
       setError(e.details ? `${e.message} ${[].concat(e.details).join(' ')}` : e.message);
@@ -72,7 +75,10 @@ export default function NovoInventarioModal({ api, onClose, onCreated, onOpenCad
       footer={(
         <>
           <Button onClick={onClose}>Cancelar</Button>
-          <Button tone="primary" icon={ClipboardList} loading={saving} disabled={!canCreate} onClick={create}>Criar inventário</Button>
+          <Button loading={saving === 'draft'} disabled={!canCreate || Boolean(saving)} onClick={() => create(false)}>Salvar como rascunho</Button>
+          <Button tone="primary" icon={ClipboardList} loading={saving === 'start'} disabled={!canCreate || Boolean(saving)} onClick={() => create(true)}>
+            Criar e iniciar contagem
+          </Button>
         </>
       )}>
       <div className="space-y-5">
