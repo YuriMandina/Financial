@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 import models.models as models
 from api.tasks import TaskManager
 from core.database import SessionLocal
+from core.deps import current_org
 from services import estoque_engine as engine
 from services import estoque_service as service
 from services import omie_estoque as omie
@@ -76,6 +77,17 @@ def _apply_position(item: models.InventoryCountItem, pos: Optional[dict]):
         item.system_value = engine.round_money(pos["valor"])
 
 
+def _bind_org(db: Session, org_id: int):
+    """Tarefas em segundo plano usam a organização carregada na própria sessão.
+
+    O objeto da requisição HTTP é expirado no commit e desanexado quando a sessão fecha,
+    o que impediria ler as credenciais da Omie fora da requisição.
+    """
+    org = db.query(models.Organization).filter_by(id=org_id).first()
+    current_org.set(org)
+    return org
+
+
 def _task_counts(db: Session, task_id: str):
     q = db.query(models.OmieJobQueue).filter(models.OmieJobQueue.task_id == task_id)
     total = q.count()
@@ -113,6 +125,7 @@ def bg_capture_snapshot(task_id: str, count_id: int):
         if not count or count.status != engine.CONFERENCIA:
             TaskManager.update_task(task_id, log="Inventário não está em conferência.", status="error")
             return
+        _bind_org(db, count.organization_id)
         TaskManager.update_task(task_id, progress=5.0, log="Lendo posição de estoque na Omie...")
         positions = omie.listar_posicoes(count.cutoff_date, count.omie_local_code)
         TaskManager.update_task(task_id, progress=30.0,
@@ -198,6 +211,7 @@ def bg_prepare_effectivation(task_id: str, count_id: int):
     db = SessionLocal()
     try:
         count = db.query(models.InventoryCount).filter_by(id=count_id).first()
+        _bind_org(db, count.organization_id)
         TaskManager.update_task(task_id, progress=5.0, log="Conferindo saldo atual na Omie antes de ajustar...")
         positions = omie.listar_posicoes(count.cutoff_date, count.omie_local_code)
 
@@ -495,6 +509,7 @@ def bg_sync_catalog(task_id: str, org_id: int):
     """Atualiza EAN/unidade/NCM/família de todos os produtos e cria os que ainda não existem (inclusive sem família)."""
     db = SessionLocal()
     try:
+        _bind_org(db, org_id)
         TaskManager.update_task(task_id, progress=5.0, log="Lendo cadastro de produtos na Omie...")
         families = {f.omie_id: f for f in db.query(models.BoningFamily).filter_by(organization_id=org_id).all()}
         products = {p.omie_id: p for p in db.query(models.BoningProduct).filter_by(organization_id=org_id).all()}

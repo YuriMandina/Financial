@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import models.models as models
+from core.deps import current_org
 from services import estoque_engine as engine
 from services import estoque_omie_service as omie_service
 from services import estoque_service as service
@@ -44,6 +45,8 @@ class FakeOmie:
         self.next_id = 1000
 
     def listar_posicoes(self, data, local=None, **kw):
+        # Como o cliente real, depende das credenciais da organização no contexto
+        assert current_org.get().omie_app_key == "k"
         return {k: dict(v) for k, v in self.positions.items()}
 
     def obter_ultimo_custo(self, omie_id, data, local=None):
@@ -134,6 +137,8 @@ class TestIntegracaoOmie(unittest.TestCase):
                 return
             job.status = "PROCESSING"
             db.commit()
+            # Como o omie_worker: injeta a organização do job no contexto antes do handler
+            current_org.set(db.query(models.Organization).filter_by(id=job.organization_id).first())
             asyncio.run(JOB_HANDLERS[job.action_type](db, job))
             db.close()
 
