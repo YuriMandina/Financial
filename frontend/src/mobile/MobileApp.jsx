@@ -1,10 +1,9 @@
 /* global __APP_VERSION_CODE__ */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Download } from 'lucide-react';
 import { api, apkUrl, clearSession, getDeviceId, getToken, getUser } from './api';
-import { Banner, SyncBadge } from './components';
-import { findByCode, newUuid, syncOutbox } from './counting';
-import { isOnline, onNetworkChange, scanBarcode, scannerAvailable } from './native';
+import { SyncBadge, Toasts } from './components';
+import { findByCode, itemCountStatus, itemEditable, newUuid, syncOutbox } from './counting';
+import { isOnline, onBackButton, onNetworkChange, scanBarcode, scannerAvailable, vibrate } from './native';
 import { cacheCount, cacheCountList, getCachedCount, getCachedCountList, outboxStore } from './offline';
 import LoginScreen from './screens/LoginScreen';
 import CountsScreen from './screens/CountsScreen';
@@ -12,6 +11,7 @@ import ItemsScreen from './screens/ItemsScreen';
 import ItemScreen from './screens/ItemScreen';
 
 const SYNC_INTERVAL_MS = 20000;
+const TOAST_MS = 3000;
 const COUNTING_STATUSES = ['EM_CONTAGEM', 'CONFERENCIA'];
 
 export default function MobileApp() {
@@ -22,15 +22,29 @@ export default function MobileApp() {
   const [counts, setCounts] = useState([]);
   const [countsFromCache, setCountsFromCache] = useState(false);
   const [loadingCounts, setLoadingCounts] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(null);
   const [count, setCount] = useState(null);
   const [countFromCache, setCountFromCache] = useState(false);
+  const [refreshingCount, setRefreshingCount] = useState(false);
+  const [itemsFilter, setItemsFilter] = useState('TODOS');
   const [pending, setPending] = useState([]);
   const [online, setOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [scanEnabled, setScanEnabled] = useState(false);
-  const [notice, setNotice] = useState(null);
-  const [update, setUpdate] = useState(null);
+  const [toasts, setToasts] = useState([]);
   const syncingRef = useRef(false);
+  const screenRef = useRef(screen);
+
+  useEffect(() => { screenRef.current = screen; }, [screen]);
+
+  // --- [BLOCO: Avisos Flutuantes] ---
+  const dismissToast = useCallback((id) => setToasts((prev) => prev.filter((t) => t.id !== id)), []);
+  const pushToast = useCallback((tone, text, { action = null, persist = tone === 'error' } = {}) => {
+    const id = newUuid();
+    setToasts((prev) => [...prev.slice(-2), { id, tone, text, action }]);
+    if (!persist) setTimeout(() => dismissToast(id), TOAST_MS);
+    if (tone === 'error') vibrate('error');
+  }, [dismissToast]);
 
   const handleAuthError = useCallback((err) => {
     if (err?.status === 401) {
@@ -53,6 +67,7 @@ export default function MobileApp() {
       setCounts(list);
       setCountsFromCache(false);
       setOnline(true);
+      setLastUpdate(new Date());
       await cacheCountList(list);
     } catch (err) {
       if (handleAuthError(err)) return;
@@ -91,7 +106,7 @@ export default function MobileApp() {
     try {
       const summary = await syncOutbox(outboxStore, api);
       setOnline(true);
-      if (summary.rejected) setNotice({ tone: 'error', text: `${summary.rejected} lançamento(s) rejeitado(s) pelo servidor. Veja no item.` });
+      if (summary.rejected) pushToast('error', `${summary.rejected} lançamento(s) rejeitado(s) pelo servidor. Veja no item.`);
       if (count && (summary.sent || countFromCache)) await loadCount(count.id);
     } catch (err) {
       if (!handleAuthError(err) && err.offline) setOnline(false);
@@ -100,7 +115,7 @@ export default function MobileApp() {
       syncingRef.current = false;
       setSyncing(false);
     }
-  }, [count, countFromCache, handleAuthError, loadCount, reloadPending]);
+  }, [count, countFromCache, handleAuthError, loadCount, pushToast, reloadPending]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -109,7 +124,9 @@ export default function MobileApp() {
     scannerAvailable().then(setScanEnabled);
     isOnline().then(setOnline);
     api.appVersion().then((info) => {
-      if (info?.version_code > __APP_VERSION_CODE__) setUpdate(info);
+      if (info?.version_code > __APP_VERSION_CODE__) {
+        pushToast('info', `Nova versão ${info.version_name} disponível.`, { action: { label: 'Baixar', href: apkUrl() }, persist: true });
+      }
     }).catch(() => {});
     const stop = onNetworkChange((connected) => { setOnline(connected); if (connected) syncNow(); });
     return stop;
@@ -122,13 +139,37 @@ export default function MobileApp() {
     return () => clearInterval(timer);
   }, [user, pending, syncNow]);
 
+  // --- [BLOCO: Navegação e Botão Voltar do Android] ---
+  const goToCounts = useCallback(() => { setScreen({ name: 'counts' }); loadCounts(); }, [loadCounts]);
+  const goToItems = useCallback(() => setScreen({ name: 'items' }), []);
+
+  useEffect(() => onBackButton(() => {
+    const current = screenRef.current.name;
+    if (current === 'item') { goToItems(); return true; }
+    if (current === 'items') { goToCounts(); return true; }
+    return false; // lista de inventários: minimiza o app
+  }), [goToCounts, goToItems]);
+
   // --- [BLOCO: Ações de Contagem] ---
   const openCount = async (countId) => {
     try {
-      await loadCount(countId);
+      const data = await loadCount(countId);
+      setItemsFilter(data?.status === 'CONFERENCIA' ? 'RECONTAGEM' : 'TODOS');
       setScreen({ name: 'items' });
     } catch {
-      setNotice({ tone: 'error', text: 'Inventário indisponível offline: abra-o uma vez com conexão.' });
+      pushToast('error', 'Inventário indisponível offline: abra-o uma vez com conexão.');
+    }
+  };
+
+  const refreshCount = async () => {
+    setRefreshingCount(true);
+    try {
+      await syncNow();
+      await loadCount(count.id);
+    } catch {
+      pushToast('error', 'Não foi possível atualizar agora.');
+    } finally {
+      setRefreshingCount(false);
     }
   };
 
@@ -144,6 +185,7 @@ export default function MobileApp() {
       device_id: getDeviceId(),
       counted_at: new Date().toISOString(),
     });
+    vibrate('ok');
     await reloadPending();
     syncNow();
   };
@@ -151,6 +193,7 @@ export default function MobileApp() {
   const voidEntry = async (entry) => {
     await api.voidEntry(entry.id);
     await loadCount(count.id);
+    pushToast('ok', 'Lançamento estornado.');
   };
 
   const removePending = async (uuid) => {
@@ -165,14 +208,32 @@ export default function MobileApp() {
 
   const scan = async () => {
     try {
-      const code = await scanBarcode((msg) => setNotice(msg ? { tone: 'info', text: msg } : null));
+      const code = await scanBarcode((msg) => (msg ? pushToast('info', msg, { persist: true }) : setToasts([])));
       if (!code) return;
       const hit = findByCode(count.items, code);
-      if (hit) openItem(hit.item.id, hit.packaging);
-      else setNotice({ tone: 'error', text: `Código ${code} não pertence a este inventário.` });
+      if (hit) {
+        vibrate('ok');
+        openItem(hit.item.id, hit.packaging);
+      } else {
+        pushToast('error', `Código ${code} não pertence a este inventário.`);
+      }
     } catch (err) {
-      setNotice({ tone: 'error', text: `Leitor indisponível: ${err.message}` });
+      pushToast('error', `Leitor indisponível: ${err.message}`);
     }
+  };
+
+  // Próximo item ainda não contado (na ordem da lista), a partir do item atual
+  const nextPending = () => {
+    const items = count.items;
+    const start = items.findIndex((i) => i.id === screen.itemId);
+    for (let step = 1; step <= items.length; step += 1) {
+      const candidate = items[(start + step) % items.length];
+      if (itemEditable(count, candidate) && itemCountStatus(candidate, pending) !== 'CONTADO') {
+        openItem(candidate.id, null);
+        return;
+      }
+    }
+    pushToast('ok', 'Todos os itens deste inventário já foram contados.');
   };
 
   const logout = () => {
@@ -182,6 +243,8 @@ export default function MobileApp() {
   };
 
   // --- [BLOCO: Renderização] ---
+  const toastLayer = <Toasts toasts={toasts} onDismiss={dismissToast} />;
+
   if (!user) {
     return <LoginScreen notice={loginNotice} onLoggedIn={(u) => { setLoginNotice(null); setUser(u); }} />;
   }
@@ -193,30 +256,17 @@ export default function MobileApp() {
       rejected={countPending.filter((e) => e.status === 'rejected').length} />
   );
 
-  const banners = (
-    <>
-      {update && (
-        <Banner tone="info" onClose={() => setUpdate(null)}>
-          Nova versão {update.version_name} disponível.{' '}
-          <a href={apkUrl()} target="_blank" rel="noreferrer" className="underline font-semibold inline-flex items-center gap-1">
-            <Download size={14} /> Baixar
-          </a>
-        </Banner>
-      )}
-      {notice && <Banner tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Banner>}
-    </>
-  );
-
   if (screen.name === 'item' && count) {
     const item = count.items.find((i) => i.id === screen.itemId);
     if (item) {
       return (
         <>
-          {banners}
           <ItemScreen key={item.id} count={count} item={item} pending={countPending} initialPackaging={screen.packaging}
-            online={online} syncBadge={badge} onBack={() => setScreen({ name: 'items' })}
+            online={online} syncBadge={badge} scanEnabled={scanEnabled} onBack={goToItems}
             onAdd={addEntry} onVoid={voidEntry} onRemovePending={removePending}
-            onConfirmZero={(confirmed) => confirmZero(item.id, confirmed)} />
+            onConfirmZero={(confirmed) => confirmZero(item.id, confirmed)}
+            onScanNext={scan} onNextPending={nextPending} onToast={pushToast} />
+          {toastLayer}
         </>
       );
     }
@@ -225,19 +275,19 @@ export default function MobileApp() {
   if (screen.name === 'items' && count) {
     return (
       <>
-        {banners}
-        <ItemsScreen count={count} pending={countPending} fromCache={countFromCache} syncBadge={badge}
-          scanEnabled={scanEnabled} onBack={() => { setScreen({ name: 'counts' }); loadCounts(); }}
-          onOpenItem={openItem} onScan={scan} />
+        <ItemsScreen count={count} pending={countPending} fromCache={countFromCache} refreshing={refreshingCount}
+          syncBadge={badge} scanEnabled={scanEnabled} filter={itemsFilter} onFilterChange={setItemsFilter}
+          onBack={goToCounts} onOpenItem={openItem} onScan={scan} onRefresh={refreshCount} />
+        {toastLayer}
       </>
     );
   }
 
   return (
     <>
-      {banners}
-      <CountsScreen user={user} counts={counts} loading={loadingCounts} fromCache={countsFromCache}
+      <CountsScreen user={user} counts={counts} loading={loadingCounts} fromCache={countsFromCache} lastUpdate={lastUpdate}
         syncBadge={badge} onOpen={openCount} onRefresh={loadCounts} onLogout={logout} />
+      {toastLayer}
     </>
   );
 }

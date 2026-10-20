@@ -1,7 +1,7 @@
 import React from 'react';
-import { ChevronRight, LogOut } from 'lucide-react';
+import { ChevronRight, LogOut, RefreshCw } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
-import { Banner, Header, ProgressBar } from '../components';
+import { Banner, Header, IconButton, ProgressBar } from '../components';
 
 const STATUS_LABEL = {
   EM_CONTAGEM: { text: 'Em contagem', cls: 'text-emerald-300 bg-emerald-950/50 border-emerald-900' },
@@ -9,17 +9,20 @@ const STATUS_LABEL = {
 };
 
 const formatDate = (iso) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR') : '');
+const formatTime = (date) => (date ? date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null);
 
-export default function CountsScreen({ user, counts, loading, fromCache, syncBadge, onOpen, onRefresh, onLogout }) {
+export default function CountsScreen({ user, counts, loading, fromCache, lastUpdate, syncBadge, onOpen, onRefresh, onLogout }) {
+  const updated = formatTime(lastUpdate);
   return (
-    <div className="min-h-screen pb-6">
+    <div className="min-h-screen pb-safe-6">
       <Header
         title="Inventários"
-        subtitle={user ? `Olá, ${user.name}` : undefined}
+        subtitle={[user && `Olá, ${user.name}`, updated && `atualizado ${updated}`].filter(Boolean).join(' · ')}
         right={(
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             {syncBadge}
-            <button onClick={onLogout} className="p-2 rounded-lg active:bg-slate-800" aria-label="Sair"><LogOut size={20} /></button>
+            <IconButton icon={RefreshCw} label="Atualizar" onClick={onRefresh} spinning={loading} />
+            <IconButton icon={LogOut} label="Sair" onClick={onLogout} />
           </div>
         )}
       />
@@ -30,9 +33,15 @@ export default function CountsScreen({ user, counts, loading, fromCache, syncBad
       ) : (
         <div className="p-3 space-y-3">
           {!counts.length && (
-            <div className="text-center text-slate-400 py-16">
-              <p>Nenhum inventário em contagem.</p>
-              <button onClick={onRefresh} className="mt-4 text-emerald-400 underline">Atualizar</button>
+            <div className="text-center text-slate-400 py-16 px-6">
+              <p className="text-slate-200 font-medium">Nenhum inventário em contagem.</p>
+              <p className="text-sm mt-2">
+                Inventários em rascunho não aparecem aqui: a gerência precisa clicar em
+                <b className="text-slate-200"> Iniciar contagem </b> no painel.
+              </p>
+              <button onClick={onRefresh} className="mt-6 px-5 h-11 rounded-xl border border-slate-700 text-emerald-400 active:bg-slate-800">
+                Atualizar
+              </button>
             </div>
           )}
           {counts.map((count) => {

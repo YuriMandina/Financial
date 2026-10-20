@@ -1,18 +1,18 @@
 import React, { useMemo, useState } from 'react';
-import { Delete, LoaderCircle, Package, Plus, Scale, Hash, Trash2, Undo2 } from 'lucide-react';
-import { Banner, Header, PrimaryButton } from '../components';
+import { ChevronsRight, Hash, LoaderCircle, Package, Plus, Scale, ScanBarcode, Trash2, Undo2, X } from 'lucide-react';
+import { Banner, ConfirmButton, Header, Keypad, PrimaryButton } from '../components';
 import {
   MODE_EMBALAGEM, MODE_PESO, MODE_UNIDADE, computeEntryQuantity, evaluateExpression, formatQty,
   itemEditable, localItemTotal,
 } from '../counting';
 
-const OPERATORS = ['+', '×', '(', ')'];
 const isWeightUnit = (unit) => /KG|G$|GR/i.test(unit || '');
+const timeOf = (iso) => (iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
 
 // --- [BLOCO: Descrição dos Lançamentos] ---
 function describeEntry(entry, packagings, unit) {
   const pack = packagings.find((p) => p.id === entry.packaging_id);
-  const raw = entry.expression || formatQty(entry.raw_qty);
+  const raw = (entry.expression || formatQty(entry.raw_qty)).replace(/\*/g, '×');
   if (entry.mode === MODE_EMBALAGEM) {
     return `${raw} ${pack?.name || 'EMB'} × ${formatQty(entry.factor || pack?.factor || 1)}`;
   }
@@ -23,32 +23,9 @@ function describeEntry(entry, packagings, unit) {
   return raw;
 }
 
-const timeOf = (iso) => (iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
-
-// --- [BLOCO: Teclado de Expressão] ---
-function ExpressionInput({ value, onChange, placeholder, autoFocus }) {
-  const append = (token) => onChange(`${value}${token === '×' ? '*' : token}`);
-  return (
-    <div className="space-y-2">
-      <input value={value.replace(/\*/g, '×')} onChange={(e) => onChange(e.target.value.replace(/×/g, '*'))}
-        inputMode="decimal" placeholder={placeholder} autoFocus={autoFocus}
-        className="w-full h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 focus:border-emerald-500 outline-none text-2xl tabular-nums" />
-      <div className="grid grid-cols-6 gap-2">
-        {OPERATORS.map((op) => (
-          <button key={op} type="button" onClick={() => append(op)}
-            className="h-11 rounded-lg bg-slate-800 active:bg-slate-700 text-lg font-semibold">{op}</button>
-        ))}
-        <button type="button" onClick={() => onChange(value.slice(0, -1))} aria-label="Apagar"
-          className="h-11 rounded-lg bg-slate-800 active:bg-slate-700 flex items-center justify-center"><Delete size={20} /></button>
-        <button type="button" onClick={() => onChange('')}
-          className="h-11 rounded-lg bg-slate-800 active:bg-slate-700 text-sm font-semibold">C</button>
-      </div>
-    </div>
-  );
-}
-
 export default function ItemScreen({
-  count, item, pending, initialPackaging, online, syncBadge, onBack, onAdd, onVoid, onRemovePending, onConfirmZero,
+  count, item, pending, initialPackaging, online, syncBadge, scanEnabled,
+  onBack, onAdd, onVoid, onRemovePending, onConfirmZero, onScanNext, onNextPending, onToast,
 }) {
   const packagings = item.packagings || [];
   const weighable = isWeightUnit(item.unit) || packagings.some((p) => p.tare_kg > 0);
@@ -59,6 +36,8 @@ export default function ItemScreen({
   const [manualTare, setManualTare] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [flashKey, setFlashKey] = useState(0);
+  const [launched, setLaunched] = useState(false);
 
   const editable = itemEditable(count, item);
   const itemPending = pending.filter((e) => e.item_id === item.id);
@@ -105,6 +84,9 @@ export default function ItemScreen({
     try {
       await onAdd(payload);
       setExpr('');
+      setFlashKey((k) => k + 1);
+      setLaunched(true);
+      onToast?.('ok', `+${formatQty(preview.qty)} ${item.unit || ''} lançado`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -123,21 +105,40 @@ export default function ItemScreen({
     { key: MODE_PESO, label: 'Peso', Icon: Scale, show: weighable },
   ].filter((m) => m.show);
 
+  const placeholder = mode === MODE_EMBALAGEM ? `Qtd. de ${pack?.name || 'embalagens'}` : mode === MODE_PESO ? 'Peso bruto' : 'Quantidade';
+
   return (
-    <div className="min-h-screen pb-10">
-      <Header title={item.product_name} subtitle={[item.ean, item.unit].filter(Boolean).join(' · ')} onBack={onBack} right={syncBadge} />
+    <div className="min-h-screen pb-safe-6">
+      <Header title={item.product_name}
+        subtitle={[item.product_code && `Cód. ${item.product_code}`, item.ean, item.unit].filter(Boolean).join(' · ')}
+        onBack={onBack} right={syncBadge} />
 
       <div className="mx-3 mt-3 p-4 rounded-2xl bg-slate-900 border border-slate-800 text-center">
         <p className="text-xs text-slate-400 uppercase tracking-wide">
           Total contado{item.current_round > 1 ? ` · recontagem ${item.current_round}` : ''}
         </p>
-        <p className="text-5xl font-bold tabular-nums mt-1">{formatQty(total)}</p>
+        <p key={flashKey} className={`text-5xl font-bold tabular-nums mt-1 ${flashKey ? 'total-flash' : ''}`}>{formatQty(total)}</p>
         <p className="text-sm text-slate-400">{item.unit || ''}</p>
         {item.confirmed_zero && <p className="mt-2 text-emerald-400 text-sm">Confirmado como zerado</p>}
       </div>
 
       {!editable && <Banner tone="warn">Contagem encerrada para este item. Peça uma recontagem à gerência se necessário.</Banner>}
       {error && <Banner tone="error" onClose={() => setError(null)}>{error}</Banner>}
+
+      {/* Atalhos após lançar: seguir para o próximo produto sem voltar à lista */}
+      {launched && (
+        <div className="px-3 mt-3 grid grid-cols-2 gap-2">
+          {scanEnabled && (
+            <button onClick={onScanNext} className="h-12 rounded-xl bg-slate-800 active:bg-slate-700 flex items-center justify-center gap-2 text-sm font-medium">
+              <ScanBarcode size={18} /> Ler próximo
+            </button>
+          )}
+          <button onClick={onNextPending}
+            className={`h-12 rounded-xl bg-slate-800 active:bg-slate-700 flex items-center justify-center gap-2 text-sm font-medium ${scanEnabled ? '' : 'col-span-2'}`}>
+            <ChevronsRight size={18} /> Próximo pendente
+          </button>
+        </div>
+      )}
 
       {editable && (
         <section className="px-3 mt-4 space-y-3">
@@ -168,8 +169,23 @@ export default function ItemScreen({
             </div>
           )}
 
-          <ExpressionInput value={expr} onChange={setExpr} autoFocus
-            placeholder={mode === MODE_EMBALAGEM ? `Qtd. de ${pack?.name || 'embalagens'}` : mode === MODE_PESO ? 'Peso bruto' : 'Quantidade'} />
+          {/* Visor da calculadora (o teclado do Android não abre) */}
+          <div className="h-16 px-4 rounded-xl bg-slate-900 border border-slate-700 flex items-center gap-3">
+            <div className="flex-1 min-w-0 text-right">
+              <p className={`text-3xl tabular-nums truncate ${expr ? 'text-white' : 'text-slate-600'}`}>
+                {expr ? expr.replace(/\*/g, '×') : placeholder}
+              </p>
+            </div>
+            {expr && (
+              <button onClick={() => setExpr('')} aria-label="Limpar" className="p-2 rounded-lg text-slate-400 active:bg-slate-800"><X size={20} /></button>
+            )}
+          </div>
+          <div className="min-h-[22px] text-center text-sm">
+            {preview?.error && <span className="text-rose-400">{preview.error}</span>}
+            {preview && !preview.error && (
+              <span className="text-slate-300">= <b className="text-white text-lg tabular-nums">{formatQty(preview.qty)}</b> {item.unit || ''}</span>
+            )}
+          </div>
 
           {mode === MODE_PESO && (
             <div className="grid grid-cols-2 gap-2">
@@ -178,19 +194,14 @@ export default function ItemScreen({
                   disabled={!pack || !!manualTare.trim()}
                   className="mt-1 w-full h-11 px-3 rounded-xl bg-slate-900 border border-slate-700 text-base disabled:opacity-40" />
               </label>
-              <label className="text-xs text-slate-400">Tara manual
+              <label className="text-xs text-slate-400">Tara manual (kg)
                 <input value={manualTare} onChange={(e) => setManualTare(e.target.value)} inputMode="decimal" placeholder="0,000"
                   className="mt-1 w-full h-11 px-3 rounded-xl bg-slate-900 border border-slate-700 text-base" />
               </label>
             </div>
           )}
 
-          <div className="min-h-[24px] text-center text-sm">
-            {preview?.error && <span className="text-rose-400">{preview.error}</span>}
-            {preview && !preview.error && (
-              <span className="text-slate-300">= <b className="text-white text-lg tabular-nums">{formatQty(preview.qty)}</b> {item.unit || ''}</span>
-            )}
-          </div>
+          <Keypad value={expr} onChange={setExpr} />
 
           <PrimaryButton onClick={submit} disabled={busy || !preview || !!preview.error}>
             {busy ? <LoaderCircle size={20} className="animate-spin" /> : <Plus size={20} />} Lançar
@@ -218,8 +229,7 @@ export default function ItemScreen({
                   {e.status === 'rejected' ? `Rejeitado: ${e.reason}` : `Aguardando envio · ${timeOf(e.counted_at)}`}
                 </p>
               </div>
-              <button onClick={() => runAction(() => onRemovePending(e.client_uuid))} aria-label="Remover"
-                className="p-2 rounded-lg active:bg-slate-800 text-slate-400"><Trash2 size={18} /></button>
+              <ConfirmButton icon={Trash2} label="Remover" confirmLabel="Remover?" onConfirm={() => runAction(() => onRemovePending(e.client_uuid))} />
             </li>
           ))}
           {[...(item.entries || [])].reverse().map((e) => (
@@ -231,8 +241,7 @@ export default function ItemScreen({
                 <p className="text-xs text-slate-500">{e.user_name || ''} · {timeOf(e.counted_at || e.created_at)}{e.voided ? ' · estornado' : ''}</p>
               </div>
               {editable && !e.voided && (
-                <button onClick={() => runAction(() => onVoid(e))} disabled={!online} aria-label="Estornar"
-                  className="p-2 rounded-lg active:bg-slate-800 text-slate-400 disabled:opacity-30"><Undo2 size={18} /></button>
+                <ConfirmButton icon={Undo2} label="Estornar" confirmLabel="Estornar?" disabled={!online} onConfirm={() => runAction(() => onVoid(e))} />
               )}
             </li>
           ))}

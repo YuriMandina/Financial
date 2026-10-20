@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import MobileApp from './MobileApp';
 import '../index.css';
+import './mobile.css';
 
 // --- [BLOCO: Tratamento de Erros Inesperados] ---
 class ErrorBoundary extends React.Component {
@@ -10,7 +11,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.error) {
       return (
-        <div className="p-6 text-rose-300">
+        <div className="p-6 safe-top text-rose-300">
           <h1 className="text-lg font-semibold mb-2">Erro inesperado</h1>
           <pre className="text-xs whitespace-pre-wrap">{String(this.state.error)}</pre>
           <p className="text-sm text-slate-400 mt-4">Os lançamentos pendentes continuam salvos no aparelho.</p>

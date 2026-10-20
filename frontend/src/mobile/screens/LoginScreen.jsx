@@ -1,3 +1,4 @@
+/* global __APP_VERSION__ */
 import React, { useState } from 'react';
 import { ClipboardList, LoaderCircle, Server } from 'lucide-react';
 import { api, getServer, setServer } from '../api';
@@ -43,7 +44,7 @@ export default function LoginScreen({ notice, onLoggedIn }) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center px-5 py-8">
+    <div className="min-h-screen flex flex-col justify-center px-5 py-8 safe-top pb-safe-6">
       <div className="flex items-center gap-3 mb-8">
         <div className="w-12 h-12 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center">
           <ClipboardList size={26} />
@@ -61,8 +62,8 @@ export default function LoginScreen({ notice, onLoggedIn }) {
             <input className={inputClass} value={server} onChange={(e) => setServerField(e.target.value)}
               inputMode="url" autoCapitalize="none" autoCorrect="off" />
             <button type="button" onClick={testServer} disabled={busy}
-              className="h-12 px-3 rounded-xl border border-slate-700 active:bg-slate-800" aria-label="Testar servidor">
-              <Server size={20} />
+              className="h-12 px-3 rounded-xl border border-slate-700 active:bg-slate-800 flex items-center gap-1.5 text-sm shrink-0">
+              <Server size={18} /> Testar
             </button>
           </div>
         </label>
@@ -81,6 +82,7 @@ export default function LoginScreen({ notice, onLoggedIn }) {
           {busy && <LoaderCircle size={20} className="animate-spin" />} Entrar
         </PrimaryButton>
       </form>
+      <p className="text-center text-xs text-slate-600 mt-10">Versão {__APP_VERSION__}</p>
     </div>
   );
 }

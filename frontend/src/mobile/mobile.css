@@ -1,0 +1,38 @@
+/* Estilos exclusivos do app de contagem (Android). */
+
+/* --- [BLOCO: Áreas Seguras] ---
+   O Capacitor (SystemBars, insetsHandling "css") injeta --safe-area-inset-*; env() é o fallback. */
+:root {
+  --sa-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --sa-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --sa-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --sa-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+}
+
+html, body {
+  background-color: #020617;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+input, textarea { user-select: text; }
+
+.safe-top { padding-top: var(--sa-top); }
+.safe-bottom { padding-bottom: var(--sa-bottom); }
+.safe-x { padding-left: var(--sa-left); padding-right: var(--sa-right); }
+.pb-safe-6 { padding-bottom: calc(var(--sa-bottom) + 1.5rem); }
+.bottom-safe-3 { bottom: calc(var(--sa-bottom) + 0.75rem); }
+
+/* --- [BLOCO: Animações] --- */
+@keyframes total-flash {
+  0% { color: #6ee7b7; transform: scale(1.12); }
+  100% { color: #ffffff; transform: scale(1); }
+}
+.total-flash { animation: total-flash 0.6s ease-out; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.toast-in { animation: toast-in 0.18s ease-out; }

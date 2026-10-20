@@ -2,6 +2,8 @@
 // No navegador do PC (desenvolvimento) o leitor fica indisponível e a rede usa navigator.onLine.
 import { Capacitor } from '@capacitor/core';
 import { Network } from '@capacitor/network';
+import { App } from '@capacitor/app';
+import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { BarcodeScanner, BarcodeFormat, GoogleBarcodeScannerModuleInstallState as InstallState } from '@capacitor-mlkit/barcode-scanning';
 
 export const isNativeApp = () => Capacitor.isNativePlatform();
@@ -71,5 +73,24 @@ export function onNetworkChange(callback) {
       window.addEventListener('offline', off);
       handle = { remove: () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); } };
     });
+  return () => handle?.remove();
+}
+
+// --- [BLOCO: Vibração e Botão Voltar] ---
+export async function vibrate(kind = 'ok') {
+  if (!isNativeApp()) return;
+  try {
+    if (kind === 'error') await Haptics.notification({ type: NotificationType.Error });
+    else await Haptics.impact({ style: ImpactStyle.Medium });
+  } catch { /* vibração indisponível: ignora */ }
+}
+
+// handler() retorna true quando tratou a navegação; senão o app é minimizado (não fecha no meio da contagem)
+export function onBackButton(handler) {
+  if (!isNativeApp()) return () => {};
+  let handle = null;
+  App.addListener('backButton', () => {
+    if (!handler()) App.minimizeApp();
+  }).then((h) => { handle = h; });
   return () => handle?.remove();
 }
