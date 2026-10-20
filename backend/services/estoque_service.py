@@ -573,6 +573,38 @@ def apply_transition(db: Session, user: models.User, count: models.InventoryCoun
 
 
 # ==============================================================================
+# --- [BLOCO: Indicadores Históricos] ---
+# ==============================================================================
+
+def build_indicator_rows(db: Session, org_id: int, family_id: Optional[int] = None,
+                         date_from: Optional[date] = None) -> List[Dict[str, Any]]:
+    """Itens de inventários efetivados/concluídos no formato de engine.aggregate_indicators."""
+    q = (
+        db.query(models.InventoryCountItem, models.InventoryCount)
+        .join(models.InventoryCount, models.InventoryCount.id == models.InventoryCountItem.count_id)
+        .filter(models.InventoryCount.organization_id == org_id,
+                models.InventoryCount.status.in_([engine.EFETIVADO, engine.CONCLUIDO]))
+    )
+    if family_id:
+        q = q.filter(models.InventoryCount.family_id == family_id)
+    if date_from:
+        q = q.filter(models.InventoryCount.cutoff_date >= date_from)
+    rows = []
+    for item, count in q.all():
+        rows.append({
+            "product_id": item.product_id,
+            "product_name": item.product_name,
+            "family_name": count.family.name if count.family else None,
+            "unit": item.unit,
+            "system_qty": item.system_qty,
+            "counted_qty": item.counted_qty,
+            "cost": engine.unit_cost_for_valuation(item.cmc, item.reference_cost),
+            "reasons": [{"reason": r.reason, "quantity": r.quantity} for r in item.reasons],
+        })
+    return rows
+
+
+# ==============================================================================
 # --- [BLOCO: Exportação de Faltas] ---
 # ==============================================================================
 

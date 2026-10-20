@@ -14,6 +14,7 @@ from services.estoque_engine import (
     check_transition,
     remaining_to_allocate,
     allocation_label,
+    aggregate_indicators,
     CASE_A, CASE_B, CASE_C, CASE_D,
     EM_CONTAGEM, CONFERENCIA, EFETIVADO, CANCELADO,
 )
@@ -237,6 +238,33 @@ class TestParesEResumo(unittest.TestCase):
         self.assertNotEqual(h1, h2)
         items[1]["reasons"] = [{"reason": "AVARIA", "quantity": 2}]
         self.assertNotEqual(h2, snapshot_hash(items))
+
+
+class TestIndicadores(unittest.TestCase):
+
+    def test_quebra_e_recorrencia_por_produto_e_familia(self):
+        base = {"product_id": 1, "product_name": "Picanha", "family_name": "Bovinos", "unit": "KG", "cost": 50.0}
+        rows = [
+            # Inventário 1: 100 kg no sistema, 97 contados (2 quebra técnica + 1 avaria)
+            {**base, "system_qty": 100, "counted_qty": 97, "reasons": [
+                {"reason": "QUEBRA_TECNICA", "quantity": 2}, {"reason": "AVARIA", "quantity": 1}]},
+            # Inventário 2: sem divergência
+            {**base, "system_qty": 100, "counted_qty": 100, "reasons": []},
+            {"product_id": 2, "product_name": "Coca", "family_name": "Bebidas", "unit": "UN", "cost": 5.0,
+             "system_qty": 10, "counted_qty": 12, "reasons": [{"reason": "ERRO_PDV", "quantity": 2}]},
+        ]
+        res = aggregate_indicators(rows)
+        picanha = next(p for p in res["produtos"] if p["product_id"] == 1)
+        self.assertEqual(picanha["inventarios"], 2)
+        self.assertEqual(picanha["divergentes"], 1)
+        self.assertEqual(picanha["recorrencia_pct"], 50.0)
+        self.assertEqual(picanha["quebra_pct"], 1.0)          # 2 kg de 200 kg
+        self.assertEqual(picanha["divergencia_pct"], 1.5)     # 3 kg de 200 kg
+        self.assertEqual(picanha["quebra_value"], -100.0)
+        self.assertEqual(picanha["perdas_value"], -50.0)
+        self.assertEqual(res["produtos"][0]["product_id"], 1)  # maior perda primeiro
+        bebidas = next(f for f in res["familias"] if f["family_name"] == "Bebidas")
+        self.assertEqual(bebidas["sobras_value"], 10.0)
 
 
 class TestTransicoes(unittest.TestCase):

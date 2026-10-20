@@ -196,6 +196,24 @@ def _serialize_count(count: models.InventoryCount, blind: bool, with_items: bool
 
 
 # ==============================================================================
+# --- [BLOCO: Referências e Indicadores] ---
+# ==============================================================================
+
+@router.get("/motivos")
+def list_reasons(user: models.User = Depends(get_current_user_and_set_org)):
+    return {"falta": engine.FALTA_REASONS, "sobra": engine.SOBRA_REASONS, "bloqueantes": sorted(engine.BLOCKING_REASONS)}
+
+
+@router.get("/indicadores")
+def indicators(family_id: Optional[int] = None, date_from: Optional[date] = None,
+               user: models.User = Depends(get_current_user_and_set_org), db: Session = Depends(get_db)):
+    """% de quebra técnica, divergência e recorrência por produto e família (inventários efetivados)."""
+    guard(lambda: service.require_manager(user))
+    rows = service.build_indicator_rows(db, current_org.get().id, family_id, date_from)
+    return engine.aggregate_indicators(rows)
+
+
+# ==============================================================================
 # --- [BLOCO: Inventários] ---
 # ==============================================================================
 

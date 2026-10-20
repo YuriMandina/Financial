@@ -9,6 +9,7 @@ import RateioECusteio from '../../views/RateioCusteio/RateioCusteioView';
 import { DreGerencial } from '../../views/DreGerencial/DreGerencialView';
 import FinancialReportsView from '../../views/Relatorios/FinancialReportsView';
 import RHEscalasView from '../../views/RH/RHEscalasView';
+import EstoqueView from '../../views/Estoque/EstoqueView';
 
 export default function AppLayout() {
   // --- [BLOCO: Estado de Navegação e Layout Base] ---
@@ -33,6 +34,14 @@ export default function AppLayout() {
       case 'dre-gerencial':
         return (
           <DreGerencial
+            token={token}
+            onTaskStart={handleGlobalTaskStart}
+            refreshCounter={globalRefreshCounter}
+          />
+        );
+      case 'estoque':
+        return (
+          <EstoqueView
             token={token}
             onTaskStart={handleGlobalTaskStart}
             refreshCounter={globalRefreshCounter}

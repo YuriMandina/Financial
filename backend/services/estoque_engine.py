@@ -481,6 +481,63 @@ def summarize(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def aggregate_indicators(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Indicadores históricos por produto e família a partir de itens de inventários efetivados.
+
+    Cada linha: product_id, product_name, family_name, unit, system_qty, counted_qty, cost, reasons.
+    - quebra_pct: quebra técnica em relação ao saldo do sistema (base para markup).
+    - divergencia_pct: soma das divergências absolutas em relação ao saldo do sistema.
+    - recorrencia: em quantos inventários o produto divergiu.
+    """
+    products: Dict[Any, Dict[str, Any]] = {}
+    families: Dict[str, Dict[str, Any]] = {}
+
+    def bucket(store, key, **extra):
+        if key not in store:
+            store[key] = {**extra, "inventarios": 0, "divergentes": 0, "base_qty": 0.0, "abs_diff_qty": 0.0,
+                          "quebra_qty": 0.0, "perdas_value": 0.0, "quebra_value": 0.0, "sobras_value": 0.0}
+        return store[key]
+
+    for row in rows:
+        diff = compute_difference(row.get("counted_qty"), row.get("system_qty")) or 0.0
+        cost = float(row.get("cost") or 0.0)
+        base = max(float(row.get("system_qty") or 0.0), 0.0)
+        quebra_qty = sum(float(r.get("quantity") or 0.0) for r in row.get("reasons") or []
+                         if r.get("reason") == "QUEBRA_TECNICA") if diff < 0 else 0.0
+        perdas_qty = abs(diff) - quebra_qty if diff < 0 else 0.0
+        targets = [
+            bucket(products, row.get("product_id"), product_id=row.get("product_id"), product_name=row.get("product_name"),
+                   family_name=row.get("family_name"), unit=row.get("unit")),
+            bucket(families, row.get("family_name") or "-", family_name=row.get("family_name")),
+        ]
+        for agg in targets:
+            agg["inventarios"] += 1
+            agg["divergentes"] += 1 if diff else 0
+            agg["base_qty"] += base
+            agg["abs_diff_qty"] += abs(diff)
+            agg["quebra_qty"] += quebra_qty
+            agg["perdas_value"] += -perdas_qty * cost
+            agg["quebra_value"] += -quebra_qty * cost
+            agg["sobras_value"] += diff * cost if diff > 0 else 0.0
+
+    def finish(agg):
+        base = agg["base_qty"]
+        agg["quebra_pct"] = round(agg["quebra_qty"] / base * 100.0, 2) if base else None
+        agg["divergencia_pct"] = round(agg["abs_diff_qty"] / base * 100.0, 2) if base else None
+        for key in ("perdas_value", "quebra_value", "sobras_value"):
+            agg[key] = round_money(agg[key])
+        for key in ("base_qty", "abs_diff_qty", "quebra_qty"):
+            agg[key] = round_qty(agg[key])
+        agg["recorrencia_pct"] = round(agg["divergentes"] / agg["inventarios"] * 100.0, 1) if agg["inventarios"] else 0.0
+        return agg
+
+    by_loss = lambda a: a["perdas_value"] + a["quebra_value"]
+    return {
+        "produtos": sorted((finish(a) for a in products.values()), key=by_loss),
+        "familias": sorted((finish(a) for a in families.values()), key=by_loss),
+    }
+
+
 def snapshot_hash(items: List[Dict[str, Any]]) -> str:
     """Hash SHA-256 do conteúdo aprovado, impresso no relatório para garantir integridade."""
     canonical = sorted(
