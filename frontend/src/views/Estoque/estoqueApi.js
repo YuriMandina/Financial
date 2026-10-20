@@ -35,6 +35,8 @@ export function createEstoqueApi(token) {
     toggleFamilia: (id, active) => request(`/familias/${id}`, { method: 'PUT', body: { is_active_for_inventory: active } }),
     produtos: (familyId) => request(`/produtos?family_id=${familyId}`),
     toggleProduto: (id, value) => request(`/produtos/${id}`, { method: 'PUT', body: { is_inventory_default: value } }),
+    toggleProdutosFamilia: (familyId, value) =>
+      request(`/familias/${familyId}/produtos-padrao`, { method: 'PUT', body: { is_inventory_default: value } }),
     criarEmbalagem: (productId, data) => request(`/produtos/${productId}/embalagens`, { method: 'POST', body: data }),
     atualizarEmbalagem: (id, data) => request(`/embalagens/${id}`, { method: 'PUT', body: data }),
     removerEmbalagem: (id) => request(`/embalagens/${id}`, { method: 'DELETE' }),

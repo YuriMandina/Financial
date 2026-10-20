@@ -162,6 +162,23 @@ def update_product(product_id: int, req: ProductInventoryUpdate,
     return {"id": prod.id, "is_inventory_default": prod.is_inventory_default}
 
 
+@router.put("/familias/{family_id}/produtos-padrao")
+def update_family_products_default(family_id: int, req: ProductInventoryUpdate,
+                                   user: models.User = Depends(get_current_user_and_set_org), db: Session = Depends(get_db)):
+    """Marca/desmarca todos os produtos da família como padrão do inventário (uma única operação)."""
+    guard(lambda: service.require_manager(user))
+    org_id = current_org.get().id
+    if not db.query(models.BoningFamily).filter_by(id=family_id, organization_id=org_id).first():
+        raise HTTPException(status_code=404, detail="Família não encontrada")
+    updated = (
+        db.query(models.BoningProduct)
+        .filter_by(organization_id=org_id, family_id=family_id)
+        .update({models.BoningProduct.is_inventory_default: req.is_inventory_default}, synchronize_session=False)
+    )
+    db.commit()
+    return {"updated": updated, "is_inventory_default": req.is_inventory_default}
+
+
 @router.post("/produtos/{product_id}/embalagens")
 def create_packaging(product_id: int, req: PackagingCreate,
                      user: models.User = Depends(get_current_user_and_set_org), db: Session = Depends(get_db)):

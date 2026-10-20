@@ -118,6 +118,11 @@ export default function CadastroTab({ api }) {
     const res = await api.toggleProduto(prod.id, !prod.is_inventory_default);
     setProdutos((prev) => prev.map((p) => (p.id === prod.id ? { ...p, ...res } : p)));
   });
+  const toggleAllProducts = safe(async () => {
+    const value = !produtos.every((p) => p.is_inventory_default);
+    await api.toggleProdutosFamilia(familyId, value);
+    setProdutos((prev) => prev.map((p) => ({ ...p, is_inventory_default: value })));
+  });
   const changeRole = safe(async (userId, role) => {
     const res = await api.alterarPapel(userId, role);
     setUsuarios((prev) => prev.map((u) => (u.id === userId ? { ...u, ...res } : u)));
@@ -166,7 +171,13 @@ export default function CadastroTab({ api }) {
               <table className="w-full text-sm">
                 <thead className="bg-slate-950/50 text-slate-400 text-xs uppercase sticky top-0">
                   <tr>
-                    <th className="px-4 py-2.5 text-left">Padrão</th>
+                    <th className="px-4 py-2.5 text-left">
+                      <div className="flex items-center gap-2">
+                        <StyledCheckbox checked={produtos.length > 0 && produtos.every((p) => p.is_inventory_default)}
+                          onChange={toggleAllProducts} size="sm" disabled={!produtos.length} />
+                        Padrão
+                      </div>
+                    </th>
                     <th className="px-4 py-2.5 text-left">Produto</th>
                     <th className="px-4 py-2.5 text-left">Embalagens</th>
                     <th className="px-4 py-2.5" />
