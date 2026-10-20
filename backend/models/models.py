@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, UniqueConstraint, Float, Boolean, BigInteger, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, UniqueConstraint, Float, Boolean, BigInteger, JSON, LargeBinary, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
@@ -29,6 +29,8 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     is_active = Column(Boolean, default=True)
+    # Papel no Módulo de Inventário: NULL/'GERENTE' = acesso completo; 'CONTADOR' = apenas contagem
+    inventory_role = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     organization = relationship("Organization", back_populates="users")
@@ -82,6 +84,7 @@ class BoningFamily(Base):
     name = Column(String, nullable=False)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     is_active_for_boning = Column(Boolean, default=False)
+    is_active_for_inventory = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
 class BoningProduct(Base):
@@ -92,6 +95,11 @@ class BoningProduct(Base):
     family_id = Column(Integer, ForeignKey("boning_families.id"), nullable=True)
     unit_price = Column(Float, nullable=False)
     is_standard_cut = Column(Boolean, default=False)
+    # Cadastro usado pelo Módulo de Inventário (sincronizado da Omie)
+    ean = Column(String, nullable=True, index=True)
+    unit = Column(String, nullable=True)
+    ncm = Column(String, nullable=True)
+    is_inventory_default = Column(Boolean, default=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -503,5 +511,162 @@ class RHBenefitAdjustment(Base):
 
     schedule = relationship("RHMonthlySchedule", back_populates="benefit_adjustments")
     employee = relationship("RHEmployee")
+
+
+# ==============================================================================
+# --- [BLOCO: MÓDULO DE INVENTÁRIO - BALANÇO DE ESTOQUE POR FAMÍLIA] ---
+# ==============================================================================
+
+class ProductPackaging(Base):
+    """Embalagem de um produto (ex: CX com 12 un, DUN-14 próprio e tara para pesagem)."""
+    __tablename__ = "inventory_product_packagings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("boning_products.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)  # Ex: CX, FD, BANDEJA
+    factor = Column(Float, nullable=False, default=1.0)  # Unidades do produto por embalagem
+    ean = Column(String, nullable=True, index=True)  # DUN-14 / EAN da embalagem
+    tare_kg = Column(Float, nullable=False, default=0.0)  # Tara para produtos pesados
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    product = relationship("BoningProduct")
+
+
+class InventoryCount(Base):
+    """Inventário (balanço) de uma família de produtos em uma data de corte."""
+    __tablename__ = "inventory_counts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    family_id = Column(Integer, ForeignKey("boning_families.id"), nullable=False, index=True)
+    cutoff_date = Column(Date, nullable=False)
+    omie_local_code = Column(BigInteger, nullable=True)  # Local de estoque Omie (NULL = padrão)
+    status = Column(String, nullable=False, default="RASCUNHO", index=True)
+    notes = Column(Text, nullable=True)
+    recount_pct = Column(Float, nullable=False, default=5.0)
+    recount_value = Column(Float, nullable=False, default=50.0)
+    cmc_tolerance_pct = Column(Float, nullable=False, default=30.0)
+    snapshot_at = Column(DateTime(timezone=True), nullable=True)
+    snapshot_hash = Column(String, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    effective_at = Column(DateTime(timezone=True), nullable=True)
+    concluded_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    family = relationship("BoningFamily")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    approved_by = relationship("User", foreign_keys=[approved_by_id])
+    items = relationship("InventoryCountItem", back_populates="count", cascade="all, delete-orphan",
+                         foreign_keys="InventoryCountItem.count_id", order_by="InventoryCountItem.product_name")
+    documents = relationship("InventoryDocument", back_populates="count", cascade="all, delete-orphan")
+
+
+class InventoryCountItem(Base):
+    """Produto no escopo do inventário: snapshot do sistema, total contado e conferência."""
+    __tablename__ = "inventory_count_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    count_id = Column(Integer, ForeignKey("inventory_counts.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("boning_products.id"), nullable=False)
+    omie_id = Column(BigInteger, nullable=False)
+    product_name = Column(String, nullable=False)  # Congelado na criação para o relatório
+    unit = Column(String, nullable=True)
+    ean = Column(String, nullable=True)
+    # --- Snapshot da Omie na data de corte ---
+    system_qty = Column(Float, nullable=True)
+    system_value = Column(Float, nullable=True)
+    cmc = Column(Float, nullable=True)
+    reference_cost = Column(Float, nullable=True)  # Último custo de compra (ou informado pela gerência)
+    # --- Contagem ---
+    current_round = Column(Integer, nullable=False, default=1)
+    counted_qty = Column(Float, nullable=False, default=0.0)  # Soma dos lançamentos da rodada atual
+    confirmed_zero = Column(Boolean, nullable=False, default=False)
+    count_status = Column(String, nullable=False, default="PENDENTE")
+    # --- Conferência ---
+    adjustment_case = Column(String, nullable=True)  # A, B, C ou D
+    reason = Column(String, nullable=True)
+    justification = Column(Text, nullable=True)
+    pair_item_id = Column(Integer, ForeignKey("inventory_count_items.id", ondelete="SET NULL"), nullable=True)
+    cmc_correction_approved = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    count = relationship("InventoryCount", back_populates="items", foreign_keys=[count_id])
+    product = relationship("BoningProduct")
+    entries = relationship("InventoryCountEntry", back_populates="item", cascade="all, delete-orphan",
+                           order_by="InventoryCountEntry.id")
+    adjustment = relationship("InventoryAdjustment", back_populates="item", uselist=False, cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("count_id", "product_id", name="uq_inventory_item_product"),
+    )
+
+
+class InventoryCountEntry(Base):
+    """Lançamento de contagem (append-only). Estornos marcam voided, nunca apagam."""
+    __tablename__ = "inventory_count_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("inventory_count_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    client_uuid = Column(String, nullable=False, unique=True, index=True)  # Idempotência do sync offline
+    round = Column(Integer, nullable=False, default=1)
+    mode = Column(String, nullable=False)  # UN, EMB ou PESO
+    packaging_id = Column(Integer, ForeignKey("inventory_product_packagings.id", ondelete="SET NULL"), nullable=True)
+    raw_qty = Column(Float, nullable=False)  # Unidades, nº de embalagens ou peso bruto
+    factor = Column(Float, nullable=False, default=1.0)
+    tare_total = Column(Float, nullable=False, default=0.0)
+    quantity = Column(Float, nullable=False)  # Quantidade líquida na unidade do produto
+    expression = Column(String, nullable=True)  # Expressão digitada (ex: 12*12+6)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    device_id = Column(String, nullable=True)
+    counted_at = Column(DateTime(timezone=True), nullable=True)  # Horário do aparelho
+    voided = Column(Boolean, nullable=False, default=False)
+    voided_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    voided_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    item = relationship("InventoryCountItem", back_populates="entries")
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class InventoryAdjustment(Base):
+    """Ajuste de estoque enviado à Omie para um item (um por item)."""
+    __tablename__ = "inventory_adjustments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("inventory_count_items.id", ondelete="CASCADE"), nullable=False, unique=True)
+    tipo = Column(String, nullable=False)  # ENT, SAI ou SLD
+    motivo = Column(String, nullable=False)  # INV, PER ou CMC
+    quantity = Column(Float, nullable=False)
+    unit_value = Column(Float, nullable=False)
+    cod_int_ajuste = Column(String, nullable=False, unique=True)
+    omie_ajuste_id = Column(BigInteger, nullable=True)
+    status = Column(String, nullable=False, default="PENDING")  # PENDING, DONE, FAILED, REVERTED
+    error_msg = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    done_at = Column(DateTime(timezone=True), nullable=True)
+
+    item = relationship("InventoryCountItem", back_populates="adjustment")
+
+
+class InventoryDocument(Base):
+    """Documentos do inventário: relatório gerado e via assinada digitalizada."""
+    __tablename__ = "inventory_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    count_id = Column(Integer, ForeignKey("inventory_counts.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # RELATORIO ou VIA_ASSINADA
+    filename = Column(String, nullable=False)
+    content_type = Column(String, nullable=False)
+    content = Column(LargeBinary, nullable=False)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    count = relationship("InventoryCount", back_populates="documents")
 
 

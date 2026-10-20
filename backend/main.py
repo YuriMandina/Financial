@@ -23,6 +23,8 @@ from api.recebimentos import router as recebimentos_router
 from api.tasks import router as tasks_router
 from api.rh import router as rh_router
 from api.rh_payroll import router as rh_payroll_router
+from api.estoque_catalogo import router as estoque_catalogo_router
+from api.estoque import router as estoque_router
 
 # --- SETUP DA APLICAÇÃO ---
 app = FastAPI(title="API GabaritoBI", version="5.0")
@@ -58,6 +60,14 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS overtime_fixed_value FLOAT DEFAULT 0;"))
             conn.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS company JSONB;"))
             conn.execute(text("ALTER TABLE rh_bank_hours ADD COLUMN IF NOT EXISTS adjustments_minutes INTEGER DEFAULT 0;"))
+            # Módulo de Inventário: colunas de cadastro em tabelas existentes
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS inventory_role VARCHAR;"))
+            conn.execute(text("ALTER TABLE boning_families ADD COLUMN IF NOT EXISTS is_active_for_inventory BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE boning_products ADD COLUMN IF NOT EXISTS ean VARCHAR;"))
+            conn.execute(text("ALTER TABLE boning_products ADD COLUMN IF NOT EXISTS unit VARCHAR;"))
+            conn.execute(text("ALTER TABLE boning_products ADD COLUMN IF NOT EXISTS ncm VARCHAR;"))
+            conn.execute(text("ALTER TABLE boning_products ADD COLUMN IF NOT EXISTS is_inventory_default BOOLEAN DEFAULT TRUE;"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_boning_products_ean ON boning_products (ean);"))
             # Salário passa a ser do cargo: herda o maior salário já cadastrado nos colaboradores do cargo
             conn.execute(text("""
                 UPDATE rh_roles r SET base_salary = sub.salary
@@ -98,4 +108,6 @@ app.include_router(relatorios_router)
 app.include_router(tasks_router)
 app.include_router(rh_router)
 app.include_router(rh_payroll_router)
+app.include_router(estoque_catalogo_router)
+app.include_router(estoque_router)
 
