@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api, apkUrl, clearSession, getDeviceId, getToken, getUser } from './api';
 import { SyncBadge, Toasts } from './components';
 import { findByCode, itemCountStatus, itemEditable, newUuid, syncOutbox } from './counting';
-import { isOnline, onBackButton, onNetworkChange, scanBarcode, scannerAvailable, vibrate } from './native';
+import { isOnline, onAppResume, onBackButton, onNetworkChange, scanBarcode, scannerAvailable, vibrate } from './native';
 import { cacheCount, cacheCountList, getCachedCount, getCachedCountList, outboxStore } from './offline';
 import LoginScreen from './screens/LoginScreen';
 import CountsScreen from './screens/CountsScreen';
@@ -11,6 +11,7 @@ import ItemsScreen from './screens/ItemsScreen';
 import ItemScreen from './screens/ItemScreen';
 
 const SYNC_INTERVAL_MS = 20000;
+const AUTO_REFRESH_MS = 30000;
 const TOAST_MS = 3000;
 const COUNTING_STATUSES = ['EM_CONTAGEM', 'CONFERENCIA'];
 
@@ -34,6 +35,7 @@ export default function MobileApp() {
   const [toasts, setToasts] = useState([]);
   const syncingRef = useRef(false);
   const screenRef = useRef(screen);
+  const autoRefreshRef = useRef(null);
 
   useEffect(() => { screenRef.current = screen; }, [screen]);
 
@@ -59,8 +61,9 @@ export default function MobileApp() {
   const reloadPending = useCallback(async () => setPending(await outboxStore.listPending()), []);
 
   // --- [BLOCO: Carregamento de Inventários (online com fallback offline)] ---
-  const loadCounts = useCallback(async () => {
-    setLoadingCounts(true);
+  // silent: atualização automática em segundo plano (sem indicador de carregamento)
+  const loadCounts = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoadingCounts(true);
     try {
       const data = await api.listCounts();
       const list = (data.inventarios || []).filter((c) => COUNTING_STATUSES.includes(c.status));
@@ -75,7 +78,7 @@ export default function MobileApp() {
       setCountsFromCache(true);
       if (err.offline) setOnline(false);
     } finally {
-      setLoadingCounts(false);
+      if (!silent) setLoadingCounts(false);
     }
   }, [handleAuthError]);
 
@@ -128,8 +131,11 @@ export default function MobileApp() {
         pushToast('info', `Nova versão ${info.version_name} disponível.`, { action: { label: 'Baixar', href: apkUrl() }, persist: true });
       }
     }).catch(() => {});
-    const stop = onNetworkChange((connected) => { setOnline(connected); if (connected) syncNow(); });
-    return stop;
+    const refresh = () => autoRefreshRef.current?.();
+    const stopNetwork = onNetworkChange((connected) => { setOnline(connected); if (connected) refresh(); });
+    const stopResume = onAppResume(refresh);
+    const timer = setInterval(refresh, AUTO_REFRESH_MS);
+    return () => { stopNetwork(); stopResume(); clearInterval(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -138,6 +144,19 @@ export default function MobileApp() {
     const timer = setInterval(() => { if (pending.some((e) => e.status !== 'rejected')) syncNow(); }, SYNC_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [user, pending, syncNow]);
+
+  // --- [BLOCO: Atualização Automática] ---
+  // Envia a fila e busca dados novos da tela atual: a cada AUTO_REFRESH_MS, ao voltar ao app e ao reconectar
+  autoRefreshRef.current = async () => {
+    if (document.hidden || !getToken()) return;
+    if (screenRef.current.name === 'counts') {
+      await syncNow();
+      loadCounts({ silent: true });
+    } else if (count) {
+      await syncNow();
+      loadCount(count.id).catch(() => {});
+    }
+  };
 
   // --- [BLOCO: Navegação e Botão Voltar do Android] ---
   const goToCounts = useCallback(() => { setScreen({ name: 'counts' }); loadCounts(); }, [loadCounts]);

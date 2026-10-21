@@ -85,6 +85,19 @@ export async function vibrate(kind = 'ok') {
   } catch { /* vibração indisponível: ignora */ }
 }
 
+// Chamado quando o app volta ao primeiro plano (no PC: quando a aba volta a ficar visível)
+export function onAppResume(callback) {
+  if (!isNativeApp()) {
+    const onVisible = () => { if (!document.hidden) callback(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }
+  let handle = null;
+  App.addListener('appStateChange', ({ isActive }) => { if (isActive) callback(); })
+    .then((h) => { handle = h; });
+  return () => handle?.remove();
+}
+
 // handler() retorna true quando tratou a navegação; senão o app é minimizado (não fecha no meio da contagem)
 export function onBackButton(handler) {
   if (!isNativeApp()) return () => {};
