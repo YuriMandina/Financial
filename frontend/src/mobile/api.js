@@ -2,7 +2,7 @@
 import { newUuid } from './counting';
 
 // --- [BLOCO: Configuração Local] ---
-const KEYS = { server: 'contagem.server', token: 'contagem.token', user: 'contagem.user', device: 'contagem.device' };
+const KEYS = { server: 'contagem.server', token: 'contagem.token', user: 'contagem.user', device: 'contagem.device', email: 'contagem.email' };
 export const DEFAULT_SERVER = 'http://192.168.0.11:8000';
 const TIMEOUT_MS = 15000;
 
@@ -17,6 +17,8 @@ const write = (key, value) => {
 export const getServer = () => read(KEYS.server) || DEFAULT_SERVER;
 export const setServer = (url) => write(KEYS.server, String(url || '').trim().replace(/\/+$/, ''));
 export const getToken = () => read(KEYS.token);
+export const getSavedEmail = () => read(KEYS.email) || '';
+export const hasSavedServer = () => Boolean(read(KEYS.server));
 export const getUser = () => { try { return JSON.parse(read(KEYS.user) || 'null'); } catch { return null; } };
 export const clearSession = () => { write(KEYS.token, null); write(KEYS.user, null); };
 
@@ -67,9 +69,10 @@ async function request(path, { method = 'GET', body, auth = true, server, timeou
 export const api = {
   appVersion: (server) => request('/api/estoque/app/versao', { auth: false, server, timeoutMs: 5000 }),
 
-  async login(email, password) {
-    const data = await request('/api/auth/login', { method: 'POST', body: { email, password }, auth: false });
+  async login(email, password, remember = false) {
+    const data = await request('/api/auth/login', { method: 'POST', body: { email, password, remember }, auth: false });
     write(KEYS.token, data.access_token);
+    write(KEYS.email, email);
     const me = await request('/api/auth/me');
     write(KEYS.user, JSON.stringify({ name: me.name || (me.email || '').split('@')[0], email: me.email }));
     return getUser();

@@ -1,14 +1,16 @@
 /* global __APP_VERSION__ */
 import React, { useState } from 'react';
 import { ClipboardList, LoaderCircle, Server } from 'lucide-react';
-import { api, getServer, setServer } from '../api';
+import { api, getSavedEmail, getServer, hasSavedServer, setServer } from '../api';
 import { Banner, PrimaryButton } from '../components';
 
 const inputClass = 'w-full h-12 px-3 rounded-xl bg-slate-900 border border-slate-700 focus:border-emerald-500 outline-none text-base';
 
 export default function LoginScreen({ notice, onLoggedIn }) {
   const [server, setServerField] = useState(getServer());
-  const [email, setEmail] = useState('');
+  const [editServer, setEditServer] = useState(!hasSavedServer());
+  const [email, setEmail] = useState(getSavedEmail());
+  const [remember, setRemember] = useState(true);
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(notice ? { tone: 'warn', text: notice } : null);
@@ -34,7 +36,7 @@ export default function LoginScreen({ notice, onLoggedIn }) {
     setMessage(null);
     try {
       setServer(server);
-      const user = await api.login(email.trim(), password);
+      const user = await api.login(email.trim(), password, remember);
       onLoggedIn(user);
     } catch (err) {
       setMessage({ tone: 'error', text: err.offline ? 'Sem conexão com o servidor.' : err.message });
@@ -56,17 +58,24 @@ export default function LoginScreen({ notice, onLoggedIn }) {
       </div>
 
       <form onSubmit={submit} className="space-y-4">
-        <label className="block">
-          <span className="text-sm text-slate-300">Servidor</span>
-          <div className="flex gap-2 mt-1">
-            <input className={inputClass} value={server} onChange={(e) => setServerField(e.target.value)}
-              inputMode="url" autoCapitalize="none" autoCorrect="off" />
-            <button type="button" onClick={testServer} disabled={busy}
-              className="h-12 px-3 rounded-xl border border-slate-700 active:bg-slate-800 flex items-center gap-1.5 text-sm shrink-0">
-              <Server size={18} /> Testar
-            </button>
+        {!editServer ? (
+          <div className="flex items-center justify-between text-sm text-slate-400">
+            <span className="truncate">Servidor: {server}</span>
+            <button type="button" onClick={() => setEditServer(true)} className="text-emerald-400 px-2 h-10 shrink-0">Alterar</button>
           </div>
-        </label>
+        ) : (
+          <label className="block">
+            <span className="text-sm text-slate-300">Servidor</span>
+            <div className="flex gap-2 mt-1">
+              <input className={inputClass} value={server} onChange={(e) => setServerField(e.target.value)}
+                inputMode="url" autoCapitalize="none" autoCorrect="off" />
+              <button type="button" onClick={testServer} disabled={busy}
+                className="h-12 px-3 rounded-xl border border-slate-700 active:bg-slate-800 flex items-center gap-1.5 text-sm shrink-0">
+                <Server size={18} /> Testar
+              </button>
+            </div>
+          </label>
+        )}
         <label className="block">
           <span className="text-sm text-slate-300">E-mail</span>
           <input className={`${inputClass} mt-1`} value={email} onChange={(e) => setEmail(e.target.value)}
@@ -75,7 +84,12 @@ export default function LoginScreen({ notice, onLoggedIn }) {
         <label className="block">
           <span className="text-sm text-slate-300">Senha</span>
           <input className={`${inputClass} mt-1`} value={password} onChange={(e) => setPassword(e.target.value)}
-            type="password" autoComplete="current-password" required />
+            type="password" autoComplete="current-password" required autoFocus={Boolean(email)} />
+        </label>
+        <label className="flex items-center gap-3 h-10">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)}
+            className="w-5 h-5 accent-emerald-500" />
+          <span className="text-sm text-slate-300">Manter conectado (30 dias)</span>
         </label>
         {message && <div className="-mx-3"><Banner tone={message.tone}>{message.text}</Banner></div>}
         <PrimaryButton type="submit" disabled={busy}>

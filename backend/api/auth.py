@@ -21,6 +21,9 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     email: str
     password: str
+    remember: bool = False  # "Manter conectado" (app de contagem): ignora o tempo de sessão da organização
+
+REMEMBER_ME_MINUTES = 60 * 24 * 30  # 30 dias
 
 @router.post("/register")
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
@@ -119,6 +122,8 @@ def login_user(user: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Esta conta foi inativada.")
     
     timeout = getattr(db_user.organization, 'session_timeout_minutes', 120) if db_user.organization else 120
+    if user.remember:
+        timeout = REMEMBER_ME_MINUTES
     access_token = auth.create_access_token(
         data={"sub": str(db_user.id)},
         expires_delta=timedelta(minutes=timeout)
