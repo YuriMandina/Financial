@@ -25,8 +25,8 @@ cd frontend
 npm run apk
 ```
 
-O comando gera o APK assinado e o publica em `backend/static/mobile/`. Os celulares baixam pelo endereço
-`http://<IP-do-servidor>:8000/api/estoque/app/apk`.
+O comando gera o APK assinado e o publica em `backend/static/mobile/`. A partir daí ele já aparece para
+os usuários no sistema (ver "Instalar no celular").
 
 **Nova versão**: aumente `versionCode` (e `versionName`) em `frontend/mobile-version.json` antes do
 `npm run apk`. Os aparelhos com versão antiga mostram o aviso "Nova versão disponível".
@@ -39,11 +39,19 @@ preciso desinstalar, e lançamentos ainda não sincronizados no aparelho seriam 
 
 ## Instalar no celular
 
-1. No celular, conectado ao Wi-Fi da loja, abra no navegador:
-   `http://<IP-do-servidor>:8000/api/estoque/app/apk`
-2. Permita "instalar apps desta fonte" quando o Android pedir.
-3. Abra o app, confira o endereço do servidor (botão de teste ao lado) e entre com o usuário do sistema.
-   Usuários com papel **CONTADOR** veem apenas a contagem (sem saldos do sistema).
+Feito pelo próprio usuário, sem depender do desenvolvedor:
+
+1. No sistema (PC), abra **Inventário** e clique em **App de contagem** (canto superior direito).
+2. Com o celular no Wi-Fi da loja, aponte a câmera para o **QR Code**. Ele abre a página de instalação
+   (`http://<IP-do-servidor>:8000/api/estoque/app`), com o botão de download, o passo a passo e o
+   endereço a informar no campo **Servidor** do app.
+3. Permita "instalar apps desta fonte" quando o Android pedir.
+4. Entre com o usuário do sistema. Usuários com papel **CONTADOR** veem apenas a contagem (sem saldos do sistema).
+
+O modal também oferece **Baixar APK neste computador**, para enviar o arquivo por cabo ou mensagem.
+
+O IP do servidor é detectado automaticamente. Se o QR Code apontar para o endereço errado (ex: PC com
+várias placas de rede/VPN), fixe-o no `.env` do backend: `MOBILE_PUBLIC_URL=http://192.168.0.11:8000`.
 
 O leitor de código de barras usa o Google Play Services e é baixado automaticamente no primeiro uso
 (precisa de internet nesse momento). Leitores Bluetooth também funcionam: eles "digitam" o código no

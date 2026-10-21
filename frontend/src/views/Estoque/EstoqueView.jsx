@@ -7,6 +7,7 @@ import InventarioDetalhe from './components/InventarioDetalhe';
 import CadastroTab from './components/CadastroTab';
 import PendenciasTab from './components/PendenciasTab';
 import IndicadoresTab from './components/IndicadoresTab';
+import { AppContagemButton } from './components/AppContagemModal';
 
 export default function EstoqueView({ token, onTaskStart, refreshCounter }) {
   // --- [BLOCO: Estado e API] ---
@@ -32,6 +33,9 @@ export default function EstoqueView({ token, onTaskStart, refreshCounter }) {
         <div>
           <h2 className="text-3xl font-bold text-white mb-1">Inventário</h2>
           <p className="text-slate-400">Balanço de estoque por família com ajustes na Omie</p>
+        </div>
+        <div className="ml-auto">
+          <AppContagemButton api={api} />
         </div>
       </div>
 

@@ -68,6 +68,8 @@ export function createEstoqueApi(token) {
       form.append('file', file);
       return request(`/inventarios/${id}/via-assinada`, { method: 'POST', body: form });
     },
+    // App de contagem (versão publicada e endereços do servidor na rede local)
+    appDistribuicao: () => request('/app/distribuicao'),
     // Dados cadastrais da empresa (cabeçalho do relatório impresso)
     empresa: async () => {
       const res = await fetch(`${API_BASE}/api/settings/company`, { headers: { Authorization: `Bearer ${token}` } });

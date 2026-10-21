@@ -2,12 +2,10 @@
 Cadastro do Módulo de Inventário: famílias habilitadas, produtos do escopo padrão,
 embalagens/tara, pendências de cadastro e papéis de usuário.
 """
-import json
-from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -18,6 +16,7 @@ from core.deps import get_current_user_and_set_org, current_org
 from api.tasks import TaskManager, TaskQueue
 from services import estoque_omie_service as omie_service
 from services import estoque_service as service
+from services import mobile_app_service as mobile_app
 
 router = APIRouter(prefix="/api/estoque", tags=["estoque"])
 
@@ -291,37 +290,39 @@ async def sync_catalog(user: models.User = Depends(get_current_user_and_set_org)
 # ==============================================================================
 # --- [BLOCO: Distribuição do App de Contagem (Android)] ---
 # ==============================================================================
-# Públicos: o celular consulta a versão antes do login e baixa o APK pela rede da loja.
-# Arquivos gerados pelo build do app em backend/static/mobile/ (version.json + contagem.apk).
-
-MOBILE_DIR = Path(__file__).resolve().parent.parent / "static" / "mobile"
-
-
-def _mobile_version() -> dict:
-    try:
-        data = json.loads((MOBILE_DIR / "version.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {"version_name": None, "version_code": 0, "available": False}
-    return {
-        "version_name": data.get("versionName"),
-        "version_code": int(data.get("versionCode") or 0),
-        "available": (MOBILE_DIR / "contagem.apk").is_file(),
-    }
-
+# Públicos: o celular consulta a versão antes do login, abre a página de instalação e baixa o APK
+# pela rede da loja. Arquivos gerados pelo build do app em backend/static/mobile/ (version.json + contagem.apk).
 
 @router.get("/app/versao")
 def mobile_app_version():
-    return _mobile_version()
+    return mobile_app.mobile_version()
+
+
+@router.get("/app", response_class=HTMLResponse)
+def mobile_app_install_page(request: Request):
+    # base_url é o endereço que o próprio celular usou: é o mesmo a informar no campo "Servidor" do app
+    return HTMLResponse(mobile_app.render_install_page(str(request.base_url)))
 
 
 @router.get("/app/apk")
 def mobile_app_apk():
-    apk = MOBILE_DIR / "contagem.apk"
-    if not apk.is_file():
+    if not mobile_app.APK_PATH.is_file():
         raise HTTPException(status_code=404, detail="APK ainda não publicado.")
-    version = _mobile_version().get("version_name") or "atual"
-    return FileResponse(apk, media_type="application/vnd.android.package-archive",
+    version = mobile_app.mobile_version().get("version_name") or "atual"
+    return FileResponse(mobile_app.APK_PATH, media_type="application/vnd.android.package-archive",
                         filename=f"contagem-{version}.apk")
+
+
+@router.get("/app/distribuicao")
+def mobile_app_distribution(request: Request, user: models.User = Depends(get_current_user_and_set_org)):
+    """Dados do painel "App de contagem": versão publicada e links para o celular (QR Code)."""
+    servers = mobile_app.lan_server_urls(request.url.port or 8000)
+    return {
+        **mobile_app.apk_details(),
+        "install_path": mobile_app.INSTALL_PATH,
+        "apk_path": mobile_app.APK_DOWNLOAD_PATH,
+        "servers": servers,
+    }
 
 
 # ==============================================================================
