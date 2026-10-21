@@ -241,7 +241,7 @@ def bg_baixar_recebimentos_lote(task_id: str, req_dict: dict, org_id: int):
                         "desconto": pag.desconto,
                         "juros": pag.juros,
                         "data": req.data_pagamento,
-                        "observacao": "Baixa em Lote c/ Rateio via GabaritoBI",
+                        "observacao": "Baixa em Lote c/ Rateio via Financial",
                     }
                 ],
             }
@@ -491,7 +491,7 @@ def bg_desfazer_baixa(task_id: str, recibo_id: int, org_id: int):
                                 "desconto": baixa_reverter.get("desconto", 0),
                                 "juros": baixa_reverter.get("juros", 0),
                                 "data": recibo.data_pagamento,
-                                "observacao": "Baixa restaurada pós-interrupção via GabaritoBI",
+                                "observacao": "Baixa restaurada pós-interrupção via Financial",
                             }
                         ]
                     }

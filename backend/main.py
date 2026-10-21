@@ -27,7 +27,7 @@ from api.estoque_catalogo import router as estoque_catalogo_router
 from api.estoque import router as estoque_router
 
 # --- SETUP DA APLICAÇÃO ---
-app = FastAPI(title="API GabaritoBI", version="5.0")
+app = FastAPI(title="API Financial", version="5.0")
 
 @app.on_event("startup")
 async def startup_event():

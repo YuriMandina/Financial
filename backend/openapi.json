@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "API GabaritoBI",
+    "title": "API Financial",
     "version": "5.0"
   },
   "paths": {
