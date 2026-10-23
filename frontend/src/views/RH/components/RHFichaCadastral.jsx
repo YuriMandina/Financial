@@ -55,7 +55,21 @@ const SectionTable = ({ title, cells }) => (
  * Ficha Cadastral do Empregado para impressão (pasta física do colaborador).
  * Campos vazios saem em branco com linha, para preenchimento manual.
  */
-export default function RHFichaCadastral({ employee, roleName, shift, organizationName, onClose }) {
+// Horário contratual da semana agrupando dias iguais (ex.: "Seg, Ter: 07:00 às 16:00 (int. 12:00-13:00)")
+const WEEKDAY_SHORT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+const describeWorkWeek = (contract) => {
+  if (!contract?.days) return '';
+  const groups = {};
+  Object.entries(contract.days).forEach(([wd, d]) => {
+    const key = d.rest
+      ? (d.rest === 'DSR' ? 'DSR' : 'Folga')
+      : `${d.start} às ${d.end}${d.lunch_start ? ` (int. ${d.lunch_start}-${d.lunch_end})` : ''}`;
+    (groups[key] = groups[key] || []).push(WEEKDAY_SHORT[Number(wd)]);
+  });
+  return Object.entries(groups).map(([key, days]) => `${days.join(', ')}: ${key}`).join(' • ');
+};
+
+export default function RHFichaCadastral({ employee, roleName, organizationName, onClose }) {
   React.useEffect(() => {
     const onKeyDown = (e) => {
       if (e.key === 'Escape') onClose();
@@ -91,14 +105,8 @@ export default function RHFichaCadastral({ employee, roleName, shift, organizati
     { label: 'Tipo de Contrato', value: contrato.tipo_contrato, span: 1 },
     { label: 'Fim da Experiência', value: formatDateBR(contrato.experiencia_fim), span: 1 },
     { label: 'Setor', value: contrato.setor, span: 1 },
-    { label: 'Jornada Semanal', value: `${employee.weekly_contract_hours || 44}h (${employee.work_days_per_week || 6} dias)`, span: 1 },
-    {
-      label: 'Horário de Trabalho',
-      value: shift
-        ? `${shift.code}: ${shift.start_time} às ${shift.end_time}${shift.lunch_start ? ` (intervalo ${shift.lunch_start}-${shift.lunch_end})` : ''}`
-        : '',
-      span: 3
-    }
+    { label: 'Jornada Semanal', value: employee.contract?.summary || '', span: 1 },
+    { label: 'Horário de Trabalho (CLT art. 74)', value: describeWorkWeek(employee.contract), span: 3 }
   ];
 
   const deps = profile.dependentes || [];

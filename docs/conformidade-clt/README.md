@@ -4,6 +4,16 @@ Cada atualização do planejamento gera um **novo arquivo**; versões anteriores
 
 Convenção de nome: `vNN_AAAA-MM-DD.md`.
 
+> **Fonte da verdade: [v05_2026-10-23.md](v05_2026-10-23.md)** — planejamento integralmente validado em 23/10/2026. A implementação segue esta versão; qualquer mudança futura gera uma nova versão.
+
+## Andamento da implementação
+
+| Fase | Situação |
+|---|---|
+| 1 — Base | **Implementada** (23/10/2026): regimes legais, contratos de jornada em grade semanal (modelos, versões, aditivo), turnos removidos, ledger único (compensação, troca de folga, tolerância e atrasos), lote pelo contrato, histórico de alterações. |
+| 2 — Conformidade | Pendente |
+| 3 — Relatório | Pendente |
+
 | Versão | Data | Arquivo | Principais mudanças |
 |---|---|---|---|
 | **v5 (atual)** | 23/10/2026 | [v05_2026-10-23.md](v05_2026-10-23.md) | Troca do dia reduzido e troca de folga com o domingo reconhecidas como legais (sem HE nem dobra, dentro das condições); compensação mensal como padrão; tolerância, abono e compensação de atrasos com limites e ocorrências de ponto; irregularidade corrigida é desconsiderada. |

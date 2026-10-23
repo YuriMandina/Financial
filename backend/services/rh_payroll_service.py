@@ -9,6 +9,8 @@ from datetime import date
 from sqlalchemy.orm import Session
 from models import models
 from services.rh_engine import calculate_work_days_summary, get_month_calendar_info
+from services.rh_contracts import contract_on
+from services.rh_ledger import load_month_ledgers
 from services.rh_holidays_service import get_effective_holidays_map
 from services.rh_salary_service import get_salary_history, salary_for_month, salary_on
 
@@ -215,20 +217,16 @@ def _previous_bank_balance(db: Session, schedule: models.RHMonthlySchedule, empl
     return int(previous.balance_minutes or 0) if previous else 0
 
 
-def daily_bank_movements(emp: models.RHEmployee, work_days: Dict[int, Any]) -> List[Dict[str, Any]]:
-    """Movimentos do banco vindos da escala, dia a dia (horas a mais, saídas antecipadas, folgas BH)."""
-    weekly = float(emp.weekly_contract_hours or 44.0)
-    days_per_week = int(emp.work_days_per_week or 6)
-    expected = int(round(weekly / days_per_week * 60))
+def daily_bank_movements(ledger: Dict[date, Any]) -> List[Dict[str, Any]]:
+    """Movimentos do banco vindos do ledger, dia a dia (horas extras, saídas antecipadas, folgas BH)."""
     movements = []
-    for day in sorted(work_days):
-        wd = work_days[day]
-        if wd.status == "TRABALHO":
-            diff = int(wd.worked_minutes or 0) - expected
-            if diff:
-                movements.append({"day": day, "minutes": diff, "kind": "EXTRA" if diff > 0 else "SHORT"})
-        elif wd.status == "FOLGA_BH":
-            movements.append({"day": day, "minutes": -expected, "kind": "FOLGA_BH"})
+    for d in sorted(ledger):
+        dl = ledger[d]
+        if dl.extra_min:
+            movements.append({"day": d.day, "minutes": dl.extra_min, "kind": "EXTRA"})
+        if dl.short_min:
+            kind = "FOLGA_BH" if dl.status == "FOLGA_BH" else "SHORT"
+            movements.append({"day": d.day, "minutes": -dl.short_min, "kind": kind})
     return movements
 
 
@@ -344,6 +342,8 @@ def calculate_payroll(
     overtime_rate = float(getattr(settings, "overtime_rate", None) if getattr(settings, "overtime_rate", None) is not None else 50.0)
     overtime_fixed_value = float(getattr(settings, "overtime_fixed_value", None) or 0.0)
     business_days = max(1, num_days - rest_days)
+    ledgers = load_month_ledgers(db, organization_id, schedule, employees, settings)
+    month_end = date(schedule.year, schedule.month, num_days)
 
     for emp in employees:
         work_days = {
@@ -354,7 +354,7 @@ def calculate_payroll(
         }
         summary = calculate_work_days_summary(
             employee=emp, work_days_map=work_days, benefit_adjustments=adjustments,
-            year=schedule.year, month=schedule.month, settings=settings
+            year=schedule.year, month=schedule.month, settings=settings, ledger=ledgers[emp.id]
         )
 
         # Remove os automáticos anteriores; manuais ficam
@@ -384,8 +384,10 @@ def calculate_payroll(
         salary, salary_reference, end_salary = salary_for_month(
             emp.role_obj, get_salary_history(db, emp.role_id), schedule.year, schedule.month, num_days
         )
-        weekly_hours = float(emp.weekly_contract_hours or 44.0)
-        hourly_rate = end_salary / (weekly_hours * 5) if weekly_hours else 0.0  # divisor CLT (220h para 44h)
+        # Divisor pela jornada do contrato vigente no fim do mês: 220h (44h), 210h (42h), 200h (40h)
+        contract = contract_on(emp.contracts, month_end)
+        weekly_hours = (contract.weekly_min / 60) if contract and contract.weekly_min else float(emp.weekly_contract_hours or 44.0)
+        hourly_rate = end_salary / (weekly_hours * 5) if weekly_hours else 0.0
         daily_rate = end_salary / 30
 
         add_auto(system_items["SALARIO"], salary, salary_reference)
@@ -579,9 +581,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
         models.RHBankHoursEntry.schedule_id == schedule.id
     ).order_by(models.RHBankHoursEntry.created_at.asc(), models.RHBankHoursEntry.id.asc()).all():
         bank_entries_by_emp.setdefault(be.employee_id, []).append(be)
-    work_days_by_emp: Dict[int, Dict[int, Any]] = {}
-    for wd in db.query(models.RHWorkDay).filter(models.RHWorkDay.schedule_id == schedule.id).all():
-        work_days_by_emp.setdefault(wd.employee_id, {})[wd.day] = wd
+    ledgers = load_month_ledgers(db, organization_id, schedule, employees, settings)
     advance_ids = {
         a.employee_id for a in db.query(models.RHSalaryAdvance).filter(
             models.RHSalaryAdvance.schedule_id == schedule.id,
@@ -626,7 +626,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             },
             "bank": bank_to_dict(
                 bank_rows.get(emp.id), emp, default_policy,
-                bank_entries_by_emp.get(emp.id), daily_bank_movements(emp, work_days_by_emp.get(emp.id, {}))
+                bank_entries_by_emp.get(emp.id), daily_bank_movements(ledgers.get(emp.id, {}))
             ),
         })
 

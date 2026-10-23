@@ -39,7 +39,8 @@ class TestCalculatePayroll(unittest.TestCase):
     def setUp(self):
         engine = create_engine("sqlite:///:memory:")
         needed = [
-            models.Organization, models.RHRole, models.RHWorkShift, models.RHEmployee,
+            models.Organization, models.RHRole, models.RHEmployee, models.RHEmployeeContract,
+            models.RHLegalRegime, models.RHContractTemplate,
             models.RHMonthlySchedule, models.RHWorkDay, models.RHSettings, models.RHBenefitAdjustment,
             models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange, models.RHBankHours,
             models.RHBankHoursEntry, models.RHSalaryAdvance
@@ -58,11 +59,21 @@ class TestCalculatePayroll(unittest.TestCase):
         self.db.flush()
         self.emp = models.RHEmployee(
             organization_id=org.id, name="Fulano", role_id=self.role.id, dependents=0,
-            weekly_contract_hours=40.0, weekly_actual_hours=40.0, work_days_per_week=5,
+            weekly_contract_hours=40.0, work_days_per_week=5,
             default_daily_transport_tickets=0, daily_meal_cost=0, active=True
         )
         self.db.add(self.emp)
+        self.db.flush()
+        # Contrato 40h: 8h de segunda a sexta, folga no sábado e DSR no domingo
+        eight = {"start": "07:00", "lunch_start": "12:00", "lunch_end": "13:00", "end": "16:00"}
+        days = {str(wd): eight for wd in range(5)}
+        days.update({"5": {"rest": "FOLGA"}, "6": {"rest": "DSR"}})
+        self.db.add(models.RHEmployeeContract(employee_id=self.emp.id, valid_from=date(2026, 1, 1),
+                                              days=days, weekly_min=2400))
         self.db.commit()
+        holidays_patch = patch("services.rh_ledger.get_effective_holidays_map", return_value={})
+        holidays_patch.start()
+        self.addCleanup(holidays_patch.stop)
 
     def _calc(self):
         with patch("services.rh_payroll_service.get_effective_holidays_map", return_value={}):
@@ -397,7 +408,23 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(bank["balance_minutes"], 480)
         self.assertEqual(len(bank["entries"]), 2)
 
+    def _set_compensation(self, regime):
+        st = self.db.query(models.RHSettings).first()
+        st.compensation_regime = regime
+        self.db.commit()
+
+    def test_monthly_compensation_nets_extra_and_early_leaving(self):
+        self._work_month(self.schedule, extra_days=(1,), extra_minutes=120)  # +2h (dia de 10h)
+        for d in (5, 6, 7, 8):  # sai 30 min mais cedo em 4 dias
+            rec = self.db.query(models.RHWorkDay).filter_by(employee_id=self.emp.id, day=d).first()
+            rec.worked_minutes = 450
+        self.db.commit()
+        _, bank = self._payroll(self.schedule)
+        self.assertEqual(bank["balance_minutes"], 0)
+        self.assertEqual(bank["movements"], [])
+
     def test_leaving_early_consumes_bank_daily(self):
+        self._set_compensation("BANK_6M")
         self._work_month(self.schedule, extra_days=(1,), extra_minutes=240)  # +4h
         for d in (5, 6, 7, 8):  # sai 1h mais cedo em 4 dias
             rec = self.db.query(models.RHWorkDay).filter_by(employee_id=self.emp.id, day=d).first()

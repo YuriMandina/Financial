@@ -280,12 +280,22 @@ def calculate_work_days_summary(
     benefit_adjustments: List[Any],
     year: int,
     month: int,
-    settings: Any
+    settings: Any,
+    ledger: Optional[Dict[date, Any]] = None
 ) -> Dict[str, Any]:
     """
     Motor central da nova arquitetura:
     Calcula horas reais, banco de horas exato em minutos e benefícios (com overrides e ajustes avulsos).
+    Horas extras e débitos vêm do ledger diário (services/rh_ledger.py); sem ledger informado,
+    ele é calculado só com os dias do mês (sem contexto do mês anterior nem feriados).
     """
+    if ledger is None:
+        from services.rh_ledger import employee_month_ledger
+        ledger = employee_month_ledger(
+            employee, year, month,
+            {date(year, month, d): wd for d, wd in work_days_map.items()},
+            set(), settings
+        )
     month_info = get_month_calendar_info(year, month)
     num_days = month_info["num_days"]
     sundays = set(month_info["sundays"])
@@ -303,11 +313,12 @@ def calculate_work_days_summary(
     contract_weekly_hours = getattr(employee, "weekly_contract_hours", 44.0) or 44.0
     work_days_per_week = getattr(employee, "work_days_per_week", 6) or 6
 
-    # Minutos diários esperados de trabalho (ex: 44h / 6 dias = 7.333h = 440 minutos = 7h20)
-    daily_expected_minutes = int(round((contract_weekly_hours / work_days_per_week) * 60))
-
     total_worked_minutes = 0
-    total_expected_minutes = 0
+    total_expected_minutes = sum(dl.contracted_min for dl in ledger.values())
+    total_extra_minutes = sum(dl.extra_min for dl in ledger.values())
+    total_short_minutes = sum(dl.short_min for dl in ledger.values())
+    total_compensated_minutes = sum(dl.compensated_min for dl in ledger.values() if dl.status == "TRABALHO")
+    rest_worked_double_days = sum(1 for dl in ledger.values() if dl.rest_worked_unpaid_double)
     total_vt_tickets_calc = 0
     total_vt_tickets_final = 0
     vt_worked_days = 0
@@ -339,15 +350,13 @@ def calculate_work_days_summary(
 
         if st == "TRABALHO":
             total_worked_minutes += worked_min
-            total_expected_minutes += daily_expected_minutes
             vt_worked_days += 1
             if worked_min >= int(round(min_hours_for_meal * 60)):
                 va_worked_days += 1
             if day in sundays:
                 sundays_worked += 1
         elif st == "FOLGA_BH":
-            # Folga de banco de horas consome a jornada contratual esperada para abater saldo
-            total_expected_minutes += daily_expected_minutes
+            # Folga de banco de horas consome a jornada contratada do dia (débito no ledger)
             bh_days_used += 1
         elif st == "FERIAS":
             vacation_days += 1
@@ -374,7 +383,7 @@ def calculate_work_days_summary(
     total_va_amount = round(final_va_count * emp_meal_cost, 2)
 
     # D6: Arredondamento de banco de horas aplicado EXCLUSIVAMENTE no total do mês
-    raw_balance_minutes = total_worked_minutes - total_expected_minutes
+    raw_balance_minutes = total_extra_minutes - total_short_minutes
     final_balance_minutes = apply_month_rounding(raw_balance_minutes, rounding_minutes, rounding_mode)
 
     # Dias estimados equivalentes de compensação em folgas (8h = 480 min)
@@ -403,6 +412,10 @@ def calculate_work_days_summary(
         "total_expected_minutes": total_expected_minutes,
         "raw_balance_minutes": raw_balance_minutes,
         "final_balance_minutes": final_balance_minutes,
+        "total_extra_minutes": total_extra_minutes,
+        "total_short_minutes": total_short_minutes,
+        "total_compensated_minutes": total_compensated_minutes,
+        "rest_worked_double_days": rest_worked_double_days,
         "worked_hours_formatted": format_minutes_to_hours(total_worked_minutes, hours_format),
         "expected_hours_formatted": format_minutes_to_hours(total_expected_minutes, hours_format),
         "bank_hours_balance_formatted": format_minutes_to_hours(final_balance_minutes, hours_format),

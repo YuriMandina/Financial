@@ -194,7 +194,7 @@ class OmieJobQueue(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
 # ==============================================================================
-# --- [BLOCO: MÓDULO DE GESTÃO DE RH - CARGOS, TURNOS & ESCALAS] ---
+# --- [BLOCO: MÓDULO DE GESTÃO DE RH - CARGOS, CONTRATOS DE JORNADA & ESCALAS] ---
 # ==============================================================================
 
 class RHRole(Base):
@@ -216,31 +216,59 @@ class RHRole(Base):
     organization = relationship("Organization")
 
 
-class RHWorkShift(Base):
+class RHLegalRegime(Base):
     """
-    Template de Escala/Turno com breakdown de horários.
-    Ex: Abertura (07:00-12:00 / 13:00-16:00 = 8h líquidas)
+    Regime legal de duração do trabalho com vigência por data (CF art. 7º, XIII e fim da 6x1).
+    Os marcos são antecipados para a segunda-feira da semana do marco legal.
     """
-    __tablename__ = "rh_work_shifts"
+    __tablename__ = "rh_legal_regimes"
 
     id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
-    name = Column(String, nullable=False) # Ex: "Abertura de Loja"
-    code = Column(String, nullable=False) # Ex: "ABRE", "FECHA"
-    start_time = Column(String, nullable=False) # Ex: "07:00"
-    lunch_start = Column(String, nullable=True) # Ex: "12:00"
-    lunch_end = Column(String, nullable=True) # Ex: "13:00"
-    end_time = Column(String, nullable=False) # Ex: "16:00"
-    net_hours = Column(Float, nullable=False, default=8.0) # Horas trabalhadas líquidas
-    description = Column(String, nullable=True) # Ex: "07:00 às 12:00 (almoço) 13:00 às 16:00"
-    is_default = Column(Boolean, default=False)
+    valid_from = Column(Date, nullable=False, unique=True)
+    weekly_limit_min = Column(Integer, nullable=False) # 2640 (44h), 2520 (42h), 2400 (40h)
+    min_rest_days = Column(Integer, nullable=False) # Dias de descanso mínimos por semana
+    max_daily_normal_min = Column(Integer, nullable=False, default=480)
+    label = Column(String, nullable=False)
+    legal_basis = Column(String, nullable=True)
+
+
+class RHContractTemplate(Base):
+    """Modelo pronto de semana-padrão (organization_id nulo = modelo do sistema)."""
+    __tablename__ = "rh_contract_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
+    code = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    # {"0": {"start","lunch_start","lunch_end","end"} | {"rest": "DSR"|"FOLGA"}, ..., "6": ...} (0 = segunda)
+    days = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    is_system = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint('organization_id', 'code', name='uq_org_shift_code'),
-    )
 
-    organization = relationship("Organization")
+class RHEmployeeContract(Base):
+    """Versão do contrato de jornada do colaborador (semana-padrão com horários de cada dia)."""
+    __tablename__ = "rh_employee_contracts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_id = Column(Integer, ForeignKey("rh_contract_templates.id", ondelete="SET NULL"), nullable=True)
+    valid_from = Column(Date, nullable=False)
+    valid_to = Column(Date, nullable=True)
+    days = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False) # Snapshot dos horários
+    weekly_min = Column(Integer, nullable=False, default=0)
+    overtime_agreement = Column(Boolean, default=False) # Acordo de prorrogação (art. 59)
+    compensation_agreement = Column(Boolean, default=False) # Acordo escrito de compensação/banco
+    amendment_signed = Column(Boolean, default=False) # Aditivo assinado (art. 468); falso gera R14
+    amendment_signed_at = Column(Date, nullable=True)
+    amendment_file = Column(String, nullable=True)
+    change_reason = Column(String, default="ADMISSAO") # ADMISSAO | ACORDO | ADEQUACAO_LEGAL
+    notes = Column(String, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    employee = relationship("RHEmployee", back_populates="contracts")
 
 
 class RHEmployee(Base):
@@ -251,13 +279,12 @@ class RHEmployee(Base):
     name = Column(String, nullable=False)
     role_id = Column(Integer, ForeignKey("rh_roles.id"), nullable=True)
     role = Column(String, nullable=True) # Texto de fallback para retrocompatibilidade
-    default_shift_id = Column(Integer, ForeignKey("rh_work_shifts.id"), nullable=True)
     default_daily_transport_tickets = Column(Integer, default=2) # Quantidade padrão de passagens/dia (ex: 2 ou 4)
     daily_transport_cost = Column(Float, default=9.40) # Mantido para compatibilidade
     daily_meal_cost = Column(Float, default=25.00) # Valor individual de 1 refeição/dia
-    weekly_contract_hours = Column(Float, default=44.0) # Regime semanal contratual (ex: 44h, 40h)
-    weekly_actual_hours = Column(Float, default=48.0) # Regime praticado
-    work_days_per_week = Column(Integer, default=6) # 5 ou 6 dias de trabalho por semana
+    # Derivados da versão de contrato vigente (mantidos para consultas rápidas e folha)
+    weekly_contract_hours = Column(Float, default=44.0)
+    work_days_per_week = Column(Integer, default=6)
     base_salary = Column(Float, default=0.0) # Salário base mensal (folha de pagamento)
     dependents = Column(Integer, default=0) # Dependentes para dedução do IRRF
     admission_date = Column(Date, nullable=True) # Data de admissão (tempo de casa / triênio)
@@ -269,8 +296,10 @@ class RHEmployee(Base):
 
     organization = relationship("Organization")
     role_obj = relationship("RHRole")
-    default_shift = relationship("RHWorkShift")
-    schedule_days = relationship("RHScheduleDay", back_populates="employee", cascade="all, delete-orphan")
+    contracts = relationship(
+        "RHEmployeeContract", back_populates="employee", cascade="all, delete-orphan",
+        order_by="RHEmployeeContract.valid_from"
+    )
     work_days = relationship("RHWorkDay", back_populates="employee", cascade="all, delete-orphan")
     payroll_entries = relationship("RHPayrollEntry", back_populates="employee", cascade="all, delete-orphan")
 
@@ -400,6 +429,17 @@ class RHSettings(Base):
     overtime_policy = Column(String, default="BANK") # PAY, PAY_NORMAL, FIXED_PLUS_BANK ou BANK
     overtime_rate = Column(Float, default=50.0) # Acréscimo da hora extra (%)
     overtime_fixed_value = Column(Float, default=0.0) # Valor fixo por hora no modo valor fixo + folga
+    # Conformidade trabalhista (planejamento docs/conformidade-clt)
+    max_daily_overtime_min = Column(Integer, default=120) # Art. 59, caput
+    min_interjornada_min = Column(Integer, default=660) # Art. 66
+    max_consecutive_work_days = Column(Integer, default=6) # OJ 410 SDI-1
+    habitual_overtime_weeks = Column(Integer, default=3) # HE em N das últimas 4 semanas
+    compensation_regime = Column(String, default="MONTHLY") # WEEKLY | MONTHLY | BANK_6M
+    week_start = Column(Integer, default=0) # 0 = segunda ... 6 = domingo
+    late_waiver_auto_min = Column(Integer, default=0) # Abono automático de atraso além da tolerância
+    late_compensation_mode = Column(String, default="AUTO") # AUTO | MANUAL | OFF
+    late_compensation_max_min = Column(Integer, default=30)
+    late_compensation_max_per_month = Column(Integer, default=4)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     organization = relationship("Organization")
@@ -433,33 +473,8 @@ class RHMonthlySchedule(Base):
         UniqueConstraint('organization_id', 'year', 'month', name='uq_org_schedule_month'),
     )
 
-    days = relationship("RHScheduleDay", back_populates="schedule", cascade="all, delete-orphan")
     work_days = relationship("RHWorkDay", back_populates="schedule", cascade="all, delete-orphan")
     benefit_adjustments = relationship("RHBenefitAdjustment", back_populates="schedule", cascade="all, delete-orphan")
-
-
-class RHScheduleDay(Base):
-    __tablename__ = "rh_schedule_days"
-
-    id = Column(Integer, primary_key=True, index=True)
-    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id", ondelete="CASCADE"), nullable=False)
-    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False)
-    schedule_type = Column(String, nullable=False) # 'TRANSPORTE' ou 'ALIMENTACAO'
-    day = Column(Integer, nullable=False) # 1 a 31
-    status = Column(String, nullable=False, default="OFF") # 'X', 'BH', 'F', 'FE', 'OFF'
-    shift_id = Column(Integer, ForeignKey("rh_work_shifts.id"), nullable=True)
-    shift = Column(String, nullable=True) # 'ABRE' (07h-16h), 'FECHA' (09h-19h), ou customizado
-    tickets_count = Column(Integer, default=2) # Quantidade de vales para o dia (ex: 2 ou 4)
-    daily_hours = Column(Float, default=8.0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    __table_args__ = (
-        UniqueConstraint('schedule_id', 'employee_id', 'schedule_type', 'day', name='uq_schedule_emp_type_day'),
-    )
-
-    schedule = relationship("RHMonthlySchedule", back_populates="days")
-    employee = relationship("RHEmployee", back_populates="schedule_days")
-    shift_obj = relationship("RHWorkShift")
 
 
 # ==============================================================================
@@ -475,8 +490,6 @@ class RHWorkDay(Base):
     day = Column(Integer, nullable=False) # 1 a 31
     # Status padrão: TRABALHO, DSR, FOLGA, FERIADO, FERIAS, FOLGA_BH, FALTA, ATESTADO
     status = Column(String, nullable=False, default="TRABALHO")
-    shift_id = Column(Integer, ForeignKey("rh_work_shifts.id"), nullable=True)
-    shift = Column(String, nullable=True) # Código do turno (ex: ABRE, FECHA)
     start_time = Column(String, nullable=True) # "07:00"
     lunch_start = Column(String, nullable=True) # "12:00"
     lunch_end = Column(String, nullable=True) # "13:00"
@@ -488,6 +501,11 @@ class RHWorkDay(Base):
     benefit_note = Column(String, nullable=True) # Observação/justificativa do ajuste de benefício
     is_manual = Column(Boolean, default=False) # Proteção contra sobrescrita acidental em preenchimento em lote
     notes = Column(String, nullable=True)
+    # Decisão do empregador sobre atraso fora dos limites (ACEITAR_COMPENSACAO | ABONAR | NORMAL)
+    late_decision = Column(String, nullable=True)
+    late_decision_note = Column(String, nullable=True)
+    late_decision_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    late_decision_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -496,7 +514,23 @@ class RHWorkDay(Base):
 
     schedule = relationship("RHMonthlySchedule", back_populates="work_days")
     employee = relationship("RHEmployee", back_populates="work_days")
-    shift_obj = relationship("RHWorkShift")
+
+
+class RHWorkDayChange(Base):
+    """Histórico imutável de cada gravação de um dia da escala (rastreabilidade do relatório)."""
+    __tablename__ = "rh_work_day_changes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id", ondelete="CASCADE"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False, index=True)
+    work_date = Column(Date, nullable=False)
+    origin = Column(String, nullable=False) # MANUAL | LOTE | RESET
+    before = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True) # status, horários, minutos
+    after = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    violation_fingerprints = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class RHBenefitAdjustment(Base):

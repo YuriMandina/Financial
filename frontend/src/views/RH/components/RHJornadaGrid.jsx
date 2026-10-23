@@ -42,6 +42,34 @@ const computeWorkedMinutes = ({ start_time, lunch_start, lunch_end, end_time }) 
 
 const formatWorked = (mins) => `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}`;
 
+// Hora compacta para a célula: "07:00" → "7", "07:30" → "7:30"
+const compactTime = (t) => {
+  if (!t) return '';
+  const [h, m] = t.split(':');
+  return `${parseInt(h, 10)}${m && m !== '00' ? `:${m}` : ''}`;
+};
+
+const compactRange = (start, end) => (start && end ? `${compactTime(start)}–${compactTime(end)}` : '');
+
+// Saldo curto para o selo: 240 → "4h", 30 → "0h30"
+const shortHours = (mins) => {
+  const abs = Math.abs(mins);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return `${h}h${m ? String(m).padStart(2, '0') : ''}`;
+};
+
+// Horários do contrato no dia (contract_day vem da API); null quando o dia é descanso ou sem contrato
+const contractTimes = (cd) => (cd && !cd.rest && cd.start_time
+  ? { start_time: cd.start_time, lunch_start: cd.lunch_start || null, lunch_end: cd.lunch_end || null, end_time: cd.end_time }
+  : null);
+
+const LATE_DECISIONS = [
+  { key: 'ACEITAR_COMPENSACAO', label: 'Aceitar compensação' },
+  { key: 'ABONAR', label: 'Abonar atraso' },
+  { key: 'NORMAL', label: 'Tratar normalmente' }
+];
+
 const WEEKDAY_SHORT =['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
 const MONTH_NAMES = [
@@ -51,8 +79,7 @@ const MONTH_NAMES = [
 
 export default function RHJornadaGrid({
   employees = [],
-  shifts = [],
-  workDays = {}, // workDays[empId][day]
+  workDays = {}, // workDays[empId][day] (com contract_day e ledger calculados no backend)
   daysList = [],
   sundays = [],
   holidays = {},
@@ -97,7 +124,6 @@ export default function RHJornadaGrid({
   const selectionAnchorRef = React.useRef(null);
 
   // Parâmetros do Painel de Preenchimento em Lote
-  const [fillShiftId, setFillShiftId] = useState('');
   const [fillTargetEmployees, setFillTargetEmployees] = useState('ALL'); // 'ALL' ou empId
   const [fillDayFrom, setFillDayFrom] = useState(1);
   const [fillDayTo, setFillDayTo] = useState(daysList.length || 31);
@@ -120,80 +146,26 @@ export default function RHJornadaGrid({
     }
   }, [daysList]);
 
-  // Mapeamentos
-  const shiftMap = useMemo(() => {
-    const map = {};
-    shifts.forEach((s) => { map[s.id] = s; });
-    return map;
-  }, [shifts]);
-
+  // Resumo do mês vem do backend (ledger): horas extras e débitos só mudam após salvar
   const summaryMap = useMemo(() => {
     const map = {};
-    employees.forEach((emp) => {
-      const serverSummary = summaries.find((s) => s.employee_id === emp.id) || {};
-      const empDaysObj = localWorkDays[emp.id] || {};
-
-      const contractHours = Number(emp.weekly_contract_hours) || 44.0;
-      const workDaysPerWeek = Number(emp.work_days_per_week) || 6;
-      const dailyExpectedMin = Math.round((contractHours / workDaysPerWeek) * 60);
-
-      let totalWorkedMin = 0;
-      let totalExpectedMin = 0;
-
-      daysList.forEach((day) => {
-        const dVal = empDaysObj[day];
-        const status = dVal ? dVal.status : (sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'));
-        const workedMin = dVal?.worked_minutes !== undefined && dVal?.worked_minutes !== null ? Number(dVal.worked_minutes) : (status === 'TRABALHO' ? 480 : 0);
-
-        if (status === 'TRABALHO') {
-          totalWorkedMin += workedMin;
-          totalExpectedMin += dailyExpectedMin;
-        } else if (status === 'FOLGA_BH') {
-          totalExpectedMin += dailyExpectedMin;
-        }
-      });
-
-      const balanceMin = totalWorkedMin - totalExpectedMin;
-
-      const formatHours = (mins) => {
-        const sign = mins < 0 ? '-' : '';
-        const absM = Math.abs(mins);
-        const h = Math.floor(absM / 60);
-        const m = absM % 60;
-        return `${sign}${h}h${String(m).padStart(2, '0')}`;
-      };
-
-      map[emp.id] = {
-        ...serverSummary,
-        total_worked_minutes: totalWorkedMin,
-        total_expected_minutes: totalExpectedMin,
-        final_balance_minutes: balanceMin,
-        worked_hours_formatted: formatHours(totalWorkedMin),
-        expected_hours_formatted: formatHours(totalExpectedMin),
-        bank_hours_balance_formatted: formatHours(balanceMin)
-      };
-    });
+    summaries.forEach((s) => { map[s.employee_id] = s; });
     return map;
-  }, [employees, summaries, localWorkDays, daysList, sundays, holidays]);
+  }, [summaries]);
 
-  // Totais de colaboradores por turno em cada dia (cobertura diária)
+  // Colaboradores trabalhando em cada dia, agrupados por horário (cobertura diária)
   const dailyShiftTotals = useMemo(() => {
-    const rows = {}; // { code: { name, counts: { day: n } } }
+    const rows = {}; // { "7–16": { counts: { day: n }, roles: { role: { day: n } } } }
     const totals = {};
 
     employees.forEach((emp) => {
       const empDays = localWorkDays[emp.id] || {};
-      const defaultShift = shiftMap[emp.default_shift_id];
-
       daysList.forEach((day) => {
         const dInfo = empDays[day] || {};
-        const status = dInfo.status || (sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'));
-        if (status !== 'TRABALHO') return;
-
-        const dayShift = shiftMap[dInfo.shift_id] || shifts.find((s) => s.code === dInfo.shift) || (dInfo.shift ? null : defaultShift);
-        const code = dayShift?.code || dInfo.shift || 'Sem turno';
+        if (dInfo.status !== 'TRABALHO') return;
+        const code = compactRange(dInfo.start_time, dInfo.end_time) || 'Sem horário';
         const role = emp.role || 'Geral';
-        if (!rows[code]) rows[code] = { name: dayShift?.name || code, counts: {}, roles: {} };
+        if (!rows[code]) rows[code] = { name: code, counts: {}, roles: {}, start: dInfo.start_time || '99:99' };
         if (!rows[code].roles[role]) rows[code].roles[role] = {};
         rows[code].counts[day] = (rows[code].counts[day] || 0) + 1;
         rows[code].roles[role][day] = (rows[code].roles[role][day] || 0) + 1;
@@ -201,16 +173,9 @@ export default function RHJornadaGrid({
       });
     });
 
-    // Mantém a ordem de cadastro dos turnos; turnos avulsos ao final
-    const order = shifts.map((s) => s.code);
-    const sortedRows = Object.entries(rows).sort(([a], [b]) => {
-      const ia = order.indexOf(a);
-      const ib = order.indexOf(b);
-      return (ia === -1 ? Infinity : ia) - (ib === -1 ? Infinity : ib);
-    });
-
+    const sortedRows = Object.entries(rows).sort(([, a], [, b]) => a.start.localeCompare(b.start));
     return { rows: sortedRows, totals };
-  }, [employees, localWorkDays, daysList, sundays, holidays, shifts, shiftMap]);
+  }, [employees, localWorkDays, daysList]);
 
   // ==============================================================================
   // --- [AÇÕES DE EDIÇÃO DE CÉLULA] ---
@@ -218,12 +183,23 @@ export default function RHJornadaGrid({
 
   const getCellData = (empId, day, source = localWorkDays) => source[empId]?.[day] || {
     day,
-    status: sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'),
-    start_time: '08:00',
-    lunch_start: '12:00',
-    lunch_end: '13:00',
-    end_time: '17:00',
-    worked_minutes: 480
+    status: sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'FOLGA'),
+    start_time: null,
+    lunch_start: null,
+    lunch_end: null,
+    end_time: null,
+    worked_minutes: 0
+  };
+
+  // Dia conforme o contrato: horários contratados ou o descanso do contrato
+  const contractEntry = (current) => {
+    const cd = current.contract_day;
+    if (holidays[current.day]) {
+      return { status: 'FERIADO', start_time: null, lunch_start: null, lunch_end: null, end_time: null, worked_minutes: 0 };
+    }
+    const times = contractTimes(cd);
+    if (times) return { status: 'TRABALHO', ...times, worked_minutes: computeWorkedMinutes(times) };
+    return { status: cd?.rest || current.status, start_time: null, lunch_start: null, lunch_end: null, end_time: null, worked_minutes: 0 };
   };
 
   const handleOpenCellEdit = (emp, day) => {
@@ -337,9 +313,6 @@ export default function RHJornadaGrid({
   // Aplica turno ou status a todas as células selecionadas
   const handleBulkApply = (action) => {
     if (selectedCells.size === 0) return;
-    const empById = {};
-    employees.forEach((emp) => { empById[emp.id] = emp; });
-
     commitLocalChange((prev) => {
       const next = { ...prev };
       selectedCells.forEach((key) => {
@@ -349,29 +322,13 @@ export default function RHJornadaGrid({
         const current = getCellData(empId, day, prev);
         let entry;
 
-        if (action.type === 'shift') {
-          const shiftObj = action.shiftId === 'DEFAULT'
-            ? shiftMap[empById[empId]?.default_shift_id]
-            : shiftMap[action.shiftId];
-          entry = {
-            ...current,
-            day,
-            status: 'TRABALHO',
-            shift_id: shiftObj?.id || null,
-            shift: shiftObj?.code || null,
-            start_time: shiftObj?.start_time || '08:00',
-            lunch_start: shiftObj ? (shiftObj.lunch_start || null) : '12:00',
-            lunch_end: shiftObj ? (shiftObj.lunch_end || null) : '13:00',
-            end_time: shiftObj?.end_time || '17:00',
-            worked_minutes: shiftObj ? Math.round(shiftObj.net_hours * 60) : 480
-          };
+        if (action.type === 'contract') {
+          entry = { ...current, day, ...contractEntry({ ...current, day }) };
         } else {
           entry = {
             ...current,
             day,
             status: action.status,
-            shift_id: null,
-            shift: null,
             start_time: null,
             lunch_start: null,
             lunch_end: null,
@@ -446,7 +403,7 @@ export default function RHJornadaGrid({
 
   const changedCells = useMemo(() => {
     const changed = new Set();
-    const fields = ['status', 'shift_id', 'start_time', 'lunch_start', 'lunch_end', 'end_time', 'worked_minutes', 'notes'];
+    const fields = ['status', 'start_time', 'lunch_start', 'lunch_end', 'end_time', 'worked_minutes', 'notes', 'late_decision'];
     Object.entries(localWorkDays).forEach(([empId, days]) => {
       Object.entries(days || {}).forEach(([day, local]) => {
         const original = workDays[empId]?.[day];
@@ -474,7 +431,7 @@ export default function RHJornadaGrid({
   // Desloca entrada ou saída (HH:MM) e recalcula as horas do dia
   const shiftEditingTime = (field, minutesDiff) => {
     if (!editingCell) return;
-    const fallback = field === 'start_time' ? '08:00' : '17:00';
+    const fallback = field === 'start_time' ? '07:00' : '16:00';
     const total = (toMinutes(editingCell.data[field] || fallback) + minutesDiff + 1440) % 1440;
     updateEditingTimes({ [field]: `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}` });
   };
@@ -502,8 +459,6 @@ export default function RHJornadaGrid({
     return () => { cancelled = true; };
   }, [apiBase, token, selectedYear, selectedMonth, workDays]);
 
-  const dailyExpectedFor = (emp) => Math.round(((Number(emp?.weekly_contract_hours) || 44) / (Number(emp?.work_days_per_week) || 6)) * 60);
-
   // Efeito de um dia no banco: horas a mais/a menos no trabalho ou a jornada inteira na folga BH
   const bankContribution = (data, expected) => {
     if (!data) return 0;
@@ -514,14 +469,14 @@ export default function RHJornadaGrid({
 
   const editingBank = useMemo(() => {
     if (!editingCell) return null;
-    const emp = employees.find((e) => e.id === editingCell.empId);
-    const expected = dailyExpectedFor(emp);
+    const cd = editingCell.data.contract_day;
+    const expected = cd && !cd.rest ? (cd.minutes || 0) : 0;
     const monthBalance = summaryMap[editingCell.empId]?.final_balance_minutes || 0;
     const original = getCellData(editingCell.empId, editingCell.day);
     const before = (bankBase[editingCell.empId] || 0) + monthBalance - bankContribution(original, expected);
     const after = before + bankContribution(editingCell.data, expected);
     return { expected, before, after };
-  }, [editingCell, employees, summaryMap, bankBase]);
+  }, [editingCell, summaryMap, bankBase]);
 
   const fmtBank = (m) => `${m > 0 ? '+' : m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}h${String(Math.abs(m) % 60).padStart(2, '0')}`;
 
@@ -535,27 +490,31 @@ export default function RHJornadaGrid({
       setSaveMsg('');
       const entries = [];
 
-      Object.entries(localWorkDays).forEach(([empIdStr, daysObj]) => {
-        const empId = parseInt(empIdStr, 10);
-        Object.entries(daysObj).forEach(([dayStr, dVal]) => {
-          entries.push({
-            employee_id: empId,
-            day: parseInt(dayStr, 10),
-            status: dVal.status,
-            shift_id: dVal.shift_id,
-            shift: dVal.shift,
-            start_time: dVal.start_time,
-            lunch_start: dVal.lunch_start,
-            lunch_end: dVal.lunch_end,
-            end_time: dVal.end_time,
-            worked_minutes: dVal.worked_minutes,
-            vt_tickets_override: dVal.vt_tickets_override,
-            va_override: dVal.va_override,
-            benefit_note: dVal.benefit_note,
-            notes: dVal.notes,
-            is_manual: Boolean(dVal.is_manual)
-          });
-        });
+      // Só os dias alterados: cada gravação entra no histórico de alterações da escala
+      changedCells.forEach((key) => {
+        const [empIdStr, dayStr] = key.split(':');
+        const dVal = localWorkDays[empIdStr]?.[dayStr];
+        if (!dVal) return;
+        const original = workDays[empIdStr]?.[dayStr];
+        const entry = {
+          employee_id: parseInt(empIdStr, 10),
+          day: parseInt(dayStr, 10),
+          status: dVal.status,
+          start_time: dVal.start_time,
+          lunch_start: dVal.lunch_start,
+          lunch_end: dVal.lunch_end,
+          end_time: dVal.end_time,
+          worked_minutes: dVal.worked_minutes,
+          vt_tickets_override: dVal.vt_tickets_override,
+          va_override: dVal.va_override,
+          benefit_note: dVal.benefit_note,
+          notes: dVal.notes,
+          is_manual: Boolean(dVal.is_manual)
+        };
+        if ((dVal.late_decision ?? null) !== (original?.late_decision ?? null)) {
+          entry.late_decision = dVal.late_decision ?? null;
+        }
+        entries.push(entry);
       });
 
       const res = await fetch(`${apiBase}/api/rh/schedules/work-days`, {
@@ -595,7 +554,6 @@ export default function RHJornadaGrid({
       const payload = {
         schedule_id: scheduleId,
         employee_ids: fillTargetEmployees === 'ALL' ? null : [parseInt(fillTargetEmployees, 10)],
-        shift_id: fillShiftId ? parseInt(fillShiftId, 10) : null,
         status: 'TRABALHO',
         day_from: parseInt(fillDayFrom, 10) || 1,
         day_to: parseInt(fillDayTo, 10) || daysList.length,
@@ -625,7 +583,7 @@ export default function RHJornadaGrid({
         );
       } else {
         setFillDrawerOpen(false);
-        setSaveMsg(resData.message || 'Turnos aplicados com sucesso!');
+        setSaveMsg(resData.message || 'Contrato aplicado com sucesso!');
         setTimeout(() => setSaveMsg(''), 6000);
       }
 
@@ -633,7 +591,7 @@ export default function RHJornadaGrid({
       setUndoStack([]);
       if (onRefresh) await onRefresh();
     } catch (err) {
-      alert('Falha ao aplicar turno em lote: ' + err.message);
+      alert('Falha ao aplicar o contrato em lote: ' + err.message);
     } finally {
       setFilling(false);
     }
@@ -690,7 +648,7 @@ export default function RHJornadaGrid({
             Grade de Jornada & Escala de Trabalho
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Fonte única da verdade: horários e turnos reais dia a dia geram automaticamente o VT, VA e o Banco de Horas.
+            Horários reais dia a dia. Horas extras e débitos são apurados sobre a jornada do contrato de cada dia.
           </p>
         </div>
 
@@ -700,7 +658,7 @@ export default function RHJornadaGrid({
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 transition-colors"
           >
             <Sliders size={14} />
-            {fillDrawerOpen ? 'Fechar Painel de Turnos' : 'Aplicar Turnos em Lote'}
+            {fillDrawerOpen ? 'Fechar Painel' : 'Aplicar Contrato em Lote'}
           </button>
 
           <button
@@ -749,7 +707,7 @@ export default function RHJornadaGrid({
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
               <Sparkles size={16} />
-              Preenchimento Automatizado de Escala & Turnos
+              Preenchimento pela Semana-Padrão do Contrato
             </div>
             <button
               onClick={() => setFillDrawerOpen(false)}
@@ -759,24 +717,11 @@ export default function RHJornadaGrid({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-            <div>
-              <label className="block text-slate-400 mb-1">Turno a Aplicar</label>
-              <SelectDropdown
-                value={fillShiftId}
-                onChange={(val) => setFillShiftId(val)}
-                placeholder="Turno Contratual do Colaborador"
-                options={[
-                  { value: '', label: 'Turno Contratual do Colaborador' },
-                  ...shifts.map((s) => ({
-                    value: s.id,
-                    label: `${s.code}: ${s.name}`,
-                    subtitle: `${s.net_hours}h líquidas`
-                  }))
-                ]}
-              />
-            </div>
-
+          <p className="text-[11px] text-slate-400">
+            Cada dia recebe exatamente o horário do contrato vigente na data (DSR, folgas e feriados incluídos).
+            O preenchimento em lote nunca gera hora extra; variações são feitas manualmente.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div>
               <label className="block text-slate-400 mb-1">Colaborador(es)</label>
               <SelectDropdown
@@ -814,7 +759,7 @@ export default function RHJornadaGrid({
                   checked={fillOverwriteManual}
                   onChange={(checked) => setFillOverwriteManual(checked)}
                   label="Sobrescrever edições manuais"
-                  description="Aplica novo turno mesmo em dias editados"
+                  description="Reaplica o contrato também em dias editados"
                 />
                 <StyledCheckbox
                   checked={fillClearUnselected}
@@ -854,28 +799,14 @@ export default function RHJornadaGrid({
             {selectedCells.size} {selectedCells.size === 1 ? 'célula' : 'células'}
           </span>
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-slate-500 font-medium">Turno:</span>
-            <button
-              type="button"
-              onClick={() => handleBulkApply({ type: 'shift', shiftId: 'DEFAULT' })}
-              className="px-2 py-1 rounded-md border border-emerald-500/40 bg-emerald-600/10 text-emerald-300 hover:bg-emerald-600/25 font-semibold"
-              title="Aplica o turno contratual de cada colaborador"
-            >
-              Contratual
-            </button>
-            {shifts.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => handleBulkApply({ type: 'shift', shiftId: s.id })}
-                className="px-2 py-1 rounded-md border border-emerald-500/40 bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/35 font-bold"
-                title={`${s.name} (${s.net_hours}h)`}
-              >
-                {s.code}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => handleBulkApply({ type: 'contract' })}
+            className="px-2 py-1 rounded-md border border-emerald-500/40 bg-emerald-600/10 text-emerald-300 hover:bg-emerald-600/25 font-semibold"
+            title="Aplica o horário (ou descanso) do contrato de cada colaborador no dia"
+          >
+            Horário do contrato
+          </button>
 
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-slate-500 font-medium">Status:</span>
@@ -904,7 +835,7 @@ export default function RHJornadaGrid({
       ) : (
         <div className="flex items-center gap-1.5 text-[11px] text-slate-500 px-1">
           <MousePointerSquareDashed size={13} />
-          Clique para ajustar um dia. Arraste, use Shift+clique ou Ctrl+clique para selecionar vários e aplicar turno ou status de uma vez.
+          Clique para ajustar um dia. Arraste, use Shift+clique ou Ctrl+clique para selecionar vários e aplicar o horário do contrato ou um status de uma vez.
         </div>
       )}
 
@@ -915,7 +846,7 @@ export default function RHJornadaGrid({
             <thead>
               <tr className="bg-slate-950/90 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
                 <th className="py-2.5 px-3 min-w-[170px] sticky left-0 bg-slate-950 z-10 border-r border-slate-800">
-                  Colaborador & Turno
+                  Colaborador & Contrato
                 </th>
                 {daysList.map((day) => {
                   const isSunday = sundays.includes(day);
@@ -959,18 +890,17 @@ export default function RHJornadaGrid({
               {employees.map((emp, empIdx) => {
                 const empDays = localWorkDays[emp.id] || {};
                 const summary = summaryMap[emp.id] || {};
-                const shift = shiftMap[emp.default_shift_id];
 
                 return (
                   <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-2 px-3 font-medium text-slate-200 sticky left-0 bg-slate-900 border-r border-slate-800 z-10">
                       <div className="truncate max-w-[150px] font-semibold text-white">{emp.name}</div>
-                      <div className="text-[10px] text-slate-400 truncate">
-                        {emp.role || 'Geral'} • {emp.weekly_contract_hours}h/sem ({emp.work_days_per_week || 6}d)
-                      </div>
-                      <div className="text-[10px] text-indigo-400">
-                        Turno: {shift?.code || 'Padrão (8h)'}
-                      </div>
+                      <div className="text-[10px] text-slate-400 truncate">{emp.role || 'Geral'}</div>
+                      {emp.contract ? (
+                        <div className="text-[10px] text-indigo-400 truncate" title="Contrato de jornada vigente">{emp.contract.summary}</div>
+                      ) : (
+                        <div className="text-[10px] text-amber-400" title="Defina o contrato no cadastro do colaborador">Sem contrato de jornada</div>
+                      )}
                     </td>
 
                     {daysList.map((day, dayIdx) => {
@@ -981,16 +911,31 @@ export default function RHJornadaGrid({
                       const isManual = dInfo.is_manual;
                       const workedMin = dInfo.worked_minutes || 0;
                       const workedH = (workedMin / 60).toFixed(workedMin % 60 === 0 ? 0 : 1);
-                      // Diferença em relação à jornada diária esperada (mesma regra do banco de horas)
-                      const dailyExpectedMin = Math.round(((Number(emp.weekly_contract_hours) || 44) / (Number(emp.work_days_per_week) || 6)) * 60);
-                      const diffMin = workedMin - dailyExpectedMin;
-                      const diffLabel = `${diffMin > 0 ? '+' : '-'}${Math.floor(Math.abs(diffMin) / 60)}h${Math.abs(diffMin) % 60 ? String(Math.abs(diffMin) % 60).padStart(2, '0') : ''}`;
+                      const isChangedCell = changedCells.has(cellKey(emp.id, day));
+                      // Selos: do ledger (backend) quando salvo; prévia sobre a jornada do contrato quando alterado
+                      const ledger = !isChangedCell ? dInfo.ledger : null;
+                      const contractMin = dInfo.contract_day && !dInfo.contract_day.rest ? (dInfo.contract_day.minutes || 0) : 0;
+                      const previewDiff = isChangedCell && status === 'TRABALHO' && dInfo.contract_day ? workedMin - contractMin : 0;
+                      const extraMin = ledger ? ledger.extra_min : Math.max(0, previewDiff);
+                      const shortMin = ledger ? ledger.short_min : Math.max(0, -previewDiff);
+                      const extraKind = ledger?.extra_kind;
+                      const compensatedMin = ledger?.compensated_min || 0;
+                      const paidDouble = Boolean(ledger?.rest_worked_unpaid_double);
+                      const latePending = Boolean(ledger?.late_pending_decision);
+                      const tipParts = [];
+                      if (extraMin) tipParts.push(`+${shortHours(extraMin)} de hora extra${extraKind === 'SEMANAL' ? ' (limite semanal)' : ''}`);
+                      if (shortMin) tipParts.push(`−${shortHours(shortMin)} abaixo da jornada do contrato`);
+                      if (compensatedMin) tipParts.push(`${shortHours(compensatedMin)} compensadas no período`);
+                      if (ledger?.rest_swap_with) tipParts.push(`folga trocada com ${ledger.rest_swap_with.split('-').reverse().slice(0, 2).join('/')}`);
+                      if (paidDouble) tipParts.push('repouso trabalhado sem folga compensatória: pagamento em dobro');
+                      if (latePending) tipParts.push('atraso fora dos limites: aguarda decisão');
+                      if (isChangedCell && previewDiff) tipParts.push('prévia: recalculado ao salvar');
 
                       let label = '';
                       let badgeStyle = 'bg-slate-800/40 text-slate-400 border-slate-700/50';
 
                       if (status === 'TRABALHO') {
-                        label = `${dInfo.shift || '8h'}`;
+                        label = compactRange(dInfo.start_time, dInfo.end_time) || `${workedH}h`;
                         badgeStyle = 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30';
                       } else if (status === 'DSR') {
                         label = 'DSR';
@@ -1018,7 +963,7 @@ export default function RHJornadaGrid({
                       }
 
                       const isSelected = selectedCells.has(cellKey(emp.id, day));
-                      const isChanged = changedCells.has(cellKey(emp.id, day));
+                      const isChanged = isChangedCell;
 
                       return (
                         <td
@@ -1029,10 +974,10 @@ export default function RHJornadaGrid({
                           className={`py-1 px-0.5 text-center cursor-pointer select-none transition-colors border-r border-slate-800/50 ${
                             isSelected ? 'bg-indigo-500/25' : isSun ? 'bg-red-950/10' : ''
                           }`}
-                          title={`Dia ${day}: ${status}${lostDsrBy ? ` PERDIDO (falta no dia ${lostDsrBy.join(', ')}; remuneração do DSR descontada na folha)` : ''} (${workedH}h trabalhadas${status === 'TRABALHO' && diffMin !== 0 ? `, ${diffLabel} em relação à jornada` : ''})${isChanged ? ' • alterado, não salvo' : ''}. Clique para ajustar; arraste ou use Shift/Ctrl+clique para selecionar vários.`}
+                          title={`Dia ${day}: ${status}${lostDsrBy ? ` PERDIDO (falta no dia ${lostDsrBy.join(', ')}; remuneração do DSR descontada na folha)` : ''} (${workedH}h trabalhadas${tipParts.length ? `; ${tipParts.join('; ')}` : ''})${isChanged ? ' • alterado, não salvo' : ''}. Clique para ajustar; arraste ou use Shift/Ctrl+clique para selecionar vários.`}
                         >
                           <div
-                            className={`w-7 h-7 mx-auto rounded flex flex-col items-center justify-center font-bold text-[10px] border transition-transform active:scale-95 relative ${badgeStyle} ${
+                            className={`min-w-[2.6rem] h-8 px-0.5 mx-auto rounded flex flex-col items-center justify-center font-bold text-[10px] leading-tight border transition-transform active:scale-95 relative ${badgeStyle} ${
                               isSelected
                                 ? 'ring-2 ring-indigo-400'
                                 : isManual ? 'border-dashed ring-1 ring-indigo-400/30' : ''
@@ -1046,12 +991,24 @@ export default function RHJornadaGrid({
                                 ✕
                               </span>
                             )}
-                            <span>{label}</span>
-                            {status === 'TRABALHO' && diffMin !== 0 && (
-                              <span className={`text-[8px] font-bold -mt-0.5 leading-none ${diffMin > 0 ? 'text-amber-300' : 'text-rose-300'}`}>
-                                {diffLabel}
-                              </span>
+                            {paidDouble && (
+                              <span className="absolute -top-1.5 -left-1 px-0.5 rounded bg-red-600 text-white text-[7px] leading-none py-0.5" title="Pagamento em dobro">2x</span>
                             )}
+                            {latePending && (
+                              <span className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-orange-400 ring-1 ring-slate-900" />
+                            )}
+                            <span className="whitespace-nowrap">{label}</span>
+                            {extraMin > 0 ? (
+                              <span className={`text-[8px] font-bold leading-none ${extraKind === 'SEMANAL' ? 'text-orange-300' : 'text-amber-300'} ${isChangedCell ? 'opacity-70' : ''}`}>
+                                +{shortHours(extraMin)}
+                              </span>
+                            ) : shortMin > 0 ? (
+                              <span className={`text-[8px] font-bold leading-none text-rose-300 ${isChangedCell ? 'opacity-70' : ''}`}>
+                                −{shortHours(shortMin)}
+                              </span>
+                            ) : compensatedMin > 0 && status === 'TRABALHO' ? (
+                              <span className="text-[8px] font-bold leading-none text-sky-300">⇄</span>
+                            ) : null}
                           </div>
                         </td>
                       );
@@ -1100,7 +1057,7 @@ export default function RHJornadaGrid({
                           className={`py-1.5 px-0.5 text-center text-[11px] border-r border-slate-800/50 ${
                             sundays.includes(day) ? 'bg-red-950/10' : ''
                           } ${n > 0 ? 'font-bold text-slate-200' : 'text-slate-600'}`}
-                          title={`Dia ${day}: ${n} colaborador(es) no turno ${code}`}
+                          title={`Dia ${day}: ${n} colaborador(es) no horário ${code}`}
                         >
                           {n > 0 ? n : '·'}
                         </td>
@@ -1123,7 +1080,7 @@ export default function RHJornadaGrid({
                               className={`py-1 px-0.5 text-center text-[10px] border-r border-slate-800/50 ${
                                 sundays.includes(day) ? 'bg-red-950/10' : ''
                               } ${n > 0 ? 'text-slate-400' : 'text-slate-700'}`}
-                              title={`Dia ${day}: ${n} ${role} no turno ${code}`}
+                              title={`Dia ${day}: ${n} ${role} no horário ${code}`}
                             >
                               {n > 0 ? n : '·'}
                             </td>
@@ -1193,10 +1150,14 @@ export default function RHJornadaGrid({
                         data: {
                           ...editingCell.data,
                           ...(st.key === 'TRABALHO' && !editingCell.data.start_time
-                            ? { start_time: '08:00', lunch_start: '12:00', lunch_end: '13:00', end_time: '17:00' }
+                            ? (contractTimes(editingCell.data.contract_day) || { start_time: '07:00', lunch_start: '12:00', lunch_end: '13:00', end_time: '16:00' })
                             : {}),
                           status: st.key,
-                          worked_minutes: st.key === 'TRABALHO' ? (editingCell.data.worked_minutes || 480) : 0
+                          worked_minutes: st.key === 'TRABALHO'
+                            ? (editingCell.data.start_time
+                              ? computeWorkedMinutes(editingCell.data)
+                              : computeWorkedMinutes(contractTimes(editingCell.data.contract_day) || { start_time: '07:00', lunch_start: '12:00', lunch_end: '13:00', end_time: '16:00' }))
+                            : 0
                         }
                       })}
                       className={`px-2.5 py-1.5 rounded-lg border text-left font-medium text-[11px] transition-colors ${
@@ -1250,37 +1211,28 @@ export default function RHJornadaGrid({
               {/* Se for TRABALHO, exibe seleção de turno e horários */}
               {editingCell.data.status === 'TRABALHO' && (
                 <>
-                  <div>
-                    <label className="block text-slate-400 mb-1 font-medium">Turno Base</label>
-                    <SelectDropdown
-                      value={editingCell.data.shift_id || ''}
-                      onChange={(val) => {
-                        const sId = val ? parseInt(val, 10) : null;
-                        const sObj = shiftMap[sId];
-                        setEditingCell({
-                          ...editingCell,
-                          data: {
-                            ...editingCell.data,
-                            shift_id: sId,
-                            shift: sObj?.code || null,
-                            start_time: sObj?.start_time || editingCell.data.start_time || '08:00',
-                            lunch_start: sObj ? (sObj.lunch_start || null) : '12:00',
-                            lunch_end: sObj ? (sObj.lunch_end || null) : '13:00',
-                            end_time: sObj?.end_time || '17:00',
-                            worked_minutes: sObj ? Math.round(sObj.net_hours * 60) : 480
-                          }
-                        });
-                      }}
-                      placeholder="Personalizado / Sem turno fixo"
-                      options={[
-                        { value: '', label: 'Personalizado / Sem turno fixo' },
-                        ...shifts.map((s) => ({
-                          value: s.id,
-                          label: `${s.code}: ${s.name}`,
-                          subtitle: `${s.net_hours}h`
-                        }))
-                      ]}
-                    />
+                  {/* Horário do contrato no dia (referência para hora extra) */}
+                  <div className="flex items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2">
+                    <span className="text-[11px] text-slate-400">
+                      Contrato no dia:{' '}
+                      <span className="font-semibold text-slate-200">
+                        {(() => {
+                          const cd = editingCell.data.contract_day;
+                          if (!cd) return 'sem contrato vigente';
+                          if (cd.rest) return cd.rest === 'DSR' ? 'DSR (repouso)' : 'Folga';
+                          return `${cd.start_time}–${cd.end_time}${cd.lunch_start ? ` (int. ${cd.lunch_start}–${cd.lunch_end})` : ''} • ${formatWorked(cd.minutes || 0)}`;
+                        })()}
+                      </span>
+                    </span>
+                    {contractTimes(editingCell.data.contract_day) && (
+                      <button
+                        type="button"
+                        onClick={() => updateEditingTimes(contractTimes(editingCell.data.contract_day))}
+                        className="text-[10px] font-semibold text-indigo-300 hover:text-indigo-200 whitespace-nowrap"
+                      >
+                        Voltar ao horário do contrato
+                      </button>
+                    )}
                   </div>
 
                   {/* Horários do Dia */}
@@ -1289,7 +1241,7 @@ export default function RHJornadaGrid({
                       <label className="block text-[10px] text-slate-400 mb-1">Entrada 1</label>
                       <input
                         type="time"
-                        value={editingCell.data.start_time || '08:00'}
+                        value={editingCell.data.start_time || ''}
                         onChange={(e) => updateEditingTimes({ start_time: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white text-center text-xs"
                       />
@@ -1318,7 +1270,7 @@ export default function RHJornadaGrid({
                       <label className="block text-[10px] text-slate-400 mb-1">Saída 2</label>
                       <input
                         type="time"
-                        value={editingCell.data.end_time || '17:00'}
+                        value={editingCell.data.end_time || ''}
                         onChange={(e) => updateEditingTimes({ end_time: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-white text-center text-xs"
                       />
@@ -1362,7 +1314,7 @@ export default function RHJornadaGrid({
                       ))}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] text-slate-400 font-medium w-32">Usar banco: chegar mais tarde</span>
+                      <span className="text-[10px] text-slate-400 font-medium w-32">Chegar mais tarde</span>
                       {[30, 60, 120].map((m) => (
                         <button key={`in-${m}`} type="button" onClick={() => shiftEditingTime('start_time', m)}
                           className="px-2 py-1 rounded font-semibold text-[11px] border bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700">
@@ -1372,6 +1324,36 @@ export default function RHJornadaGrid({
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* Atraso fora dos limites de compensação automática: decisão do empregador */}
+              {editingCell.data.status === 'TRABALHO' && (editingCell.data.ledger?.late_min > 0 || editingCell.data.late_decision) && (
+                <div className="bg-slate-950 border border-orange-500/30 rounded-lg p-2.5 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-orange-300">
+                    Atraso de {editingCell.data.ledger?.late_min || 0} min
+                    {editingCell.data.ledger?.late_compensated_min ? ` • ${editingCell.data.ledger.late_compensated_min} min compensados` : ''}
+                    {editingCell.data.ledger?.late_pending_decision ? ' • fora dos limites, aguarda decisão' : ''}
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {LATE_DECISIONS.map((d) => (
+                      <button
+                        key={d.key}
+                        type="button"
+                        onClick={() => setEditingCell({
+                          ...editingCell,
+                          data: { ...editingCell.data, late_decision: editingCell.data.late_decision === d.key ? null : d.key }
+                        })}
+                        className={`px-2 py-1 rounded border text-[10px] font-semibold ${
+                          editingCell.data.late_decision === d.key
+                            ? 'border-orange-400 bg-orange-500/20 text-orange-200'
+                            : 'border-slate-700 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* Justificativa / Observação */}
@@ -1471,7 +1453,7 @@ export default function RHJornadaGrid({
                     <div>
                       <span className="font-semibold text-rose-300 block">Zerar e Definir Folgas Semanais</span>
                       <span className="text-[11px] text-slate-400 block mt-0.5">
-                        Remove turnos de trabalho e define dias como folga neutra (não debita banco de horas).
+                        Remove os horários de trabalho e define os dias como descanso (não debita banco de horas).
                       </span>
                     </div>
                   </label>
@@ -1490,9 +1472,9 @@ export default function RHJornadaGrid({
                       className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
                     />
                     <div>
-                      <span className="font-semibold text-indigo-300 block">Restaurar Turno Contratual</span>
+                      <span className="font-semibold text-indigo-300 block">Restaurar Contrato de Jornada</span>
                       <span className="text-[11px] text-slate-400 block mt-0.5">
-                        Reaplica os horários e turnos contratuais padrão em dias úteis e DSR aos domingos.
+                        Reaplica a semana-padrão do contrato vigente (horários, DSR, folgas e feriados).
                       </span>
                     </div>
                   </label>

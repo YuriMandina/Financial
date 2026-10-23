@@ -39,10 +39,7 @@ async def startup_event():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS transport_ticket_unit_price FLOAT DEFAULT 4.70;"))
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES rh_roles(id);"))
-            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS default_shift_id INTEGER REFERENCES rh_work_shifts(id);"))
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS default_daily_transport_tickets INTEGER DEFAULT 2;"))
-            conn.execute(text("ALTER TABLE rh_schedule_days ADD COLUMN IF NOT EXISTS shift_id INTEGER REFERENCES rh_work_shifts(id);"))
-            conn.execute(text("ALTER TABLE rh_schedule_days ADD COLUMN IF NOT EXISTS tickets_count INTEGER DEFAULT 2;"))
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS work_days_per_week INTEGER DEFAULT 6;"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS time_rounding_minutes INTEGER DEFAULT 0;"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS time_rounding_mode VARCHAR DEFAULT 'NEAREST';"))
@@ -60,6 +57,27 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS overtime_fixed_value FLOAT DEFAULT 0;"))
             conn.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS company JSONB;"))
             conn.execute(text("ALTER TABLE rh_bank_hours ADD COLUMN IF NOT EXISTS adjustments_minutes INTEGER DEFAULT 0;"))
+            # Conformidade CLT (docs/conformidade-clt v05): turnos substituídos pelo contrato de jornada
+            conn.execute(text("ALTER TABLE rh_employees DROP COLUMN IF EXISTS default_shift_id;"))
+            conn.execute(text("ALTER TABLE rh_employees DROP COLUMN IF EXISTS weekly_actual_hours;"))
+            conn.execute(text("ALTER TABLE rh_work_days DROP COLUMN IF EXISTS shift_id;"))
+            conn.execute(text("ALTER TABLE rh_work_days DROP COLUMN IF EXISTS shift;"))
+            conn.execute(text("DROP TABLE IF EXISTS rh_schedule_days;"))
+            conn.execute(text("DROP TABLE IF EXISTS rh_work_shifts;"))
+            conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS late_decision VARCHAR;"))
+            conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS late_decision_note VARCHAR;"))
+            conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS late_decision_by INTEGER REFERENCES users(id);"))
+            conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS late_decision_at TIMESTAMPTZ;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS max_daily_overtime_min INTEGER DEFAULT 120;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS min_interjornada_min INTEGER DEFAULT 660;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS max_consecutive_work_days INTEGER DEFAULT 6;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS habitual_overtime_weeks INTEGER DEFAULT 3;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS compensation_regime VARCHAR DEFAULT 'MONTHLY';"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS week_start INTEGER DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS late_waiver_auto_min INTEGER DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS late_compensation_mode VARCHAR DEFAULT 'AUTO';"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS late_compensation_max_min INTEGER DEFAULT 30;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS late_compensation_max_per_month INTEGER DEFAULT 4;"))
             # Módulo de Inventário: colunas de cadastro em tabelas existentes
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS inventory_role VARCHAR;"))
             conn.execute(text("ALTER TABLE boning_families ADD COLUMN IF NOT EXISTS is_active_for_inventory BOOLEAN DEFAULT FALSE;"))
@@ -97,6 +115,15 @@ async def startup_event():
             """))
     except Exception as e:
         print(f"Warning during auto-migration: {e}")
+
+    # Dados de referência de RH: regimes legais (44h/42h/40h) e modelos de contrato do sistema
+    try:
+        from core.database import SessionLocal
+        from services.rh_contracts import ensure_rh_reference_data
+        with SessionLocal() as db:
+            ensure_rh_reference_data(db)
+    except Exception as e:
+        print(f"Warning during RH reference data seed: {e}")
 
     asyncio.create_task(start_omie_queue_worker())
 

@@ -4,17 +4,21 @@ from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import models
-from services.rh_schedule_service import apply_shift_fill
+from services.rh_contracts import SYSTEM_TEMPLATES, create_contract_version
+from services.rh_schedule_service import apply_contract_fill, clear_or_reset_schedule
+
+TEMPLATES = {t["code"]: t["days"] for t in SYSTEM_TEMPLATES}
 
 
-class TestApplyShiftFillWeeklyCap(unittest.TestCase):
+class TestApplyContractFill(unittest.TestCase):
 
     def setUp(self):
         engine = create_engine("sqlite:///:memory:")
         # Apenas as tabelas necessárias (o schema completo usa tipos exclusivos do Postgres)
         needed = [
-            models.Organization, models.RHRole, models.RHWorkShift, models.RHEmployee,
-            models.RHMonthlySchedule, models.RHWorkDay
+            models.Organization, models.RHRole, models.RHEmployee, models.RHEmployeeContract,
+            models.RHContractTemplate, models.RHLegalRegime, models.RHMonthlySchedule,
+            models.RHWorkDay, models.RHWorkDayChange
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()
@@ -22,131 +26,159 @@ class TestApplyShiftFillWeeklyCap(unittest.TestCase):
         self.db.add(org)
         self.db.flush()
         self.org_id = org.id
-        self.schedule = models.RHMonthlySchedule(organization_id=org.id, year=2026, month=10)
-        self.db.add(self.schedule)
-        self.db.flush()
+        self.schedule = self._schedule(2026, 10)
 
-    def _add_employee(self, weekly_hours, days_per_week):
-        emp = models.RHEmployee(
-            organization_id=self.org_id, name="Fulano",
-            weekly_contract_hours=weekly_hours, weekly_actual_hours=weekly_hours,
-            work_days_per_week=days_per_week, active=True
-        )
+    def _schedule(self, year, month):
+        sched = models.RHMonthlySchedule(organization_id=self.org_id, year=year, month=month)
+        self.db.add(sched)
+        self.db.flush()
+        return sched
+
+    def _employee(self, template="44H_6X1_QUA", valid_from=date(2026, 1, 1), name="Fulano"):
+        emp = models.RHEmployee(organization_id=self.org_id, name=name, active=True)
         self.db.add(emp)
+        self.db.flush()
+        if template:
+            create_contract_version(self.db, emp, {
+                "valid_from": valid_from, "days": TEMPLATES[template], "compensation_agreement": True
+            }, user_id=None)
         self.db.commit()
         return emp
 
-    def _fill_whole_month(self, holidays=None):
+    def _fill(self, schedule=None, holidays=None, **kw):
+        schedule = schedule or self.schedule
         with patch("services.rh_schedule_service.get_effective_holidays_map", return_value=holidays or {}):
-            return apply_shift_fill(
-                self.db, self.org_id, self.schedule.id,
-                selected_days=list(range(1, 32))
-            )
+            return apply_contract_fill(self.db, self.org_id, schedule.id, selected_days=list(range(1, 32)), **kw)
 
-    def _weekly_minutes(self, emp):
-        weeks = {}
-        for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id).all():
-            wk = date(2026, 10, r.day).isocalendar()[1]
-            weeks[wk] = weeks.get(wk, 0) + (r.worked_minutes or 0)
-        return weeks
+    def _days(self, emp, schedule=None):
+        schedule = schedule or self.schedule
+        return {r.day: r for r in self.db.query(models.RHWorkDay).filter_by(
+            schedule_id=schedule.id, employee_id=emp.id).all()}
 
-    def test_whole_month_respects_weekly_hours(self):
-        emp = self._add_employee(44.0, 6)
-        res = self._fill_whole_month()
-        # Turno padrão de 8h: no máximo 5 dias (40h) cabem em 44h semanais
-        for wk_min in self._weekly_minutes(emp).values():
-            self.assertLessEqual(wk_min, 44 * 60)
-        self.assertGreater(res["capped_days_count"], 0)
-
-    def test_sundays_become_dsr_when_cap_reached(self):
-        emp = self._add_employee(40.0, 5)
-        self._fill_whole_month()
-        recs = {r.day: r for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id)}
-        # Outubro/2026: domingos 4, 11, 18, 25; semana completa 5-11
-        self.assertEqual(recs[11].status, "DSR")
-        self.assertEqual(recs[10].status, "DSR")  # 5x2: sábado também é DSR
-        self.assertTrue(all(recs[d].status == "TRABALHO" for d in range(5, 10)))
+    def test_fill_applies_weekly_contract(self):
+        emp = self._employee()
+        self._fill()
+        days = self._days(emp)
+        self.assertEqual(days[5].status, "TRABALHO")  # segunda
+        self.assertEqual((days[5].start_time, days[5].end_time, days[5].worked_minutes), ("07:00", "16:00", 480))
+        self.assertEqual(days[7].worked_minutes, 240)  # quarta reduzida
+        self.assertIsNone(days[7].lunch_start)
+        self.assertEqual(days[11].status, "DSR")  # domingo
+        week = sum(days[d].worked_minutes for d in range(5, 12))
+        self.assertEqual(week, 44 * 60)
 
     def test_holiday_is_not_worked(self):
-        emp = self._add_employee(44.0, 6)
-        self._fill_whole_month(holidays={"2026-10-12": "Nossa Senhora Aparecida"})
-        rec = self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id, day=12).first()
-        self.assertEqual(rec.status, "FERIADO")
-        self.assertEqual(rec.worked_minutes, 0)
+        emp = self._employee()
+        self._fill(holidays={"2026-10-12": "Nossa Senhora Aparecida"})
+        self.assertEqual(self._days(emp)[12].status, "FERIADO")
 
-    def test_manual_days_count_toward_weekly_cap(self):
-        emp = self._add_employee(40.0, 6)
-        # Segunda (dia 5) editada manualmente com 10h
-        self.db.add(models.RHWorkDay(
-            schedule_id=self.schedule.id, employee_id=emp.id, day=5,
-            status="TRABALHO", worked_minutes=600, raw_minutes=600, is_manual=True
-        ))
+    def test_manual_days_are_preserved(self):
+        emp = self._employee()
+        self.db.add(models.RHWorkDay(schedule_id=self.schedule.id, employee_id=emp.id, day=7, status="FERIAS",
+                                     worked_minutes=0, raw_minutes=0, is_manual=True))
         self.db.commit()
-        self._fill_whole_month()
-        weeks = self._weekly_minutes(emp)
-        self.assertLessEqual(weeks[date(2026, 10, 5).isocalendar()[1]], 40 * 60)
+        res = self._fill()
+        self.assertEqual(self._days(emp)[7].status, "FERIAS")
+        self.assertEqual(res["skipped_manual_count"], 1)
+        self._fill(overwrite_manual=True)
+        self.assertEqual(self._days(emp)[7].status, "TRABALHO")
 
+    def test_employee_without_contract_is_reported_and_not_filled(self):
+        emp = self._employee(template=None, name="Sem Contrato")
+        res = self._fill()
+        self.assertEqual(self._days(emp), {})
+        self.assertIn("Sem Contrato", res["without_contract"])
 
-    def _fill_november(self):
-        nov = models.RHMonthlySchedule(organization_id=self.org_id, year=2026, month=11)
-        self.db.add(nov)
+    def test_contract_version_changes_mid_month(self):
+        dec = self._schedule(2026, 12)
+        emp = self._employee()
+        create_contract_version(self.db, emp, {
+            "valid_from": date(2026, 12, 14), "days": TEMPLATES["40H_5X2"], "change_reason": "ADEQUACAO_LEGAL"
+        }, user_id=None)
         self.db.commit()
+        self._fill(schedule=dec)
+        days = self._days(emp, dec)
+        self.assertEqual(days[9].worked_minutes, 240)  # quarta 09/12: contrato 44h
+        self.assertEqual(days[16].status, "FOLGA")  # quarta 16/12: contrato 40h 5x2
+        self.assertEqual(sum(days[d].worked_minutes for d in range(14, 21)), 40 * 60)
+        self.assertEqual(emp.contracts[0].valid_to, date(2026, 12, 13))
+
+    def test_history_is_recorded_only_on_changes(self):
+        emp = self._employee()
+        self._fill()
+        first = self.db.query(models.RHWorkDayChange).filter_by(employee_id=emp.id).count()
+        self.assertEqual(first, 31)
+        self._fill()
+        self.assertEqual(self.db.query(models.RHWorkDayChange).filter_by(employee_id=emp.id).count(), first)
+        change = self.db.query(models.RHWorkDayChange).filter_by(employee_id=emp.id).first()
+        self.assertEqual(change.origin, "LOTE")
+        self.assertIsNone(change.before)
+
+    def test_clear_and_reset(self):
+        emp = self._employee()
+        self._fill()
         with patch("services.rh_schedule_service.get_effective_holidays_map", return_value={}):
-            apply_shift_fill(self.db, self.org_id, nov.id, selected_days=list(range(1, 31)))
-        return nov
-
-    def test_partial_first_week_assumes_standard_week_without_previous_schedule(self):
-        # Sem escala de outubro: move a criada no setUp para outro mês
-        self.schedule.month = 9
-        self.db.commit()
-        emp = self._add_employee(44.0, 6)
-        nov = self._fill_november()
-        # 01/11/2026 é domingo e fecha a semana iniciada em outubro (26 a 31)
-        rec = self.db.query(models.RHWorkDay).filter_by(schedule_id=nov.id, employee_id=emp.id, day=1).first()
-        self.assertEqual(rec.status, "DSR")
-
-    def test_partial_first_week_uses_previous_month_schedule(self):
-        emp = self._add_employee(44.0, 6)
-        # Em outubro o colaborador folgou de 26 a 31: o domingo 01/11 ainda cabe na semana
-        for d in range(26, 32):
-            self.db.add(models.RHWorkDay(
-                schedule_id=self.schedule.id, employee_id=emp.id, day=d,
-                status="FOLGA", worked_minutes=0, raw_minutes=0, is_manual=True
-            ))
-        self.db.commit()
-        nov = self._fill_november()
-        rec = self.db.query(models.RHWorkDay).filter_by(schedule_id=nov.id, employee_id=emp.id, day=1).first()
-        self.assertEqual(rec.status, "TRABALHO")
-
-
-    def test_5x2_has_two_dsr_per_full_week(self):
-        emp = self._add_employee(40.0, 5)
-        self._fill_whole_month()
-        recs = {r.day: r.status for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id)}
-        # Semanas completas de outubro/2026: 5-11, 12-18, 19-25
-        for monday in (5, 12, 19):
-            week = [recs[d] for d in range(monday, monday + 7)]
-            self.assertEqual(week.count("DSR"), 2)
-            self.assertEqual(week.count("TRABALHO"), 5)
-
-    def test_6x1_keeps_single_dsr_on_sunday(self):
-        emp = self._add_employee(44.0, 6)
-        self._fill_whole_month()
-        recs = {r.day: r.status for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id)}
-        week = [recs[d] for d in range(5, 12)]
-        self.assertEqual(week.count("DSR"), 1)
-        self.assertEqual(recs[11], "DSR")
-        self.assertEqual(recs[10], "FOLGA")  # sábado excede 44h com turno de 8h
-
-    def test_reset_default_5x2_sets_saturday_as_dsr(self):
-        from services.rh_schedule_service import clear_or_reset_schedule
-        emp = self._add_employee(40.0, 5)
-        with patch("services.rh_schedule_service.get_effective_holidays_map", return_value={}):
+            clear_or_reset_schedule(self.db, self.org_id, self.schedule.id, mode="CLEAR_OFF")
+            days = self._days(emp)
+            self.assertEqual(days[5].status, "FOLGA")
+            self.assertEqual(days[11].status, "DSR")
             clear_or_reset_schedule(self.db, self.org_id, self.schedule.id, mode="RESET_DEFAULT")
-        recs = {r.day: r.status for r in self.db.query(models.RHWorkDay).filter_by(employee_id=emp.id)}
-        self.assertEqual(recs[10], "DSR")
-        self.assertEqual(recs[11], "DSR")
-        self.assertEqual(recs[9], "TRABALHO")
+        self.assertEqual(self._days(emp)[5].worked_minutes, 480)
+        origins = {c.origin for c in self.db.query(models.RHWorkDayChange).all()}
+        self.assertEqual(origins, {"LOTE", "RESET"})
+
+    def test_other_status_is_applied_directly(self):
+        emp = self._employee()
+        with patch("services.rh_schedule_service.get_effective_holidays_map", return_value={}):
+            apply_contract_fill(self.db, self.org_id, self.schedule.id, status="FERIAS", day_from=19, day_to=23)
+        days = self._days(emp)
+        self.assertEqual({days[d].status for d in range(19, 24)}, {"FERIAS"})
+        self.assertNotIn(18, days)
+
+    def test_clear_unselected_uses_contract_rest(self):
+        emp = self._employee(template="40H_5X2")
+        with patch("services.rh_schedule_service.get_effective_holidays_map", return_value={}):
+            apply_contract_fill(self.db, self.org_id, self.schedule.id, selected_days=[5, 6], clear_unselected=True)
+        days = self._days(emp)
+        self.assertEqual(days[7].status, "FOLGA")  # quarta: folga do contrato
+        self.assertEqual(days[8].status, "FOLGA")  # quinta não selecionada
+        self.assertEqual(days[11].status, "DSR")
+
+
+class TestContractVersions(unittest.TestCase):
+
+    def setUp(self):
+        engine = create_engine("sqlite:///:memory:")
+        needed = [models.Organization, models.RHEmployee, models.RHEmployeeContract,
+                  models.RHContractTemplate, models.RHLegalRegime]
+        models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
+        self.db = sessionmaker(bind=engine)()
+        org = models.Organization(name="Org")
+        self.db.add(org)
+        self.db.flush()
+        self.emp = models.RHEmployee(organization_id=org.id, name="Fulano", active=True)
+        self.db.add(self.emp)
+        self.db.flush()
+
+    def test_invalid_contract_is_not_saved(self):
+        with self.assertRaises(ValueError):
+            create_contract_version(self.db, self.emp, {
+                "valid_from": date(2026, 12, 14), "days": TEMPLATES["44H_6X1_QUA"]
+            }, user_id=None)
+        self.assertEqual(self.emp.contracts, [])
+
+    def test_version_without_amendment_still_takes_effect(self):
+        v = create_contract_version(self.db, self.emp, {
+            "valid_from": date(2026, 10, 1), "days": TEMPLATES["44H_6X1_QUA"]
+        }, user_id=None)
+        self.assertFalse(v.amendment_signed)
+        self.assertEqual(self.emp.weekly_contract_hours, 44.0)
+        self.assertEqual(self.emp.work_days_per_week, 6)
+
+    def test_version_dates_must_increase(self):
+        create_contract_version(self.db, self.emp, {"valid_from": date(2026, 10, 1), "days": TEMPLATES["44H_6X1_QUA"]}, None)
+        with self.assertRaises(ValueError):
+            create_contract_version(self.db, self.emp, {"valid_from": date(2026, 9, 1), "days": TEMPLATES["40H_5X2"]}, None)
 
 
 if __name__ == "__main__":

@@ -31,13 +31,11 @@ function useEscapeToClose(open, onClose) {
 export default function RHJornadasTab({
   loading,
   employees = [],
-  shifts = [],
   selectedYear,
   selectedMonth,
   numDays = 31,
   sundays = [],
   holidays = {},
-  grid = {},
   workDays = {},
   onEditEmployee,
   company = {},
@@ -51,15 +49,19 @@ export default function RHJornadasTab({
   const [showShiftGuide, setShowShiftGuide] = useState(false); // pré-preencher marca d'água com horários previstos
   const [filterRole, setFilterRole] = useState('ALL');
 
-  // Mapeamento de turnos por ID e por Code
-  const shiftMap = useMemo(() => {
-    const map = {};
-    shifts.forEach((s) => {
-      map[s.id] = s;
-      if (s.code) map[s.code] = s;
+  const WEEKDAY_SHORT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']; // 0 = segunda (contrato)
+
+  // Descrição do horário contratual da semana, agrupando dias iguais (ex.: "Seg, Ter: 07:00–16:00")
+  const describeContractWeek = (contract) => {
+    if (!contract?.days) return null;
+    const groups = {};
+    Object.entries(contract.days).forEach(([wd, d]) => {
+      const key = d.rest ? d.rest : `${d.start}–${d.end}${d.lunch_start ? ` (int. ${d.lunch_start}–${d.lunch_end})` : ''}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(WEEKDAY_SHORT[Number(wd)]);
     });
-    return map;
-  }, [shifts]);
+    return Object.entries(groups).map(([key, days]) => `${days.join(', ')}: ${key}`).join(' • ');
+  };
 
   // Lista de cargos únicos para filtro
   const rolesList = useMemo(() => {
@@ -78,32 +80,14 @@ export default function RHJornadasTab({
 
   // KPIs de Jornada
   const kpis = useMemo(() => {
-    let totalContratual = 0;
-    let totalPraticada = 0;
-    let comBancoHoras = 0;
-    let jornadaPadrao = 0;
-
-    employees.forEach((emp) => {
-      const c = Number(emp.weekly_contract_hours) || 44.0;
-      const a = Number(emp.weekly_actual_hours) || c;
-      totalContratual += c;
-      totalPraticada += a;
-      if (a > c) {
-        comBancoHoras++;
-      } else {
-        jornadaPadrao++;
-      }
-    });
-
-    const mediaContratual = employees.length ? (totalContratual / employees.length).toFixed(1) : '44.0';
-    const mediaPraticada = employees.length ? (totalPraticada / employees.length).toFixed(1) : '44.0';
-
+    const withContract = employees.filter((e) => e.contract);
+    const totalContratual = withContract.reduce((acc, e) => acc + (Number(e.contract.weekly_min) || 0) / 60, 0);
     return {
       totalEmployees: employees.length,
-      mediaContratual,
-      mediaPraticada,
-      comBancoHoras,
-      jornadaPadrao
+      mediaContratual: withContract.length ? (totalContratual / withContract.length).toFixed(1) : '0',
+      comContrato: withContract.length,
+      semContrato: employees.length - withContract.length,
+      aditivoPendente: withContract.filter((e) => !e.contract.amendment_signed).length
     };
   }, [employees]);
 
@@ -149,7 +133,7 @@ export default function RHJornadasTab({
               Controle de Jornadas & Folhas de Ponto Manuais
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Administre a carga horária semanal contratual vs. praticada e gere cartões de ponto físicos para preenchimento e assinatura.
+              Contrato de jornada de cada colaborador e cartões de ponto físicos para preenchimento e assinatura.
             </p>
           </div>
 
@@ -184,18 +168,18 @@ export default function RHJornadasTab({
           </div>
 
           <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-3">
-            <span className="text-[11px] font-medium text-slate-400 block mb-1">Jornada Regular (Sem BH)</span>
+            <span className="text-[11px] font-medium text-slate-400 block mb-1">Com Contrato de Jornada</span>
             <div className="flex items-baseline gap-2">
-              <span className="text-xl font-bold text-emerald-400">{kpis.jornadaPadrao}</span>
-              <span className="text-[11px] text-slate-500">praticam = contratual</span>
+              <span className="text-xl font-bold text-emerald-400">{kpis.comContrato}</span>
+              <span className="text-[11px] text-slate-500">{kpis.aditivoPendente ? `${kpis.aditivoPendente} com aditivo pendente` : 'semana-padrão definida'}</span>
             </div>
           </div>
 
           <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-3">
-            <span className="text-[11px] font-medium text-slate-400 block mb-1">Gera Banco de Horas</span>
+            <span className="text-[11px] font-medium text-slate-400 block mb-1">Sem Contrato de Jornada</span>
             <div className="flex items-baseline gap-2">
-              <span className="text-xl font-bold text-amber-400">{kpis.comBancoHoras}</span>
-              <span className="text-[11px] text-slate-500">praticam &gt; contratual</span>
+              <span className={`text-xl font-bold ${kpis.semContrato ? 'text-amber-400' : 'text-slate-500'}`}>{kpis.semContrato}</span>
+              <span className="text-[11px] text-slate-500">horas extras não apuradas</span>
             </div>
           </div>
         </div>
@@ -232,28 +216,23 @@ export default function RHJornadasTab({
             <thead>
               <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4">Colaborador & Cargo</th>
-                <th className="py-3 px-4">Turno Base Contratual</th>
-                <th className="py-3 px-4 text-center">Carga Contratual</th>
-                <th className="py-3 px-4 text-center">Carga Praticada</th>
-                <th className="py-3 px-4 text-center">Saldo / Regime</th>
-                <th className="py-3 px-4 text-center">Folgas BH Mês</th>
+                <th className="py-3 px-4">Horário Contratual</th>
+                <th className="py-3 px-4 text-center">Carga Semanal</th>
+                <th className="py-3 px-4 text-center">Vigência</th>
+                <th className="py-3 px-4 text-center">Aditivo (art. 468)</th>
                 <th className="py-3 px-4 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-500 italic">
+                  <td colSpan={6} className="py-8 text-center text-slate-500 italic">
                     Nenhum colaborador encontrado com os filtros selecionados.
                   </td>
                 </tr>
               ) : (
                 filteredEmployees.map((emp) => {
-                  const shift = shiftMap[emp.default_shift_id];
-                  const contractHours = Number(emp.weekly_contract_hours) || 44.0;
-                  const actualHours = Number(emp.weekly_actual_hours) || contractHours;
-                  const diffHours = actualHours - contractHours;
-                  const targetBhDays = diffHours > 0 ? Math.max(0, Math.round((diffHours * 4) / 8.0)) : 0;
+                  const contract = emp.contract;
 
                   return (
                     <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
@@ -262,52 +241,37 @@ export default function RHJornadasTab({
                         <div className="text-[11px] text-slate-400">{emp.role || 'Geral'}</div>
                       </td>
 
-                      <td className="py-3 px-4 text-slate-300">
-                        {shift ? (
+                      <td className="py-3 px-4 text-slate-300 max-w-[320px]">
+                        {contract ? (
                           <div>
-                            <span className="font-medium text-indigo-300">{shift.code}</span> - {shift.name}
-                            <div className="text-[10px] text-slate-500">
-                              {shift.start_time} às {shift.end_time} ({shift.net_hours}h líquidas)
-                            </div>
+                            <span className="font-medium text-indigo-300">{contract.summary}</span>
+                            <div className="text-[10px] text-slate-500">{describeContractWeek(contract)}</div>
                           </div>
                         ) : (
-                          <span className="text-slate-500 italic">Padrão Geral (8h)</span>
+                          <span className="text-amber-400 italic">Sem contrato de jornada</span>
                         )}
                       </td>
 
                       <td className="py-3 px-4 text-center font-medium text-slate-200">
-                        {contractHours}h <span className="text-[10px] text-slate-500">/sem</span>
+                        {contract ? `${(contract.weekly_min / 60).toFixed(contract.weekly_min % 60 ? 1 : 0)}h` : '-'}
+                        <span className="text-[10px] text-slate-500"> /sem</span>
                       </td>
 
-                      <td className="py-3 px-4 text-center font-medium text-white">
-                        {actualHours}h <span className="text-[10px] text-slate-500">/sem</span>
+                      <td className="py-3 px-4 text-center text-slate-300">
+                        {contract ? `desde ${contract.valid_from.split('-').reverse().join('/')}` : '-'}
                       </td>
 
                       <td className="py-3 px-4 text-center">
-                        {diffHours === 0 ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 size={11} />
-                            Jornada Regular (0h)
-                          </span>
-                        ) : diffHours > 0 ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                            <Clock size={11} />
-                            +{diffHours}h/sem (Gera BH)
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-300 border border-sky-500/20">
-                            {diffHours}h/sem (Subjornada)
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3 px-4 text-center text-slate-300 font-medium">
-                        {targetBhDays > 0 ? (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                            {targetBhDays} folga{targetBhDays > 1 ? 's' : ''} / mês
-                          </span>
-                        ) : (
+                        {!contract ? (
                           <span className="text-slate-600">-</span>
+                        ) : contract.amendment_signed ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <CheckCircle2 size={11} /> Assinado
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                            <Clock size={11} /> Pendente
+                          </span>
                         )}
                       </td>
 
@@ -390,7 +354,7 @@ export default function RHJornadasTab({
                 <StyledCheckbox
                   checked={showShiftGuide}
                   onChange={(checked) => setShowShiftGuide(checked)}
-                  label="Guia pontilhado de turno"
+                  label="Guia pontilhado do horário"
                 />
 
                 <div className="flex items-center gap-2 md:ml-auto">
@@ -434,10 +398,8 @@ export default function RHJornadasTab({
               {employees
                 .filter((e) => selectedEmployeeId === 'ALL' || e.id === Number(selectedEmployeeId))
                 .map((emp, empIdx) => {
-                  const empShift = shiftMap[emp.default_shift_id];
-                  const contractHours = Number(emp.weekly_contract_hours) || 44.0;
-                  const actualHours = Number(emp.weekly_actual_hours) || contractHours;
-                  const empGridTransport = grid[emp.id]?.TRANSPORTE || {};
+                  const contract = emp.contract;
+                  const contractHours = contract ? contract.weekly_min / 60 : Number(emp.weekly_contract_hours) || 0;
                   const docs = emp.profile?.documentos || {};
                   const contrato = emp.profile?.contrato || {};
                   const ctps = [docs.ctps_numero, docs.ctps_serie && `Série ${docs.ctps_serie}`, docs.ctps_uf].filter(Boolean).join(' / ');
@@ -530,7 +492,7 @@ export default function RHJornadasTab({
                           <div>
                             <span className="font-bold text-gray-600 block text-[9px] uppercase">Jornada Semanal:</span>
                             <span className="font-semibold text-black">
-                              Contratual: {contractHours}h | Praticada: {actualHours}h
+                              {contract ? `${contractHours.toFixed(contract.weekly_min % 60 ? 1 : 0)}h (${contract.summary})` : 'Sem contrato de jornada'}
                             </span>
                           </div>
                         </div>
@@ -539,17 +501,13 @@ export default function RHJornadasTab({
                           <div>
                             <span className="font-bold text-gray-600 text-[9px] uppercase">Horário Contratual Padrão: </span>
                             <span className="font-medium text-black">
-                              {empShift 
-                                ? `${empShift.start_time} às ${empShift.lunch_start || '12:00'} e ${empShift.lunch_end || '13:00'} às ${empShift.end_time} (${empShift.net_hours}h líquidas)`
-                                : '08:00 às 12:00 e 13:00 às 17:00 (Padrão 8h)'}
+                              {describeContractWeek(contract) || 'Não definido'}
                             </span>
                           </div>
                           <div className="text-left sm:text-right">
                             <span className="font-bold text-gray-600 text-[9px] uppercase">Regime de Compensação: </span>
                             <span className="font-medium text-black">
-                              {actualHours > contractHours 
-                                ? `Acordo de Compensação / Banco de Horas (+${actualHours - contractHours}h/sem)` 
-                                : 'Jornada Integral Regular'}
+                              {contract?.compensation_agreement ? 'Acordo de compensação por escrito' : 'Compensação no mesmo mês (CLT art. 59, §6º)'}
                             </span>
                           </div>
                         </div>
@@ -581,8 +539,7 @@ export default function RHJornadasTab({
                             // Status e horários da escala / jornada para o dia
                             const empWorkDays = workDays[emp.id] || {};
                             const dayWork = empWorkDays[day];
-                            const dayInfo = empGridTransport[day] || {};
-                            const dayStatus = dayWork ? dayWork.status : (dayInfo.status || 'OFF');
+                            const dayStatus = dayWork ? dayWork.status : 'OFF';
 
                             // Determinar texto de ocorrência
                             let ocorrencia = '';
@@ -612,12 +569,13 @@ export default function RHJornadasTab({
                             }
 
                             // Horários para exibição ou guia
-                            const displayShift = dayWork ? {
+                            const contractDay = dayWork?.contract_day;
+                            const displayShift = dayWork?.start_time ? {
                               start_time: dayWork.start_time,
                               lunch_start: dayWork.lunch_start,
                               lunch_end: dayWork.lunch_end,
                               end_time: dayWork.end_time
-                            } : (shiftMap[dayInfo.shift_id || dayInfo.shift] || empShift);
+                            } : (contractDay && !contractDay.rest ? contractDay : null);
 
                             return (
                               <tr
@@ -656,12 +614,12 @@ export default function RHJornadasTab({
                                     </td>
                                     <td className="border border-black text-center text-gray-400">
                                       {showShiftGuide && displayShift ? (
-                                        <span className="text-gray-400 italic">{displayShift.lunch_start || '12:00'}</span>
+                                        <span className="text-gray-400 italic">{displayShift.lunch_start || '-'}</span>
                                       ) : null}
                                     </td>
                                     <td className="border border-black text-center text-gray-400">
                                       {showShiftGuide && displayShift ? (
-                                        <span className="text-gray-400 italic">{displayShift.lunch_end || '13:00'}</span>
+                                        <span className="text-gray-400 italic">{displayShift.lunch_end || '-'}</span>
                                       ) : null}
                                     </td>
                                     <td className="border border-black text-center text-gray-400">

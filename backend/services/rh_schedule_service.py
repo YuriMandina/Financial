@@ -1,126 +1,169 @@
 """
 Service de Regras de Negócio e Operações em Lote de Escalas de RH
-Gerencia preenchimento em lote com escopo, dias da semana e proteção contra sobrescrita manual.
+Preenchimento em lote seguindo o contrato de jornada de cada colaborador (nunca gera hora extra),
+limpeza/restauração e histórico de alterações de cada dia (docs/conformidade-clt v05, seções 9 e 10.4).
 """
 
-from typing import List, Optional, Dict, Any
+from datetime import date
+from typing import Any, Dict, List, Optional, Tuple
+
 from sqlalchemy.orm import Session
-from datetime import date, timedelta
+
 from models import models
-from services.rh_engine import get_month_calendar_info, compute_raw_minutes
+from services.rh_contracts import contract_day_on
+from services.rh_engine import compute_raw_minutes, get_month_calendar_info
 from services.rh_holidays_service import get_effective_holidays_map
 
-def apply_shift_fill(
-    db: Session,
-    organization_id: int,
-    schedule_id: int,
-    employee_ids: Optional[List[int]] = None,
-    shift_id: Optional[int] = None,
-    status: str = "TRABALHO",
-    day_from: int = 1,
-    day_to: Optional[int] = None,
-    weekdays: Optional[List[int]] = None, # 0=Segunda ... 6=Domingo
-    selected_days: Optional[List[int]] = None, # Lista explícita de dias do mês (ex: [1,2,5,10])
-    overwrite_manual: bool = False,
-    clear_unselected: bool = False
-) -> Dict[str, Any]:
+TIME_FIELDS = ("start_time", "lunch_start", "lunch_end", "end_time")
+
+# ==============================================================================
+# --- [BLOCO: HISTÓRICO DE ALTERAÇÕES DA ESCALA] ---
+# ==============================================================================
+
+def snapshot_day(rec: Optional[models.RHWorkDay]) -> Optional[Dict[str, Any]]:
+    if rec is None:
+        return None
+    return {
+        "status": rec.status,
+        "start_time": rec.start_time,
+        "lunch_start": rec.lunch_start,
+        "lunch_end": rec.lunch_end,
+        "end_time": rec.end_time,
+        "worked_minutes": int(rec.worked_minutes or 0),
+    }
+
+
+def record_change(db: Session, organization_id: int, schedule: models.RHMonthlySchedule, employee_id: int,
+                  day: int, before: Optional[Dict[str, Any]], after: Optional[Dict[str, Any]],
+                  origin: str, user_id: Optional[int]) -> bool:
+    """Grava a alteração no histórico imutável; não grava quando nada mudou."""
+    if before == after:
+        return False
+    db.add(models.RHWorkDayChange(
+        organization_id=organization_id,
+        schedule_id=schedule.id,
+        employee_id=employee_id,
+        work_date=date(schedule.year, schedule.month, day),
+        origin=origin,
+        before=before,
+        after=after,
+        user_id=user_id,
+    ))
+    return True
+
+
+# ==============================================================================
+# --- [BLOCO: SITUAÇÃO DO DIA PELO CONTRATO] ---
+# ==============================================================================
+
+def contract_day_status(contracts: List[Any], d: date, is_holiday: bool) -> Optional[Tuple[str, Optional[Dict[str, Any]]]]:
+    """(status, horários) do dia conforme o contrato; None quando não há contrato vigente."""
+    if is_holiday:
+        return "FERIADO", None
+    cd = contract_day_on(contracts, d)
+    if cd is None:
+        return None
+    if cd.rest:
+        return cd.rest, None
+    return "TRABALHO", {"start_time": cd.start, "lunch_start": cd.lunch_start, "lunch_end": cd.lunch_end, "end_time": cd.end}
+
+
+def rest_day_status(contracts: List[Any], d: date, is_holiday: bool) -> str:
+    """Situação de descanso do dia: feriado, o descanso do contrato ou DSR no domingo/folga."""
+    if is_holiday:
+        return "FERIADO"
+    cd = contract_day_on(contracts, d)
+    if cd is not None and cd.rest:
+        return cd.rest
+    return "DSR" if d.weekday() == 6 else "FOLGA"
+
+
+def _apply_day(db: Session, organization_id: int, schedule: models.RHMonthlySchedule, employee_id: int, day: int,
+               rec: Optional[models.RHWorkDay], status: str, times: Optional[Dict[str, Any]],
+               origin: str, user_id: Optional[int]) -> models.RHWorkDay:
+    before = snapshot_day(rec)
+    is_work = status == "TRABALHO" and times is not None
+    minutes = compute_raw_minutes(times["start_time"], times["lunch_start"], times["lunch_end"], times["end_time"]) if is_work else 0
+    if rec is None:
+        rec = models.RHWorkDay(schedule_id=schedule.id, employee_id=employee_id, day=day)
+        db.add(rec)
+    rec.status = status
+    for f in TIME_FIELDS:
+        setattr(rec, f, times.get(f) if is_work else None)
+    rec.raw_minutes = minutes
+    rec.worked_minutes = minutes
+    rec.is_manual = False
+    rec.late_decision = None
+    record_change(db, organization_id, schedule, employee_id, day, before, snapshot_day(rec), origin, user_id)
+    return rec
+
+
+def _load_schedule(db: Session, organization_id: int, schedule_id: int) -> models.RHMonthlySchedule:
     schedule = db.query(models.RHMonthlySchedule).filter(
         models.RHMonthlySchedule.id == schedule_id,
         models.RHMonthlySchedule.organization_id == organization_id
     ).first()
-
     if not schedule:
         raise ValueError("Escala mensal não encontrada")
+    return schedule
 
-    cal_info = get_month_calendar_info(schedule.year, schedule.month)
-    num_days = cal_info["num_days"]
-    sundays = set(cal_info["sundays"])
 
-    effective_holidays = get_effective_holidays_map(db, organization_id, schedule.year, schedule.month)
-    holiday_days = {int(d_str.split("-")[2]) for d_str in effective_holidays.keys()}
-
-    end_day = min(num_days, day_to) if day_to is not None else num_days
-    start_day = max(1, day_from)
-
-    # Buscar turno
-    shift_obj = None
-    if shift_id:
-        shift_obj = db.query(models.RHWorkShift).filter(
-            models.RHWorkShift.id == shift_id,
-            models.RHWorkShift.organization_id == organization_id
-        ).first()
-
-    # Buscar colaboradores
-    emp_query = db.query(models.RHEmployee).filter(
+def _load_employees(db: Session, organization_id: int, employee_ids: Optional[List[int]]) -> List[models.RHEmployee]:
+    query = db.query(models.RHEmployee).filter(
         models.RHEmployee.organization_id == organization_id,
         models.RHEmployee.active == True
     )
-    if employee_ids and len(employee_ids) > 0:
-        emp_query = emp_query.filter(models.RHEmployee.id.in_(employee_ids))
-    employees = emp_query.all()
+    if employee_ids:
+        query = query.filter(models.RHEmployee.id.in_(employee_ids))
+    return query.all()
 
-    updated_count = 0
-    skipped_manual_count = 0
-    capped_days_count = 0
 
-    has_selected_days = selected_days is not None and len(selected_days) > 0
-    selected_set = set(selected_days) if has_selected_days else set()
+# ==============================================================================
+# --- [BLOCO: PREENCHIMENTO EM LOTE PELO CONTRATO] ---
+# ==============================================================================
 
-    # Dias-alvo do preenchimento (independe do colaborador)
+def apply_contract_fill(
+    db: Session,
+    organization_id: int,
+    schedule_id: int,
+    employee_ids: Optional[List[int]] = None,
+    status: str = "TRABALHO",
+    day_from: int = 1,
+    day_to: Optional[int] = None,
+    weekdays: Optional[List[int]] = None,  # 0=Segunda ... 6=Domingo
+    selected_days: Optional[List[int]] = None,  # Lista explícita de dias do mês
+    overwrite_manual: bool = False,
+    clear_unselected: bool = False,
+    user_id: Optional[int] = None,
+    origin: str = "LOTE",
+) -> Dict[str, Any]:
+    """
+    Status TRABALHO aplica exatamente a semana-padrão do contrato vigente em cada data
+    (horários, DSR/folga do contrato e feriados). Outros status (ex.: FERIAS) são aplicados
+    diretamente. Dias manuais só são sobrescritos com `overwrite_manual`.
+    """
+    schedule = _load_schedule(db, organization_id, schedule_id)
+    num_days = get_month_calendar_info(schedule.year, schedule.month)["num_days"]
+    holiday_days = {int(k.split("-")[2]) for k in get_effective_holidays_map(db, organization_id, schedule.year, schedule.month)}
+
+    start_day = max(1, day_from)
+    end_day = min(num_days, day_to) if day_to is not None else num_days
+    selected_set = set(selected_days or [])
     target_days = []
     for day in range(start_day, end_day + 1):
-        if has_selected_days:
+        if selected_set:
             if day not in selected_set:
                 continue
-        elif weekdays is not None and len(weekdays) > 0:
-            if date(schedule.year, schedule.month, day).weekday() not in weekdays:
-                continue
+        elif weekdays and date(schedule.year, schedule.month, day).weekday() not in weekdays:
+            continue
         target_days.append(day)
     target_set = set(target_days)
 
-    # Agrupa os dias do mês por semana (segunda a domingo)
-    weeks: Dict[int, List[int]] = {}
-    for day in range(1, num_days + 1):
-        week_key = date(schedule.year, schedule.month, day).isocalendar()[1]
-        weeks.setdefault(week_key, []).append(day)
+    updated_count = skipped_manual_count = 0
+    without_contract: Dict[str, int] = {}
 
-    # Semana incompleta no início do mês: os dias anteriores ao dia 1 pertencem ao mês anterior
-    first_week_key = date(schedule.year, schedule.month, 1).isocalendar()[1]
-    first_date = date(schedule.year, schedule.month, 1)
-    prev_month_dates = [first_date - timedelta(days=k) for k in range(first_date.weekday(), 0, -1)]
-    prev_schedule = None
-    prev_holiday_days = set()
-    if prev_month_dates:
-        prev_year, prev_month = prev_month_dates[0].year, prev_month_dates[0].month
-        prev_schedule = db.query(models.RHMonthlySchedule).filter(
-            models.RHMonthlySchedule.organization_id == organization_id,
-            models.RHMonthlySchedule.year == prev_year,
-            models.RHMonthlySchedule.month == prev_month
-        ).first()
-        prev_holidays = get_effective_holidays_map(db, organization_id, prev_year, prev_month)
-        prev_holiday_days = {int(d_str.split("-")[2]) for d_str in prev_holidays.keys()}
-
-    for emp in employees:
-        # Se nenhum turno específico foi passado, usa o turno padrão do colaborador
-        target_shift = shift_obj
-        if not target_shift and emp.default_shift_id:
-            target_shift = db.query(models.RHWorkShift).filter(
-                models.RHWorkShift.id == emp.default_shift_id,
-                models.RHWorkShift.organization_id == organization_id
-            ).first()
-
-        start_time = target_shift.start_time if target_shift else "08:00"
-        lunch_start = target_shift.lunch_start if target_shift else "12:00"
-        lunch_end = target_shift.lunch_end if target_shift else "13:00"
-        end_time = target_shift.end_time if target_shift else "17:00"
-        raw_min = compute_raw_minutes(start_time, lunch_start, lunch_end, end_time) if target_shift else 480
-
-        # Limites semanais do colaborador: jornada praticada (fallback contratual) e dias de trabalho
-        weekly_hours = emp.weekly_actual_hours or emp.weekly_contract_hours or 44.0
-        weekly_cap_min = int(round(float(weekly_hours) * 60))
-        max_work_days = int(emp.work_days_per_week or 6)
-        dsr_quota = max(1, 7 - max_work_days)
-
+    for emp in _load_employees(db, organization_id, employee_ids):
+        contracts = list(emp.contracts)
         existing = {
             r.day: r for r in db.query(models.RHWorkDay).filter(
                 models.RHWorkDay.schedule_id == schedule.id,
@@ -128,206 +171,51 @@ def apply_shift_fill(
             ).all()
         }
 
-        def is_locked(day: int) -> bool:
+        def locked(day: int) -> bool:
             rec = existing.get(day)
             return bool(rec and rec.is_manual and not overwrite_manual)
 
-        def kept_minutes(day: int) -> int:
-            """Minutos de trabalho de um dia que o preenchimento não vai alterar."""
-            rec = existing.get(day)
-            if rec:
-                return int(rec.worked_minutes or 0) if rec.status == "TRABALHO" else 0
-            # Dia sem registro é exibido como trabalho padrão (exceto domingo/feriado)
-            return 0 if (day in sundays or day in holiday_days) else 480
-
-        def count_kept_dsr(week_days: List[int]) -> int:
-            """DSRs da semana que o preenchimento não vai alterar."""
-            total = 0
-            for day in week_days:
-                will_change = (day in target_set) or (clear_unselected and has_selected_days)
-                if will_change and not is_locked(day):
-                    continue
-                rec = existing.get(day)
-                if rec and rec.status == "DSR":
-                    total += 1
-            return total
-
-        # Horas já cumpridas no mês anterior dentro da semana incompleta do dia 1.
-        # Usa a escala real se existir; senão assume semana padrão (turno de segunda a sábado).
-        prev_used_min = 0
-        prev_used_days = 0
-        prev_dsr_days = 0
-        if prev_month_dates:
-            prev_records = {}
-            if prev_schedule:
-                prev_records = {
-                    r.day: r for r in db.query(models.RHWorkDay).filter(
-                        models.RHWorkDay.schedule_id == prev_schedule.id,
-                        models.RHWorkDay.employee_id == emp.id
-                    ).all()
-                }
-            for d_obj in prev_month_dates:
-                rec = prev_records.get(d_obj.day)
-                if rec:
-                    m = int(rec.worked_minutes or 0) if rec.status == "TRABALHO" else 0
-                    if rec.status == "DSR":
-                        prev_dsr_days += 1
-                elif d_obj.weekday() == 6 or d_obj.day in prev_holiday_days:
-                    m = 0
-                else:
-                    m = raw_min if prev_schedule is None else 480
-                if m > 0 and prev_used_days < max_work_days:
-                    prev_used_min += m
-                    prev_used_days += 1
-                elif m > 0 and not rec:
-                    # Semana padrão assumida: dia útil além do limite de dias seria repouso
-                    prev_dsr_days += 1
-
-        # Decide o status de cada dia-alvo semana a semana, respeitando o teto semanal
-        planned_status: Dict[int, str] = {}
-        for week_key, week_days in weeks.items():
-            used_min = prev_used_min if week_key == first_week_key else 0
-            used_days = prev_used_days if week_key == first_week_key else 0
-            for day in week_days:
-                will_change = (day in target_set) or (clear_unselected and has_selected_days)
-                if will_change and not is_locked(day):
-                    continue
-                m = kept_minutes(day)
-                if m > 0:
-                    used_min += m
-                    used_days += 1
-
-            # Dias úteis primeiro, domingo por último (vira DSR se o teto já foi atingido)
-            ordered = sorted(
-                (d for d in week_days if d in target_set),
-                key=lambda d: (d in sundays, d)
-            )
-            off_days = []
-            for day in ordered:
-                if status != "TRABALHO":
-                    planned_status[day] = status
-                elif day in holiday_days:
-                    planned_status[day] = "FERIADO"
-                elif used_min + raw_min <= weekly_cap_min and used_days < max_work_days:
-                    planned_status[day] = "TRABALHO"
-                    if not is_locked(day):
-                        used_min += raw_min
-                        used_days += 1
-                else:
-                    off_days.append(day)
-                    capped_days_count += 1
-
-            # Repousos semanais: 7 - dias de trabalho (5x2 = 2 DSR, 6x1 = 1 DSR).
-            # Domingo tem prioridade; os demais dias de descanso viram FOLGA.
-            dsr_left = dsr_quota - count_kept_dsr(week_days)
-            if week_key == first_week_key:
-                dsr_left -= prev_dsr_days
-            for day in sorted(off_days, key=lambda d: (d not in sundays, -d)):
-                if dsr_left > 0 or day in sundays:
-                    planned_status[day] = "DSR"
-                    dsr_left -= 1
-                else:
-                    planned_status[day] = "FOLGA"
-
-        # Loop de aplicação principal
         for day in target_days:
-            rec = existing.get(day)
-
-            if is_locked(day):
+            if locked(day):
                 skipped_manual_count += 1
                 continue
-
-            effective_status = planned_status[day]
-
-            is_work = effective_status == "TRABALHO"
-            final_minutes = raw_min if is_work else 0
-
-            if rec:
-                rec.status = effective_status
-                rec.shift_id = target_shift.id if (is_work and target_shift) else None
-                rec.shift = target_shift.code if (is_work and target_shift) else None
-                rec.start_time = start_time if is_work else None
-                rec.lunch_start = lunch_start if is_work else None
-                rec.lunch_end = lunch_end if is_work else None
-                rec.end_time = end_time if is_work else None
-                rec.raw_minutes = final_minutes
-                rec.worked_minutes = final_minutes
-                rec.is_manual = False
+            d = date(schedule.year, schedule.month, day)
+            if status == "TRABALHO":
+                planned = contract_day_status(contracts, d, day in holiday_days)
+                if planned is None:
+                    without_contract[emp.name] = without_contract.get(emp.name, 0) + 1
+                    continue
+                st, times = planned
             else:
-                new_day = models.RHWorkDay(
-                    schedule_id=schedule.id,
-                    employee_id=emp.id,
-                    day=day,
-                    status=effective_status,
-                    shift_id=target_shift.id if (is_work and target_shift) else None,
-                    shift=target_shift.code if (is_work and target_shift) else None,
-                    start_time=start_time if is_work else None,
-                    lunch_start=lunch_start if is_work else None,
-                    lunch_end=lunch_end if is_work else None,
-                    end_time=end_time if is_work else None,
-                    raw_minutes=final_minutes,
-                    worked_minutes=final_minutes,
-                    is_manual=False
-                )
-                db.add(new_day)
-
+                st, times = status, None
+            existing[day] = _apply_day(db, organization_id, schedule, emp.id, day, existing.get(day), st, times, origin, user_id)
             updated_count += 1
 
-        # Se solicitado para limpar os dias não selecionados da escala
-        if clear_unselected and has_selected_days:
-            for unsel_day in range(1, num_days + 1):
-                if unsel_day in target_set:
+        if clear_unselected and selected_set:
+            for day in range(1, num_days + 1):
+                if day in target_set or locked(day):
                     continue
-
-                rec_unsel = existing.get(unsel_day)
-
-                if is_locked(unsel_day):
-                    continue
-
-                unsel_status = "FERIADO" if unsel_day in holiday_days else ("DSR" if unsel_day in sundays else "FOLGA")
-
-                if rec_unsel:
-                    rec_unsel.status = unsel_status
-                    rec_unsel.shift_id = None
-                    rec_unsel.shift = None
-                    rec_unsel.start_time = None
-                    rec_unsel.lunch_start = None
-                    rec_unsel.lunch_end = None
-                    rec_unsel.end_time = None
-                    rec_unsel.raw_minutes = 0
-                    rec_unsel.worked_minutes = 0
-                    rec_unsel.is_manual = False
-                else:
-                    new_unsel = models.RHWorkDay(
-                        schedule_id=schedule.id,
-                        employee_id=emp.id,
-                        day=unsel_day,
-                        status=unsel_status,
-                        shift_id=None,
-                        shift=None,
-                        start_time=None,
-                        lunch_start=None,
-                        lunch_end=None,
-                        end_time=None,
-                        raw_minutes=0,
-                        worked_minutes=0,
-                        is_manual=False
-                    )
-                    db.add(new_unsel)
+                d = date(schedule.year, schedule.month, day)
+                st = rest_day_status(contracts, d, day in holiday_days)
+                existing[day] = _apply_day(db, organization_id, schedule, emp.id, day, existing.get(day), st, None, origin, user_id)
 
     db.commit()
-    message = f"Preenchimento concluído! {updated_count} dias atualizados."
-    if capped_days_count > 0:
-        message += f" {capped_days_count} dia(s) viraram folga para respeitar a jornada semanal."
+    message = f"Preenchimento concluído! {updated_count} dias atualizados conforme o contrato."
+    if skipped_manual_count:
+        message += f" {skipped_manual_count} dia(s) manuais preservados."
+    if without_contract:
+        names = ", ".join(sorted(without_contract))
+        message += f" Sem contrato de jornada vigente (dias não preenchidos): {names}."
     return {
         "updated_count": updated_count,
         "skipped_manual_count": skipped_manual_count,
-        "capped_days_count": capped_days_count,
-        "message": message
+        "without_contract": without_contract,
+        "message": message,
     }
 
+
 # ==============================================================================
-# --- [BLOCO: LIMPEZA E RESET DE ESCALA] ---
+# --- [BLOCO: LIMPEZA E RESTAURAÇÃO DA ESCALA] ---
 # ==============================================================================
 
 def clear_or_reset_schedule(
@@ -335,136 +223,49 @@ def clear_or_reset_schedule(
     organization_id: int,
     schedule_id: int,
     employee_id: Optional[int] = None,
-    mode: str = "CLEAR_OFF", # 'CLEAR_OFF' ou 'RESET_DEFAULT'
-    overwrite_manual: bool = True
+    mode: str = "CLEAR_OFF",  # 'CLEAR_OFF' ou 'RESET_DEFAULT'
+    overwrite_manual: bool = True,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Limpa ou restaura a escala de trabalho de um colaborador específico ou de toda a equipe.
-    Modos:
-    - CLEAR_OFF: Define dias como folga (FOLGA_BH/DSR/FERIADO), zerando horas e turnos.
-    - RESET_DEFAULT: Restaura o turno contratual padrão nos dias de trabalho do colaborador (6x1: Seg-Sáb; 5x2: Seg-Sex) e DSR nos demais.
+    Limpa ou restaura a escala de um colaborador ou de toda a equipe.
+    - CLEAR_OFF: todos os dias viram descanso (feriado, descanso do contrato, DSR no domingo ou folga).
+    - RESET_DEFAULT: restaura a semana-padrão do contrato vigente em cada data.
     """
-    schedule = db.query(models.RHMonthlySchedule).filter(
-        models.RHMonthlySchedule.id == schedule_id,
-        models.RHMonthlySchedule.organization_id == organization_id
-    ).first()
+    employee_ids = [employee_id] if employee_id else None
+    if mode == "RESET_DEFAULT":
+        res = apply_contract_fill(
+            db, organization_id, schedule_id, employee_ids=employee_ids,
+            overwrite_manual=overwrite_manual, user_id=user_id, origin="RESET"
+        )
+        res["affected_days"] = res["updated_count"]
+        return res
 
-    if not schedule:
-        raise ValueError("Escala mensal não encontrada")
-
-    cal_info = get_month_calendar_info(schedule.year, schedule.month)
-    num_days = cal_info["num_days"]
-    sundays = set(cal_info["sundays"])
-
-    effective_holidays = get_effective_holidays_map(db, organization_id, schedule.year, schedule.month)
-    holiday_days = {int(d_str.split("-")[2]) for d_str in effective_holidays.keys()}
-
-    emp_query = db.query(models.RHEmployee).filter(
-        models.RHEmployee.organization_id == organization_id,
-        models.RHEmployee.active == True
-    )
-    if employee_id:
-        emp_query = emp_query.filter(models.RHEmployee.id == employee_id)
-    employees = emp_query.all()
+    schedule = _load_schedule(db, organization_id, schedule_id)
+    num_days = get_month_calendar_info(schedule.year, schedule.month)["num_days"]
+    holiday_days = {int(k.split("-")[2]) for k in get_effective_holidays_map(db, organization_id, schedule.year, schedule.month)}
+    employees = _load_employees(db, organization_id, employee_ids)
 
     affected_days = 0
-
     for emp in employees:
-        default_shift = None
-        if mode == "RESET_DEFAULT" and emp.default_shift_id:
-            default_shift = db.query(models.RHWorkShift).filter(
-                models.RHWorkShift.id == emp.default_shift_id,
-                models.RHWorkShift.organization_id == organization_id
-            ).first()
-
-        start_time = default_shift.start_time if default_shift else "08:00"
-        lunch_start = default_shift.lunch_start if default_shift else "12:00"
-        lunch_end = default_shift.lunch_end if default_shift else "13:00"
-        end_time = default_shift.end_time if default_shift else "17:00"
-        raw_min = compute_raw_minutes(start_time, lunch_start, lunch_end, end_time) if default_shift else 480
-        work_days_limit = min(6, int(emp.work_days_per_week or 6))
-
-        for day in range(1, num_days + 1):
-            rec = db.query(models.RHWorkDay).filter(
+        contracts = list(emp.contracts)
+        existing = {
+            r.day: r for r in db.query(models.RHWorkDay).filter(
                 models.RHWorkDay.schedule_id == schedule.id,
-                models.RHWorkDay.employee_id == emp.id,
-                models.RHWorkDay.day == day
-            ).first()
-
+                models.RHWorkDay.employee_id == emp.id
+            ).all()
+        }
+        for day in range(1, num_days + 1):
+            rec = existing.get(day)
             if rec and rec.is_manual and not overwrite_manual:
                 continue
-
-            if mode == "RESET_DEFAULT":
-                if day in holiday_days:
-                    st = "FERIADO"
-                    is_work = False
-                elif day in sundays or date(schedule.year, schedule.month, day).weekday() >= work_days_limit:
-                    # 6x1: segunda a sábado; 5x2: segunda a sexta com sábado e domingo de DSR
-                    st = "DSR"
-                    is_work = False
-                else:
-                    st = "TRABALHO"
-                    is_work = True
-                
-                final_min = raw_min if is_work else 0
-                shift_id_val = default_shift.id if (is_work and default_shift) else None
-                shift_code_val = default_shift.code if (is_work and default_shift) else None
-                s_time = start_time if is_work else None
-                l_start = lunch_start if is_work else None
-                l_end = lunch_end if is_work else None
-                e_time = end_time if is_work else None
-            else: # CLEAR_OFF
-                if day in holiday_days:
-                    st = "FERIADO"
-                elif day in sundays:
-                    st = "DSR"
-                else:
-                    st = "FOLGA"
-                
-                final_min = 0
-                shift_id_val = None
-                shift_code_val = None
-                s_time = None
-                l_start = None
-                l_end = None
-                e_time = None
-
-            if rec:
-                rec.status = st
-                rec.shift_id = shift_id_val
-                rec.shift = shift_code_val
-                rec.start_time = s_time
-                rec.lunch_start = l_start
-                rec.lunch_end = l_end
-                rec.end_time = e_time
-                rec.raw_minutes = final_min
-                rec.worked_minutes = final_min
-                rec.is_manual = False
-            else:
-                new_day = models.RHWorkDay(
-                    schedule_id=schedule.id,
-                    employee_id=emp.id,
-                    day=day,
-                    status=st,
-                    shift_id=shift_id_val,
-                    shift=shift_code_val,
-                    start_time=s_time,
-                    lunch_start=l_start,
-                    lunch_end=l_end,
-                    end_time=e_time,
-                    raw_minutes=final_min,
-                    worked_minutes=final_min,
-                    is_manual=False
-                )
-                db.add(new_day)
-
+            st = rest_day_status(contracts, date(schedule.year, schedule.month, day), day in holiday_days)
+            _apply_day(db, organization_id, schedule, emp.id, day, rec, st, None, "RESET", user_id)
             affected_days += 1
 
     db.commit()
     target_desc = f"do colaborador {employees[0].name}" if (employee_id and employees) else "de toda a equipe"
-    action_desc = "restaurada para os turnos contratuais" if mode == "RESET_DEFAULT" else "limpa com folgas"
     return {
         "affected_days": affected_days,
-        "message": f"Escala {target_desc} foi {action_desc} com sucesso ({affected_days} dias processados)."
+        "message": f"Escala {target_desc} foi limpa com folgas com sucesso ({affected_days} dias processados)."
     }
-
