@@ -12,7 +12,7 @@ Convenção de nome: `vNN_AAAA-MM-DD.md`.
 |---|---|
 | 1 — Base | **Implementada** (23/10/2026): regimes legais, contratos de jornada em grade semanal (modelos, versões, aditivo), turnos removidos, ledger único (compensação, troca de folga, tolerância e atrasos), lote pelo contrato, histórico de alterações. |
 | 2 — Conformidade | **Implementada** (23/10/2026): motor de regras R01–R11, R13 e R14 com contagem entre meses; consequências financeira e administrativa; aviso rápido na edição; auditoria mensal com aprovação do conjunto e snapshot; ocorrências de ponto; lote que evita irregularidade crítica. R12 (vencimento do banco) segue na Fase 3. |
-| 3 — Relatório | Pendente |
+| 3 — Relatório | **Implementada** (23/10/2026): relatório do período com filtros (período, colaborador, regra, gravidade, situação), totais por regra/colaborador/mês, reincidência em 12 meses, ficha completa com histórico, exportação CSV e PDF; R12 (vencimento do banco de horas). |
 
 | Versão | Data | Arquivo | Principais mudanças |
 |---|---|---|---|

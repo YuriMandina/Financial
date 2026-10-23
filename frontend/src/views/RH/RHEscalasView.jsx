@@ -1305,6 +1305,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           selectedMonth={selectedMonth}
           scheduleId={scheduleData?.schedule_id}
           focusFingerprint={auditFocus}
+          employees={employees}
           onChanged={fetchSchedule}
         />
       )}

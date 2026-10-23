@@ -2,9 +2,10 @@
 Motor de Regras Trabalhistas (R01–R14)
 Funções puras sobre o ledger diário e a escala: cada regra devolve irregularidades com causa,
 evidências, base legal e consequências financeira e administrativa.
-Planejamento: docs/conformidade-clt (v05, seções 7 e 8). R12 (vencimento do banco) entra na Fase 3.
+Planejamento: docs/conformidade-clt (v05, seções 7 e 8).
 """
 
+import calendar
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
@@ -112,6 +113,14 @@ RULES_TEXT: Dict[str, Dict[str, str]] = {
         "financial": "Pagamento em dobro das horas trabalhadas no dia (Súmula 146 TST).",
         "administrative": "Multa do art. 12 da Lei 605/49; no feriado, também exige autorização em convenção coletiva (Lei 10.101, art. 6º-A).",
     },
+    "R12": {
+        "title": "Banco de horas vencido sem compensação",
+        "legal_basis": "CLT art. 59, §2º e §3º — horas não compensadas no prazo são pagas como extras. "
+                       "CLT art. 59, §5º — banco de horas por acordo individual escrito, compensação em até 6 meses. "
+                       "CLT art. 59, §6º — compensação no mesmo mês por acordo individual tácito ou escrito.",
+        "financial": "Saldo não compensado no prazo pago como hora extra, com adicional (art. 59, §3º).",
+        "administrative": "Manter horas em banco além do prazo legal sujeita a multa do art. 75 da CLT.",
+    },
     "R13": {
         "title": "Falta injustificada registrada",
         "legal_basis": "Lei 605/49 art. 6º — a falta injustificada na semana pode acarretar a perda do DSR.",
@@ -204,6 +213,46 @@ class RuleDay:
 
 
 @dataclass
+class BankLot:
+    """Crédito do banco de horas por mês de origem, consumido do mais antigo para o mais novo."""
+    origin: date  # Primeiro dia do mês de origem
+    amount: int
+    remaining: int
+    expiry: date
+
+
+def _add_months(d: date, months: int) -> date:
+    y, m = divmod(d.month - 1 + months, 12)
+    return date(d.year + y, m + 1, 1)
+
+
+def bank_lots(monthly_net: List[tuple], validity_months: int) -> List[BankLot]:
+    """
+    Lotes do banco a partir do saldo líquido de cada mês [(primeiro_dia_do_mês, minutos)].
+    Saldo positivo cria um lote; negativo consome os lotes mais antigos.
+    Prazo: até o último dia do mês de origem (compensação mensal) ou do 6º mês (banco de 6 meses).
+    """
+    lots: List[BankLot] = []
+    debt = 0  # Débito sem crédito anterior a consumir: abate os próximos créditos
+    for origin, net in sorted(monthly_net, key=lambda x: x[0]):
+        if net > 0:
+            credit = net - min(debt, net)
+            debt -= net - credit
+            last = _add_months(origin, max(validity_months, 1) - 1)
+            expiry = date(last.year, last.month, calendar.monthrange(last.year, last.month)[1])
+            lots.append(BankLot(origin, net, credit, expiry))
+            continue
+        debt += -net
+        for lot in lots:
+            if debt <= 0:
+                break
+            take = min(lot.remaining, debt)
+            lot.remaining -= take
+            debt -= take
+    return lots
+
+
+@dataclass
 class RulePolicy:
     max_daily_overtime_min: int = 120
     min_interjornada_min: int = 660
@@ -242,6 +291,8 @@ class RuleContext:
     holidays: Dict[date, str]
     period: tuple  # (início, fim) do mês avaliado
     policy: RulePolicy = field(default_factory=RulePolicy)
+    bank_lots: List[BankLot] = field(default_factory=list)
+    bank_validity_months: int = 1
 
     def in_period(self, d: date) -> bool:
         return self.period[0] <= d <= self.period[1]
@@ -552,6 +603,45 @@ def r11_rest_worked(ctx: RuleContext) -> List[Violation]:
     return out
 
 
+def r12_bank_expiry(ctx: RuleContext) -> List[Violation]:
+    out = []
+    start, end = ctx.period
+    alert_until = end + timedelta(days=31)
+    prazo = "no mesmo mês (art. 59, §6º)" if ctx.bank_validity_months <= 1 else f"em até {ctx.bank_validity_months} meses (art. 59, §5º)"
+    for lot in ctx.bank_lots:
+        if lot.remaining <= 0:
+            continue
+        origin_label = lot.origin.strftime("%m/%Y")
+        evidence = [
+            Evidence(lot.origin, "Mês de origem do crédito", origin_label),
+            Evidence(None, "Crédito gerado", fh(lot.amount)),
+            Evidence(None, "Saldo ainda não compensado", fh(lot.remaining)),
+            Evidence(lot.expiry, "Prazo de compensação", f"{fd(lot.expiry)} ({prazo})"),
+        ]
+        if start <= lot.expiry <= end:
+            out.append(Violation(
+                code="R12", severity="CRITICA", employee_id=ctx.employee_id, dates=[lot.expiry], ref_date=lot.expiry,
+                message=f"{ctx.employee_name}: {fh(lot.remaining)} do banco de {origin_label} venceram em {fds(lot.expiry)}.",
+                cause=(f"{fh(lot.remaining)} de crédito gerado em {origin_label} não foram compensados até {fd(lot.expiry)}; "
+                       f"a compensação deve ocorrer {prazo}."),
+                suggestion="Pagar o saldo vencido como hora extra na folha (destino 'Pagar com acréscimo').",
+                evidence=evidence, fingerprint=f"R12:{ctx.employee_id}:{lot.origin.isoformat()}",
+                estimate_minutes=lot.remaining, estimate_kind="HE",
+            ))
+        elif end < lot.expiry <= alert_until:
+            out.append(Violation(
+                code="R12", severity="ALERTA", employee_id=ctx.employee_id, dates=[lot.expiry], ref_date=end,
+                title="Banco de horas próximo do vencimento",
+                message=f"{ctx.employee_name}: {fh(lot.remaining)} do banco vencem em {fds(lot.expiry)}.",
+                cause=(f"{fh(lot.remaining)} de crédito gerado em {origin_label} vencem em {fd(lot.expiry)} "
+                       f"se não forem compensados ou pagos."),
+                suggestion=f"Programar folgas de banco de horas até {fd(lot.expiry)} ou pagar o saldo.",
+                evidence=evidence, fingerprint=f"R12A:{ctx.employee_id}:{lot.origin.isoformat()}",
+                estimate_minutes=lot.remaining, estimate_kind="HE",
+            ))
+    return out
+
+
 def r13_absence(ctx: RuleContext) -> List[Violation]:
     return [
         Violation(
@@ -719,7 +809,7 @@ def r14_contract_without_amendment(ctx: RuleContext) -> List[Violation]:
 RULES = [
     r01_daily_overtime, r02_weekly_limit, r03_habitual_overtime, r04_contract_over_regime,
     r05_seventh_day, r06_min_rest_days, r07_consecutive_sundays, r08_interjornada,
-    r09_rest_35h, r10_intrajornada, r11_rest_worked, r13_absence, r14_contract_without_amendment,
+    r09_rest_35h, r10_intrajornada, r11_rest_worked, r12_bank_expiry, r13_absence, r14_contract_without_amendment,
 ]
 
 

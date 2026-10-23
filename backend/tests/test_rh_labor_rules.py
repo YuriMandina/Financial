@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from services.rh_contracts import SYSTEM_TEMPLATES, contract_day_on, default_regimes, parse_days, weekly_minutes
 from services.rh_engine import compute_raw_minutes
-from services.rh_labor_rules import RuleContext, RuleDay, RulePolicy, evaluate
+from services.rh_labor_rules import RuleContext, RuleDay, RulePolicy, bank_lots, evaluate
 from services.rh_ledger import DayInput, LedgerSettings, build_ledger
 
 TEMPLATES = {t["code"]: t["days"] for t in SYSTEM_TEMPLATES}
@@ -233,6 +233,38 @@ class TestWeeklyAndContractRules(unittest.TestCase):
             self.assertTrue(v[key], key)
         self.assertIn("art. 75", v["administrative_consequence"])
         self.assertIn("Pagar o valor devido não afasta", v["administrative_footer"])
+
+
+class TestBankExpiry(unittest.TestCase):
+
+    def _r12(self, lots, validity, period):
+        ctx = ctx_for(base_october(), period=period)
+        ctx.bank_lots, ctx.bank_validity_months = lots, validity
+        return [v for v in evaluate(ctx) if v.code == "R12"]
+
+    def test_monthly_compensation_expires_at_month_end(self):
+        lots = bank_lots([(date(2026, 10, 1), 240)], 1)
+        self.assertEqual(lots[0].expiry, date(2026, 10, 31))
+        r12 = self._r12(lots, 1, OCT)
+        self.assertEqual(r12[0].severity, "CRITICA")
+        self.assertIn("mesmo mês", r12[0].cause)
+
+    def test_six_month_bank_alerts_then_expires(self):
+        lots = bank_lots([(date(2026, 10, 1), 240)], 6)
+        self.assertEqual(lots[0].expiry, date(2027, 3, 31))
+        alert = self._r12(lots, 6, (date(2027, 2, 1), date(2027, 2, 28)))
+        self.assertEqual(alert[0].severity, "ALERTA")
+        expired = self._r12(lots, 6, (date(2027, 3, 1), date(2027, 3, 31)))
+        self.assertEqual(expired[0].severity, "CRITICA")
+        self.assertNotEqual(alert[0].fingerprint, expired[0].fingerprint)
+
+    def test_debits_consume_oldest_credit_first(self):
+        lots = bank_lots([(date(2026, 9, 1), 120), (date(2026, 10, 1), 240), (date(2026, 11, 1), -180)], 6)
+        self.assertEqual([lot.remaining for lot in lots], [0, 180])
+
+    def test_compensated_balance_has_no_r12(self):
+        lots = bank_lots([(date(2026, 10, 1), 240), (date(2026, 10, 1), -240)], 1)
+        self.assertEqual(self._r12(lots, 1, OCT), [])
 
 
 if __name__ == "__main__":

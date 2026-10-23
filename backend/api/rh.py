@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
@@ -23,8 +24,9 @@ from services.rh_contracts import (
 from services.rh_ledger import load_month_ledgers
 from services.rh_compliance_service import (
     refresh_month_audit, audit_summary, audit_to_dict, approve_month_audit, item_to_dict, late_occurrences,
-    compute_month_violations, sync_month_audit, audited
+    compute_month_violations, sync_month_audit, audited, NO_DAY_HISTORY_RULES
 )
+from services.rh_compliance_report import build_report, parse_month, report_to_csv, report_to_pdf
 from services.rh_payroll_service import sync_payroll_if_calculated, OVERTIME_POLICIES
 from services.rh_salary_service import (
     get_salary_history, current_salary, current_role_salary, apply_salary_change, sync_current_salary
@@ -1394,6 +1396,37 @@ def approve_compliance_audit(
     return audit_to_dict(db, audit)
 
 
+@router.get("/compliance/report")
+def get_compliance_report(
+    date_from: str = Query(..., description="Mês inicial, AAAA-MM"),
+    date_to: str = Query(..., description="Mês final, AAAA-MM"),
+    employee_id: Optional[int] = Query(None),
+    rule: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    format: str = Query("json"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Relatório de irregularidades do período (JSON, CSV ou PDF) com filtros, totais e reincidências."""
+    try:
+        report = build_report(
+            db, current_user.organization_id, parse_month(date_from), parse_month(date_to),
+            employee_id=employee_id, rule=rule or None, severity=severity or None, status=status or None
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    filename = f"irregularidades_{date_from}_a_{date_to}"
+    if format == "csv":
+        return Response(report_to_csv(report), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'})
+    if format == "pdf":
+        org = db.query(models.Organization).get(current_user.organization_id)
+        return Response(report_to_pdf(report, org.name if org else None), media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'})
+    return report
+
+
 @router.get("/compliance/items/{item_id}")
 def get_compliance_item(
     item_id: int,
@@ -1407,7 +1440,7 @@ def get_compliance_item(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Irregularidade não encontrada")
-    dates = [date.fromisoformat(d) for d in (item.dates or [])]
+    dates = [] if item.rule_code in NO_DAY_HISTORY_RULES else [date.fromisoformat(d) for d in (item.dates or [])]
     users = {u.id: (u.name or u.email) for u in db.query(models.User).filter(
         models.User.organization_id == current_user.organization_id
     ).all()}

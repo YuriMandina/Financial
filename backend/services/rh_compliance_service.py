@@ -14,12 +14,14 @@ from sqlalchemy.orm import Session
 from models import models
 from services.rh_contracts import contract_day_on, contract_on, days_summary_label, load_regimes
 from services.rh_holidays_service import get_effective_holidays_map
-from services.rh_labor_rules import RuleContext, RuleDay, RulePolicy, Violation, evaluate
+from services.rh_labor_rules import RuleContext, RuleDay, RulePolicy, Violation, bank_lots, evaluate
 from services.rh_ledger import LedgerSettings, build_ledger, day_input_from_record, load_month_ledgers
 from services.rh_salary_service import current_salary
 
 WINDOW_DAYS = 63  # Semanas anteriores ao mês: domingos seguidos, 7º dia e habitualidade cruzam meses
 AUDITED_SEVERITIES = ("CRITICA", "ALERTA")
+# Regras de semana, contrato ou banco: as datas não são dias editados, então não há histórico de alteração
+NO_DAY_HISTORY_RULES = ("R03", "R04", "R12", "R14")
 
 # ==============================================================================
 # --- [BLOCO: JANELA DE DIAS DO COLABORADOR] ---
@@ -75,6 +77,29 @@ def _latest_changes(db: Session, employee_ids: List[int], start: date, end: date
     return latest
 
 
+def _bank_monthly_net(db: Session, organization_id: int, employee_ids: List[int], year: int, month: int) -> Dict[int, List[tuple]]:
+    """
+    Saldo líquido do banco de horas por mês até o mês avaliado (linhas gravadas pela folha):
+    movimento da escala + ajustes manuais - horas pagas. O saldo anterior ao primeiro mês vira um lote inicial.
+    """
+    rows = db.query(models.RHBankHours, models.RHMonthlySchedule).join(
+        models.RHMonthlySchedule, models.RHBankHours.schedule_id == models.RHMonthlySchedule.id
+    ).filter(
+        models.RHMonthlySchedule.organization_id == organization_id,
+        models.RHBankHours.employee_id.in_(employee_ids),
+        (models.RHMonthlySchedule.year * 12 + models.RHMonthlySchedule.month) <= (year * 12 + month)
+    ).order_by(models.RHMonthlySchedule.year.asc(), models.RHMonthlySchedule.month.asc()).all()
+    out: Dict[int, List[tuple]] = {eid: [] for eid in employee_ids}
+    for bank, sched in rows:
+        origin = date(sched.year, sched.month, 1)
+        if not out[bank.employee_id] and (bank.previous_balance_minutes or 0) > 0:
+            prev = date(sched.year - 1, 12, 1) if sched.month == 1 else date(sched.year, sched.month - 1, 1)
+            out[bank.employee_id].append((prev, int(bank.previous_balance_minutes)))
+        net = int(bank.month_balance_minutes or 0) + int(bank.adjustments_minutes or 0) - int(bank.paid_minutes or 0)
+        out[bank.employee_id].append((origin, net))
+    return out
+
+
 # ==============================================================================
 # --- [BLOCO: CÁLCULO DAS IRREGULARIDADES] ---
 # ==============================================================================
@@ -113,6 +138,8 @@ def compute_month_violations(db: Session, organization_id: int, year: int, month
     holidays = _holidays(db, organization_id, months)
     records = _window_records(db, organization_id, [e.id for e in employees], months)
     changes = _latest_changes(db, [e.id for e in employees], window_start, end)
+    bank_net = _bank_monthly_net(db, organization_id, [e.id for e in employees], year, month)
+    regime = getattr(settings, "compensation_regime", None) or "MONTHLY"
     ledger_settings = LedgerSettings.from_settings(settings)
     policy = RulePolicy.from_settings(settings)
     overtime_rate = float(getattr(settings, "overtime_rate", None) or 50.0)
@@ -134,6 +161,10 @@ def compute_month_violations(db: Session, organization_id: int, year: int, month
             ledger=ledger, contracts=contracts, regimes=regimes, holidays=holidays,
             period=(start, end), policy=policy,
         )
+        # Banco de 6 meses exige acordo individual escrito (art. 59, §5º); sem ele, vale a compensação no mês
+        contract = contract_on(contracts, end)
+        ctx.bank_validity_months = 6 if (regime == "BANK_6M" and contract and contract.compensation_agreement) else 1
+        ctx.bank_lots = bank_lots(bank_net.get(emp.id, []), ctx.bank_validity_months)
         violations = evaluate(ctx)
         hourly = _hourly_rate(db, emp, end)
         for v in violations:

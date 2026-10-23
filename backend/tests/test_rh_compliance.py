@@ -9,6 +9,7 @@ from models import models
 from services.rh_compliance_service import approve_month_audit, audit_summary, refresh_month_audit
 from services.rh_contracts import SYSTEM_TEMPLATES, create_contract_version
 from services.rh_schedule_service import apply_contract_fill
+from services.rh_compliance_report import build_report, report_to_csv, report_to_pdf
 
 TEMPLATES = {t["code"]: t["days"] for t in SYSTEM_TEMPLATES}
 
@@ -20,7 +21,8 @@ class TestMonthlyAudit(unittest.TestCase):
         needed = [
             models.Organization, models.User, models.RHRole, models.RHEmployee, models.RHEmployeeContract,
             models.RHContractTemplate, models.RHLegalRegime, models.RHMonthlySchedule, models.RHWorkDay,
-            models.RHWorkDayChange, models.RHSettings, models.RHSalaryChange, models.RHMonthlyAudit, models.RHAuditItem
+            models.RHWorkDayChange, models.RHSettings, models.RHSalaryChange, models.RHMonthlyAudit, models.RHAuditItem,
+            models.RHBankHours
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()
@@ -120,6 +122,46 @@ class TestMonthlyAudit(unittest.TestCase):
         rec.is_late_record = True  # registrado como ponto: 3h de atraso fora do limite
         self.db.commit()
         self.assertIn("R01", [i.rule_code for i in self._audit().items])
+
+
+    # --- Relatório do período (Fase 3) ---------------------------------------------
+
+    def _late_shift(self, schedule, day):
+        rec = self.db.query(models.RHWorkDay).filter_by(schedule_id=schedule.id, employee_id=self.emp.id, day=day).first()
+        rec.start_time, rec.lunch_start, rec.lunch_end, rec.end_time = "13:00", "17:00", "18:00", "22:00"
+        rec.worked_minutes = rec.raw_minutes = 480
+        rec.is_manual = True
+        self.db.commit()
+
+    def test_report_totals_filters_and_exports(self):
+        self._late_shift(self.schedule, 19)  # R08 entre 19 e 20/10
+        report = build_report(self.db, self.org_id, (2026, 10), (2026, 10))
+        self.assertEqual(report["totals"]["total"], 1)
+        self.assertEqual(report["by_rule"][0]["key"], "R08")
+        self.assertEqual({c["origin"] for c in report["items"][0]["changes"]}, {"LOTE"})  # edição direta no teste, sem rota
+        self.assertEqual(build_report(self.db, self.org_id, (2026, 10), (2026, 10), rule="R01")["totals"]["total"], 0)
+
+        csv_bytes = report_to_csv(report)
+        self.assertTrue(csv_bytes.startswith("﻿Mês;".encode("utf-8")))
+        self.assertIn("Descanso entre jornadas", csv_bytes.decode("utf-8"))
+        self.assertTrue(report_to_pdf(report, "Org").startswith(b"%PDF"))
+
+    def test_reincidence_within_12_months(self):
+        sep = models.RHMonthlySchedule(organization_id=self.org_id, year=2026, month=9)
+        self.db.add(sep)
+        self.db.commit()
+        apply_contract_fill(self.db, self.org_id, sep.id, selected_days=list(range(1, 31)))
+        self._late_shift(sep, 14)          # R08 em setembro
+        self._late_shift(self.schedule, 19)  # R08 de novo em outubro
+        report = build_report(self.db, self.org_id, (2026, 9), (2026, 10))
+        by_month = {(i["month"], i["rule_code"]): i["reincidence_count"] for i in report["items"]}
+        self.assertEqual(by_month[(9, "R08")], 0)
+        self.assertEqual(by_month[(10, "R08")], 1)
+        self.assertEqual(report["totals"]["reincidences"], 1)
+
+    def test_report_rejects_long_period(self):
+        with self.assertRaises(ValueError):
+            build_report(self.db, self.org_id, (2026, 1), (2028, 6))
 
 
 if __name__ == "__main__":
