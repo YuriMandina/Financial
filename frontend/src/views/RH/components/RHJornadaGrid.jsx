@@ -91,6 +91,8 @@ export default function RHJornadaGrid({
   onRefresh,
   summaries = [],
   onDirtyChange,
+  onOpenAudit,
+  complianceDays = {}, // { empId: { day: ['R01', ...] } } irregularidades da auditoria do mês
   absenceDsrMode = 'ONE'
 }) {
   const [dirty, setDirty] = useState(false);
@@ -102,6 +104,13 @@ export default function RHJornadaGrid({
   React.useEffect(() => () => { if (onDirtyChange) onDirtyChange(false); }, [onDirtyChange]);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+  // Aviso rápido (toast) com as irregularidades novas causadas pela edição salva
+  const [toast, setToast] = useState(null);
+  React.useEffect(() => {
+    if (!toast) return undefined;
+    const timer = setTimeout(() => setToast(null), 8000);
+    return () => clearTimeout(timer);
+  }, [toast]);
   const [fillDrawerOpen, setFillDrawerOpen] = useState(false);
 
   // Estado local editável da grade de jornada
@@ -403,7 +412,7 @@ export default function RHJornadaGrid({
 
   const changedCells = useMemo(() => {
     const changed = new Set();
-    const fields = ['status', 'start_time', 'lunch_start', 'lunch_end', 'end_time', 'worked_minutes', 'notes', 'late_decision'];
+    const fields = ['status', 'start_time', 'lunch_start', 'lunch_end', 'end_time', 'worked_minutes', 'notes', 'late_decision', 'is_late_record'];
     Object.entries(localWorkDays).forEach(([empId, days]) => {
       Object.entries(days || {}).forEach(([day, local]) => {
         const original = workDays[empId]?.[day];
@@ -514,6 +523,9 @@ export default function RHJornadaGrid({
         if ((dVal.late_decision ?? null) !== (original?.late_decision ?? null)) {
           entry.late_decision = dVal.late_decision ?? null;
         }
+        if (Boolean(dVal.is_late_record) !== Boolean(original?.is_late_record)) {
+          entry.is_late_record = Boolean(dVal.is_late_record);
+        }
         entries.push(entry);
       });
 
@@ -530,6 +542,8 @@ export default function RHJornadaGrid({
       });
 
       if (!res.ok) throw new Error('Erro ao salvar jornada');
+      const result = await res.json().catch(() => ({}));
+      if (result.new_violations?.length) setToast(result.new_violations);
       setDirty(false);
       setUndoStack([]);
       setSaveMsg('Jornada salva com sucesso!');
@@ -964,6 +978,8 @@ export default function RHJornadaGrid({
 
                       const isSelected = selectedCells.has(cellKey(emp.id, day));
                       const isChanged = isChangedCell;
+                      const irregularCodes = complianceDays[emp.id]?.[day] || [];
+                      if (irregularCodes.length) tipParts.push(`irregularidade na auditoria: ${irregularCodes.join(', ')}`);
 
                       return (
                         <td
@@ -993,6 +1009,9 @@ export default function RHJornadaGrid({
                             )}
                             {paidDouble && (
                               <span className="absolute -top-1.5 -left-1 px-0.5 rounded bg-red-600 text-white text-[7px] leading-none py-0.5" title="Pagamento em dobro">2x</span>
+                            )}
+                            {irregularCodes.length > 0 && (
+                              <span className="absolute -bottom-1 -left-1 w-2 h-2 rounded-full bg-rose-500 ring-1 ring-slate-900" />
                             )}
                             {latePending && (
                               <span className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-orange-400 ring-1 ring-slate-900" />
@@ -1116,6 +1135,37 @@ export default function RHJornadaGrid({
           </table>
         </div>
       </div>
+
+      {/* Aviso rápido de irregularidade (sem bloqueio; o detalhe fica na auditoria do mês) */}
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-sm bg-slate-900 border border-amber-500/50 rounded-xl shadow-2xl p-3.5 text-xs text-amber-100 animate-in fade-in duration-200">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={16} className="shrink-0 text-amber-400 mt-0.5" />
+            <div className="flex-1 space-y-1">
+              {toast.length === 1 ? (
+                <div>
+                  <span className="font-semibold">Irregularidade:</span> {toast[0].title.toLowerCase()}{' '}
+                  ({toast[0].employee_name}, {toast[0].dates.map((d) => d.slice(8, 10) + '/' + d.slice(5, 7)).slice(0, 2).join(' e ')}).
+                </div>
+              ) : (
+                <div><span className="font-semibold">{toast.length} irregularidades geradas.</span></div>
+              )}
+              {onOpenAudit && (
+                <button
+                  type="button"
+                  onClick={() => { onOpenAudit(toast.length === 1 ? toast[0].fingerprint : null); setToast(null); }}
+                  className="font-semibold text-amber-300 underline hover:text-amber-200"
+                >
+                  Ver na auditoria do mês
+                </button>
+              )}
+            </div>
+            <button type="button" onClick={() => setToast(null)} className="text-slate-400 hover:text-white">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Ajuste Fino da Célula de Jornada */}
       {editingCell && (
@@ -1324,6 +1374,16 @@ export default function RHJornadaGrid({
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* Horário remanejado (planejado) x atraso registrado como ponto */}
+              {editingCell.data.status === 'TRABALHO' && contractTimes(editingCell.data.contract_day) && (
+                <StyledCheckbox
+                  checked={Boolean(editingCell.data.is_late_record)}
+                  onChange={(checked) => setEditingCell({ ...editingCell, data: { ...editingCell.data, is_late_record: checked } })}
+                  label="Registrar como atraso (ponto)"
+                  description="Sem esta marca, a mudança de horário é um remanejamento e não conta como atraso"
+                />
               )}
 
               {/* Atraso fora dos limites de compensação automática: decisão do empregador */}

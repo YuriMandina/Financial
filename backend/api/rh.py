@@ -21,6 +21,10 @@ from services.rh_contracts import (
     create_contract_version, update_contract_version, delete_contract_version, normalize_days
 )
 from services.rh_ledger import load_month_ledgers
+from services.rh_compliance_service import (
+    refresh_month_audit, audit_summary, audit_to_dict, approve_month_audit, item_to_dict, late_occurrences,
+    compute_month_violations, sync_month_audit, audited
+)
 from services.rh_payroll_service import sync_payroll_if_calculated, OVERTIME_POLICIES
 from services.rh_salary_service import (
     get_salary_history, current_salary, current_role_salary, apply_salary_change, sync_current_salary
@@ -167,6 +171,7 @@ class RHWorkDayItemUpdate(BaseModel):
     benefit_note: Optional[str] = None
     notes: Optional[str] = None
     late_decision: Optional[str] = None  # ACEITAR_COMPENSACAO | ABONAR | NORMAL (null limpa)
+    is_late_record: Optional[bool] = None  # Horário registrado como ponto (atraso), não remanejamento
     late_decision_note: Optional[str] = None
     is_manual: Optional[bool] = True
 
@@ -191,6 +196,16 @@ class RHScheduleClearRequest(BaseModel):
     mode: str = "CLEAR_OFF" # 'CLEAR_OFF' ou 'RESET_DEFAULT'
     overwrite_manual: bool = True
 
+
+class RHAuditItemNote(BaseModel):
+    id: int
+    note: Optional[str] = None
+    is_force_majeure: bool = False
+
+class RHAuditApproveRequest(BaseModel):
+    acknowledged: bool = False  # "Li todas as irregularidades... e aprovo ciente delas"
+    general_note: Optional[str] = None
+    items: List[RHAuditItemNote] = []
 
 class RHBenefitOverrideRequest(BaseModel):
     schedule_id: int
@@ -866,6 +881,7 @@ def get_monthly_schedule(
                     va_override = wd.va_override
                     benefit_note = wd.benefit_note
                     late_decision = wd.late_decision
+                    is_late_record = bool(wd.is_late_record)
                 else:
                     is_sun = day in sundays
                     status = "FERIADO" if day in holidays_by_day else ("DSR" if is_sun else "FOLGA")
@@ -884,6 +900,7 @@ def get_monthly_schedule(
                     va_override = None
                     benefit_note = None
                     late_decision = None
+                    is_late_record = False
 
                 day_date = date(year, month, day)
                 cd = contract_day_on(emp.contracts, day_date)
@@ -917,13 +934,13 @@ def get_monthly_schedule(
                     "benefit_note": benefit_note,
                     "is_manual": is_manual,
                     "late_decision": late_decision,
+                    "is_late_record": is_late_record,
                     "contract_day": contract_day,
                     "ledger": dl.to_dict() if dl else None
                 }
 
         # Calcular resumos mensais com o novo motor unificado
         summaries = []
-        all_warnings = []
         for emp in employees:
             summary = calculate_work_days_summary(
                 employee=emp,
@@ -935,7 +952,19 @@ def get_monthly_schedule(
                 ledger=ledgers.get(emp.id, {})
             )
             summaries.append(summary)
-            all_warnings.extend(summary.get("warnings", []))
+
+        # Auditoria do mês (motor de regras): só a situação resumida vai para a tela da escala
+        audit, _ = refresh_month_audit(db, current_user.organization_id, year, month)
+        db.commit()
+        compliance = audit_summary(audit)
+        # Marcador discreto nas células: dias do mês envolvidos em cada irregularidade
+        compliance_days: Dict[int, Dict[int, List[str]]] = {}
+        for item in audit.items:
+            for iso in item.dates or []:
+                d = date.fromisoformat(iso)
+                if (d.year, d.month) == (year, month):
+                    compliance_days.setdefault(item.employee_id, {}).setdefault(d.day, []).append(item.rule_code)
+        compliance["days"] = compliance_days
 
         # Ajustes avulsos serializados
         serialized_adjustments = [
@@ -1014,7 +1043,7 @@ def get_monthly_schedule(
             "work_days": unified_work_days,
             "benefit_adjustments": serialized_adjustments,
             "summaries": summaries,
-            "warnings": all_warnings
+            "compliance": compliance
         }
     except Exception as e:
         import traceback
@@ -1081,7 +1110,10 @@ def update_work_days_batch(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """Ajuste fino de células de jornada (marca is_manual=True)."""
+    """
+    Ajuste fino de células de jornada (marca is_manual=True). Salva sempre (sem bloqueio);
+    a resposta traz as irregularidades NOVAS causadas pela alteração, para o aviso rápido (seção 10.1).
+    """
     schedule = db.query(models.RHMonthlySchedule).filter(
         models.RHMonthlySchedule.id == payload.schedule_id,
         models.RHMonthlySchedule.organization_id == current_user.organization_id
@@ -1089,7 +1121,16 @@ def update_work_days_batch(
     if not schedule:
         raise HTTPException(status_code=404, detail="Escala não encontrada")
 
+    org_id = current_user.organization_id
+    affected = sorted({item.employee_id for item in payload.entries})
+    before_fps = {
+        v.fingerprint
+        for vs in compute_month_violations(db, org_id, schedule.year, schedule.month, affected).values()
+        for v in audited(vs)
+    }
+
     updated = 0
+    changes_by_emp: Dict[int, List[models.RHWorkDayChange]] = {}
     for item in payload.entries:
         rec = db.query(models.RHWorkDay).filter(
             models.RHWorkDay.schedule_id == schedule.id,
@@ -1132,6 +1173,8 @@ def update_work_days_batch(
             rec.benefit_note = item.benefit_note
         if item.notes is not None:
             rec.notes = item.notes
+        if item.is_late_record is not None:
+            rec.is_late_record = item.is_late_record
         if "late_decision" in item.model_fields_set:
             if item.late_decision not in (None, "ACEITAR_COMPENSACAO", "ABONAR", "NORMAL"):
                 raise HTTPException(status_code=400, detail="Decisão de atraso inválida")
@@ -1141,15 +1184,42 @@ def update_work_days_batch(
             rec.late_decision_at = datetime.now(timezone.utc) if item.late_decision else None
 
         rec.is_manual = item.is_manual if item.is_manual is not None else True
-        record_change(
+        change = record_change(
             db, current_user.organization_id, schedule, item.employee_id, item.day,
             before, snapshot_day(rec), "MANUAL", current_user.id
         )
+        if change is not None:
+            changes_by_emp.setdefault(item.employee_id, []).append(change)
         updated += 1
+
+    # Irregularidades depois da alteração: as novas vão para o aviso rápido e para o histórico do dia
+    db.flush()
+    after = compute_month_violations(db, org_id, schedule.year, schedule.month, affected)
+    names = {e.id: e.name for e in db.query(models.RHEmployee).filter(models.RHEmployee.id.in_(affected)).all()}
+    new_violations = [v for vs in after.values() for v in audited(vs) if v.fingerprint not in before_fps]
+    for emp_id, changes in changes_by_emp.items():
+        for change in changes:
+            fps = [v.fingerprint for v in new_violations if v.employee_id == emp_id and change.work_date in v.dates]
+            change.violation_fingerprints = fps or None
+    sync_month_audit(db, org_id, schedule.year, schedule.month, after, names)
 
     db.commit()
     sync_payroll_if_calculated(db, current_user.organization_id, schedule.id)
-    return {"message": f"{updated} registros atualizados com sucesso"}
+    return {
+        "message": f"{updated} registros atualizados com sucesso",
+        "new_violations": [
+            {
+                "code": v.code,
+                "title": v.title,
+                "severity": v.severity,
+                "employee_id": v.employee_id,
+                "employee_name": names.get(v.employee_id),
+                "dates": [d.isoformat() for d in v.dates],
+                "fingerprint": v.fingerprint,
+            }
+            for v in new_violations
+        ],
+    }
 
 @router.post("/schedules/benefits/override")
 def override_day_benefit(
@@ -1266,6 +1336,101 @@ def delete_benefit_adjustment(
     db.commit()
     sync_payroll_if_calculated(db, current_user.organization_id, schedule_id)
     return {"message": "Ajuste removido com sucesso"}
+
+# ==============================================================================
+# --- [BLOCO: CONFORMIDADE TRABALHISTA E AUDITORIA MENSAL] ---
+# ==============================================================================
+
+def _get_schedule_by_month(db: Session, organization_id: int, year: int, month: int) -> Optional[models.RHMonthlySchedule]:
+    return db.query(models.RHMonthlySchedule).filter(
+        models.RHMonthlySchedule.organization_id == organization_id,
+        models.RHMonthlySchedule.year == year,
+        models.RHMonthlySchedule.month == month
+    ).first()
+
+
+@router.get("/compliance")
+def get_month_compliance(
+    year: int = Query(...),
+    month: int = Query(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Irregularidades do mês (auditoria), informativos e ocorrências de ponto."""
+    audit, violations = refresh_month_audit(db, current_user.organization_id, year, month)
+    db.commit()
+    names = {e.id: e.name for e in db.query(models.RHEmployee).filter(
+        models.RHEmployee.organization_id == current_user.organization_id
+    ).all()}
+    infos = [
+        {**v.to_dict(), "employee_name": names.get(v.employee_id)}
+        for vs in violations.values() for v in vs if v.severity == "INFO"
+    ]
+    schedule = _get_schedule_by_month(db, current_user.organization_id, year, month)
+    return {
+        "audit": audit_to_dict(db, audit),
+        "infos": infos,
+        "occurrences": late_occurrences(db, current_user.organization_id, schedule) if schedule else [],
+    }
+
+
+@router.post("/compliance/audits/{year}/{month}/approve")
+def approve_compliance_audit(
+    year: int,
+    month: int,
+    payload: RHAuditApproveRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Aprova o conjunto de irregularidades do mês e grava o snapshot do que foi lido (seção 10.2)."""
+    if not payload.acknowledged:
+        raise HTTPException(status_code=400, detail="Confirme a leitura das irregularidades antes de aprovar.")
+    audit, _ = refresh_month_audit(db, current_user.organization_id, year, month)
+    if not audit.items:
+        raise HTTPException(status_code=400, detail="Não há irregularidades para aprovar neste mês.")
+    notes = {n.id: n.model_dump() for n in payload.items}
+    approve_month_audit(audit, current_user, payload.general_note, notes)
+    db.commit()
+    return audit_to_dict(db, audit)
+
+
+@router.get("/compliance/items/{item_id}")
+def get_compliance_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Ficha completa da irregularidade, com o histórico de alterações dos dias envolvidos."""
+    item = db.query(models.RHAuditItem).join(models.RHMonthlyAudit).filter(
+        models.RHAuditItem.id == item_id,
+        models.RHMonthlyAudit.organization_id == current_user.organization_id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Irregularidade não encontrada")
+    dates = [date.fromisoformat(d) for d in (item.dates or [])]
+    users = {u.id: (u.name or u.email) for u in db.query(models.User).filter(
+        models.User.organization_id == current_user.organization_id
+    ).all()}
+    changes = db.query(models.RHWorkDayChange).filter(
+        models.RHWorkDayChange.employee_id == item.employee_id,
+        models.RHWorkDayChange.work_date.in_(dates)
+    ).order_by(models.RHWorkDayChange.created_at.asc(), models.RHWorkDayChange.id.asc()).all() if dates else []
+    return {
+        **item_to_dict(item),
+        "changes": [
+            {
+                "id": c.id,
+                "work_date": c.work_date.isoformat(),
+                "origin": c.origin,
+                "before": c.before,
+                "after": c.after,
+                "user": users.get(c.user_id),
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in changes
+        ],
+    }
+
 
 # ==============================================================================
 # --- [BLOCO: HISTÓRICO DE ALTERAÇÕES DA ESCALA] ---

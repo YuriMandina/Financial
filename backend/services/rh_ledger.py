@@ -36,6 +36,8 @@ class DayInput:
     end_time: Optional[str] = None
     worked_minutes: int = 0
     late_decision: Optional[str] = None  # ACEITAR_COMPENSACAO | ABONAR | NORMAL
+    # Atraso só existe em horário registrado como ponto; remanejamento planejado não é atraso
+    track_late: bool = True
 
 
 @dataclass
@@ -279,8 +281,8 @@ def _apply_daily(dl: DayLedger, s: LedgerSettings, late_auto_count: Dict[tuple, 
         dl.normal_min = contracted
         return
 
-    late = max(0, start_diff or 0)
-    stayed_after = max(0, end_diff or 0)
+    late = max(0, start_diff or 0) if di.track_late else 0
+    stayed_after = max(0, end_diff or 0) if di.track_late else 0
     waived = min(late, max(0, s.late_waiver_auto_min))
     if di.late_decision == "ABONAR":
         waived = late
@@ -367,6 +369,7 @@ def day_input_from_record(rec, d: date) -> DayInput:
         end_time=rec.end_time,
         worked_minutes=int(rec.worked_minutes or 0) if rec.status == "TRABALHO" else 0,
         late_decision=getattr(rec, "late_decision", None),
+        track_late=bool(getattr(rec, "is_late_record", False)),
     )
 
 

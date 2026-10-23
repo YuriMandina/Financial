@@ -1,6 +1,6 @@
 import calendar
 import math
-from datetime import date, timedelta
+from datetime import date
 from typing import List, Dict, Any, Optional
 
 # ==============================================================================
@@ -164,110 +164,7 @@ def derive_day_benefits(
     }
 
 
-# ==============================================================================
-# --- [BLOCO: VALIDAÇÃO DE CONFORMIDADE TRABALHISTA CLT (ALERTAS)] ---
-# ==============================================================================
-
-def check_clt_compliance_warnings(
-    employee_name: str,
-    work_days_by_day: Dict[int, Any],
-    year: int,
-    month: int,
-    max_consecutive_sundays: int = 2
-) -> List[Dict[str, Any]]:
-    """
-    Gera avisos visuais informativos (sem bloqueio) conforme regras da CLT:
-    1. Domingos consecutivos além do limite configurado
-    2. Intervalo intrajornada inferior a 1h quando jornada > 6h (Art. 71 CLT)
-    3. Carga diária superior a 10h (limite legal de 8h + 2h extras - Art. 59 CLT)
-    4. Alerta de falta injustificada no período (impacto potencial em perda do DSR)
-    """
-    warnings = []
-    month_info = get_month_calendar_info(year, month)
-    sundays = month_info["sundays"]
-
-    # 1. Domingos consecutivos
-    consecutive_count = 0
-    consecutive_streak = []
-    for sun_day in sundays:
-        wd = work_days_by_day.get(sun_day)
-        st = getattr(wd, "status", "DSR") if wd else "DSR"
-        if st == "TRABALHO":
-            consecutive_count += 1
-            consecutive_streak.append(sun_day)
-            if consecutive_count > max_consecutive_sundays:
-                warnings.append({
-                    "employee_name": employee_name,
-                    "type": "CONSECUTIVE_SUNDAYS",
-                    "severity": "warning",
-                    "consecutive_count": consecutive_count,
-                    "days": list(consecutive_streak),
-                    "message": (
-                        f"{employee_name} trabalhou em {consecutive_count} domingos consecutivos "
-                        f"(dias: {', '.join(map(str, consecutive_streak))}). "
-                        f"Limite recomendado: {max_consecutive_sundays} domingos."
-                    )
-                })
-        else:
-            consecutive_count = 0
-            consecutive_streak = []
-
-    # 2 e 3. Intervalo intrajornada e limite diário de 10h
-    for day, wd in work_days_by_day.items():
-        if not wd or getattr(wd, "status", "") != "TRABALHO":
-            continue
-
-        worked_min = getattr(wd, "worked_minutes", 0) or 0
-
-        # Carga > 10 horas
-        if worked_min > 600:
-            warnings.append({
-                "employee_name": employee_name,
-                "type": "DAILY_OVERTIME_LIMIT",
-                "severity": "warning",
-                "day": day,
-                "message": (
-                    f"Dia {day}: {employee_name} com jornada de {worked_min // 60}h{worked_min % 60:02d}. "
-                    f"A CLT limita a jornada máxima diária a 10 horas (8h normais + 2h extras)."
-                )
-            })
-
-        # Intervalo < 1h quando jornada > 6h
-        if worked_min > 360:
-            l_start = getattr(wd, "lunch_start", None)
-            l_end = getattr(wd, "lunch_end", None)
-            l_start_m = parse_time_to_minutes(l_start)
-            l_end_m = parse_time_to_minutes(l_end)
-            lunch_span = 0
-            if l_start_m is not None and l_end_m is not None:
-                lunch_span = (l_end_m - l_start_m) if l_end_m >= l_start_m else (l_end_m + 1440 - l_start_m)
-
-            if lunch_span < 60:
-                warnings.append({
-                    "employee_name": employee_name,
-                    "type": "SHORT_MEAL_INTERVAL",
-                    "severity": "info",
-                    "day": day,
-                    "message": (
-                        f"Dia {day}: intervalo de refeição de {lunch_span} min. "
-                        f"Jornadas superiores a 6h exigem no mínimo 1h de intervalo (Art. 71 CLT)."
-                    )
-                })
-
-        # Alerta de Falta
-        if getattr(wd, "status", "") == "FALTA":
-            warnings.append({
-                "employee_name": employee_name,
-                "type": "ABSENCE_REGISTERED",
-                "severity": "warning",
-                "day": day,
-                "message": f"Dia {day}: Falta registrada para {employee_name}. Pode acarretar perda do DSR semanal."
-            })
-
-    return warnings
-
-# Alias para compatibilidade
-check_consecutive_sundays_warnings = check_clt_compliance_warnings
+# Conformidade trabalhista (domingos, limites diários, intervalos...): services/rh_labor_rules.py
 
 
 # ==============================================================================
@@ -301,7 +198,6 @@ def calculate_work_days_summary(
     sundays = set(month_info["sundays"])
 
     min_hours_for_meal = getattr(settings, "min_daily_hours_for_meal", 6.0) or 6.0
-    max_consecutive_sundays = getattr(settings, "max_consecutive_sundays", 2) or 2
     ticket_unit_price = getattr(settings, "transport_ticket_unit_price", 4.70) or 4.70
     rounding_minutes = getattr(settings, "time_rounding_minutes", 0) or 0
     rounding_mode = getattr(settings, "time_rounding_mode", "NEAREST") or "NEAREST"
@@ -389,14 +285,6 @@ def calculate_work_days_summary(
     # Dias estimados equivalentes de compensação em folgas (8h = 480 min)
     target_bh_days = max(0, int(round(final_balance_minutes / 480.0))) if final_balance_minutes > 0 else 0
 
-    warnings = check_clt_compliance_warnings(
-        employee_name=getattr(employee, "name", "Colaborador"),
-        work_days_by_day=work_days_map,
-        year=year,
-        month=month,
-        max_consecutive_sundays=max_consecutive_sundays
-    )
-
     role_name = getattr(employee, "role", None)
     if hasattr(employee, "role_obj") and employee.role_obj:
         role_name = employee.role_obj.name
@@ -438,8 +326,7 @@ def calculate_work_days_summary(
         "bh_days_target": target_bh_days,
         "vacation_days": vacation_days,
         "absences_count": absences_count,
-        "sundays_worked": sundays_worked,
-        "warnings": warnings
+        "sundays_worked": sundays_worked
     }
 
 

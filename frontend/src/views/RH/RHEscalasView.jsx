@@ -16,6 +16,7 @@ import RHBancoHorasView from './components/RHBancoHorasView';
 import RHEmployeeProfileForm from './components/RHEmployeeProfileForm';
 import RHFichaCadastral from './components/RHFichaCadastral';
 import RHContratoJornada from './components/RHContratoJornada';
+import RHAuditoriaMensal from './components/RHAuditoriaMensal';
 import { PROFILE_TABS, profileCompleteness } from './components/employeeProfileSchema';
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
@@ -127,6 +128,9 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   // ==============================================================================
   // --- [BLOCO: CARREGAMENTO DE DADOS (FETCH SEGURO)] ---
   // ==============================================================================
+
+  // Irregularidade a destacar ao abrir a auditoria pelo aviso rápido da grade
+  const [auditFocus, setAuditFocus] = useState(null);
 
   // Edições da grade de jornada ainda não salvas (evita perdê-las ao trocar de aba ou mês)
   const [jornadaDirty, setJornadaDirty] = useState(false);
@@ -958,7 +962,17 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   // --- [BLOCO: INTERFACE PRINCIPAL] ---
   // ==============================================================================
 
-  const warnings = scheduleData?.warnings || [];
+  const compliance = scheduleData?.compliance || null;
+  const COMPLIANCE_STATUS = {
+    PENDENTE: 'auditoria PENDENTE',
+    REABERTA: 'auditoria REABERTA',
+    APROVADA: 'auditoria APROVADA'
+  };
+
+  const openAudit = (fingerprint = null) => {
+    setAuditFocus(fingerprint);
+    handleTabChange('auditoria');
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -1026,28 +1040,25 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
         </div>
       </div>
 
-      {/* Alertas Visuais de Domingos Consecutivos (Sem Bloqueio, Apenas Aviso) */}
-      {warnings.length > 0 && (
-        <div className="space-y-2 print:hidden">
-          {warnings.map((warn, idx) => (
-            <div 
-              key={idx}
-              className={`flex items-start gap-3 p-3.5 rounded-lg border text-xs ${
-                warn.type === 'CONSECUTIVE_SUNDAYS'
-                  ? 'bg-amber-950/30 border-amber-500/40 text-amber-200'
-                  : 'bg-indigo-950/30 border-indigo-500/40 text-indigo-200'
-              }`}
-            >
-              <AlertTriangle size={18} className="shrink-0 mt-0.5 text-amber-400" />
-              <div className="flex-1">
-                <span className="font-semibold uppercase tracking-wider block text-[10px] text-amber-400 mb-0.5">
-                  Aviso de Conformidade de Escala
-                </span>
-                {warn.message}
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Faixa curta com a situação da auditoria do mês (o detalhe fica na aba Auditoria) */}
+      {compliance && compliance.total > 0 && (
+        <button
+          type="button"
+          onClick={() => openAudit()}
+          className={`w-full flex items-center gap-3 p-3 rounded-lg border text-xs text-left print:hidden ${
+            compliance.pending > 0
+              ? 'bg-amber-950/30 border-amber-500/40 text-amber-200 hover:bg-amber-950/50'
+              : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800/60'
+          }`}
+        >
+          <ShieldAlert size={16} className={compliance.pending > 0 ? 'text-amber-400' : 'text-emerald-400'} />
+          <span className="flex-1">
+            {MONTH_NAMES[selectedMonth - 1]}/{selectedYear}: {compliance.total} irregularidade(s)
+            {' '}({compliance.critical} crítica(s) · {compliance.alert} alerta(s)) · {COMPLIANCE_STATUS[compliance.status] || compliance.status}
+            {compliance.pending > 0 ? ` · ${compliance.pending} pendente(s)` : ''}
+          </span>
+          <span className="font-semibold underline">Abrir auditoria</span>
+        </button>
       )}
 
       {/* Navegação por Abas de Alta Coesão */}
@@ -1159,6 +1170,23 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           <Wallet size={16} />
           Folha de Pagamento
         </button>
+
+        <button
+          onClick={() => openAudit()}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+            activeTab === 'auditoria'
+              ? 'border-indigo-500 text-white bg-slate-900/60'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+          }`}
+        >
+          <ShieldAlert size={16} />
+          Auditoria
+          {compliance?.pending > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              {compliance.pending}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Renderização do Conteúdo da Aba */}
@@ -1166,6 +1194,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
         <RHJornadaGrid
           key={`${selectedYear}-${selectedMonth}`}
           onDirtyChange={setJornadaDirty}
+          onOpenAudit={openAudit}
+          complianceDays={compliance?.days || {}}
           absenceDsrMode={scheduleData?.settings?.absence_dsr_mode || 'ONE'}
           employees={employees}
           workDays={workDays}
@@ -1265,6 +1295,17 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           apiBase={API_BASE}
           selectedYear={selectedYear}
           selectedMonth={selectedMonth}
+        />
+      )}
+      {activeTab === 'auditoria' && (
+        <RHAuditoriaMensal
+          token={token}
+          apiBase={API_BASE}
+          selectedYear={selectedYear}
+          selectedMonth={selectedMonth}
+          scheduleId={scheduleData?.schedule_id}
+          focusFingerprint={auditFocus}
+          onChanged={fetchSchedule}
         />
       )}
       {activeTab === 'feriados' && (
@@ -1678,7 +1719,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Máximo de Domingos Consecutivos (Aviso)</label>
+                <label className="block text-slate-400 mb-1">Máximo de Domingos Consecutivos Trabalhados</label>
                 <input
                   type="number"
                   min="1"
@@ -1687,7 +1728,20 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                   onChange={(e) => setSettingsFormData({ ...settingsFormData, max_consecutive_sundays: parseInt(e.target.value, 10) || 2 })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
-                <span className="text-[10px] text-slate-500">Emite aviso visual quando atingir este limite (sem bloqueio).</span>
+                <span className="text-[10px] text-slate-500">Lei 10.101/2000: o repouso deve coincidir com o domingo ao menos 1 vez a cada 3 semanas.</span>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Hora Extra Habitual (semanas com HE nas últimas 4)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="4"
+                  value={settingsFormData.habitual_overtime_weeks ?? 3}
+                  onChange={(e) => setSettingsFormData({ ...settingsFormData, habitual_overtime_weeks: parseInt(e.target.value, 10) || 3 })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                />
+                <span className="text-[10px] text-slate-500">Critério do sistema para o alerta R03 (a lei não fixa um número).</span>
               </div>
 
               <div>

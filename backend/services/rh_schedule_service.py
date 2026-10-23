@@ -1,7 +1,8 @@
 """
 Service de Regras de Negócio e Operações em Lote de Escalas de RH
-Preenchimento em lote seguindo o contrato de jornada de cada colaborador (nunca gera hora extra),
-limpeza/restauração e histórico de alterações de cada dia (docs/conformidade-clt v05, seções 9 e 10.4).
+Preenchimento em lote seguindo o contrato de jornada de cada colaborador (nunca gera hora extra nem
+irregularidade crítica), limpeza/restauração e histórico de alterações de cada dia
+(docs/conformidade-clt v05, seções 9 e 10.4).
 """
 
 from datetime import date
@@ -15,6 +16,10 @@ from services.rh_engine import compute_raw_minutes, get_month_calendar_info
 from services.rh_holidays_service import get_effective_holidays_map
 
 TIME_FIELDS = ("start_time", "lunch_start", "lunch_end", "end_time")
+# Irregularidades que o lote consegue evitar trocando um dia por descanso
+# (descanso entre jornadas e repouso; hora extra e intervalo vêm de dias manuais e não são "corrigidos" pelo lote)
+DAY_FIXABLE_RULES = ("R05", "R06", "R07", "R08", "R09")
+MAX_FIX_ITERATIONS = 20
 
 # ==============================================================================
 # --- [BLOCO: HISTÓRICO DE ALTERAÇÕES DA ESCALA] ---
@@ -35,11 +40,11 @@ def snapshot_day(rec: Optional[models.RHWorkDay]) -> Optional[Dict[str, Any]]:
 
 def record_change(db: Session, organization_id: int, schedule: models.RHMonthlySchedule, employee_id: int,
                   day: int, before: Optional[Dict[str, Any]], after: Optional[Dict[str, Any]],
-                  origin: str, user_id: Optional[int]) -> bool:
+                  origin: str, user_id: Optional[int]) -> Optional[models.RHWorkDayChange]:
     """Grava a alteração no histórico imutável; não grava quando nada mudou."""
     if before == after:
-        return False
-    db.add(models.RHWorkDayChange(
+        return None
+    change = models.RHWorkDayChange(
         organization_id=organization_id,
         schedule_id=schedule.id,
         employee_id=employee_id,
@@ -48,8 +53,9 @@ def record_change(db: Session, organization_id: int, schedule: models.RHMonthlyS
         before=before,
         after=after,
         user_id=user_id,
-    ))
-    return True
+    )
+    db.add(change)
+    return change
 
 
 # ==============================================================================
@@ -80,7 +86,7 @@ def rest_day_status(contracts: List[Any], d: date, is_holiday: bool) -> str:
 
 def _apply_day(db: Session, organization_id: int, schedule: models.RHMonthlySchedule, employee_id: int, day: int,
                rec: Optional[models.RHWorkDay], status: str, times: Optional[Dict[str, Any]],
-               origin: str, user_id: Optional[int]) -> models.RHWorkDay:
+               origin: str, user_id: Optional[int]) -> Tuple[models.RHWorkDay, Optional[models.RHWorkDayChange]]:
     before = snapshot_day(rec)
     is_work = status == "TRABALHO" and times is not None
     minutes = compute_raw_minutes(times["start_time"], times["lunch_start"], times["lunch_end"], times["end_time"]) if is_work else 0
@@ -94,8 +100,59 @@ def _apply_day(db: Session, organization_id: int, schedule: models.RHMonthlySche
     rec.worked_minutes = minutes
     rec.is_manual = False
     rec.late_decision = None
-    record_change(db, organization_id, schedule, employee_id, day, before, snapshot_day(rec), origin, user_id)
-    return rec
+    rec.is_late_record = False
+    change = record_change(db, organization_id, schedule, employee_id, day, before, snapshot_day(rec), origin, user_id)
+    return rec, change
+
+
+def _avoid_critical_violations(db: Session, organization_id: int, schedule: models.RHMonthlySchedule,
+                               emp: models.RHEmployee, existing: Dict[int, models.RHWorkDay], applied_days: set,
+                               holiday_days: set, changes: Dict[int, models.RHWorkDayChange]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Seção 9.2: o lote nunca cria irregularidade crítica. Quando um dia preenchido pelo lote participa
+    de uma (ex.: 7º dia por causa de um dia manual vizinho), ele vira descanso; se ainda assim
+    não resolver, a irregularidade é reportada.
+    """
+    from services.rh_compliance_service import compute_month_violations
+
+    def fixable(v):
+        return [
+            d.day for d in v.dates
+            if (d.year, d.month) == (schedule.year, schedule.month) and d.day in applied_days
+            and existing.get(d.day) is not None and existing[d.day].status == "TRABALHO"
+        ]
+
+    adjusted: List[Dict[str, Any]] = []
+    unresolved: List[str] = []
+    for _ in range(MAX_FIX_ITERATIONS):
+        db.flush()
+        violations = compute_month_violations(db, organization_id, schedule.year, schedule.month, [emp.id]).get(emp.id, [])
+        critical = [v for v in violations if v.severity == "CRITICA" and v.code in DAY_FIXABLE_RULES]
+        candidates = [(v, fixable(v)) for v in critical]
+        candidates = [(v, days) for v, days in candidates if days]
+        if not candidates:
+            unresolved = [f"{v.title} ({', '.join(d.strftime('%d/%m') for d in v.dates[:3])})" for v in critical]
+            break
+        v, days = candidates[0]
+        # Corta no dia em que a irregularidade se completa (ex.: o 7º dia) ou no dia do lote mais próximo antes dele
+        ref = v.ref_date.day if (v.ref_date.year, v.ref_date.month) == (schedule.year, schedule.month) else max(days)
+        before_ref = [x for x in days if x <= ref]
+        day = max(before_ref) if before_ref else min(days)
+        rec = existing[day]
+        d = date(schedule.year, schedule.month, day)
+        rec.status = rest_day_status(list(emp.contracts), d, day in holiday_days)
+        for f in TIME_FIELDS:
+            setattr(rec, f, None)
+        rec.raw_minutes = rec.worked_minutes = 0
+        change = changes.get(day)
+        if change is not None:
+            change.after = snapshot_day(rec)
+            if change.before == change.after:
+                db.expunge(change)
+                changes.pop(day)
+        applied_days.discard(day)
+        adjusted.append({"employee": emp.name, "day": day, "reason": v.title})
+    return adjusted, unresolved
 
 
 def _load_schedule(db: Session, organization_id: int, schedule_id: int) -> models.RHMonthlySchedule:
@@ -161,6 +218,8 @@ def apply_contract_fill(
 
     updated_count = skipped_manual_count = 0
     without_contract: Dict[str, int] = {}
+    adjusted: List[Dict[str, Any]] = []
+    unresolved: Dict[str, List[str]] = {}
 
     for emp in _load_employees(db, organization_id, employee_ids):
         contracts = list(emp.contracts)
@@ -175,6 +234,9 @@ def apply_contract_fill(
             rec = existing.get(day)
             return bool(rec and rec.is_manual and not overwrite_manual)
 
+        applied_days: set = set()
+        changes: Dict[int, models.RHWorkDayChange] = {}
+
         for day in target_days:
             if locked(day):
                 skipped_manual_count += 1
@@ -188,7 +250,10 @@ def apply_contract_fill(
                 st, times = planned
             else:
                 st, times = status, None
-            existing[day] = _apply_day(db, organization_id, schedule, emp.id, day, existing.get(day), st, times, origin, user_id)
+            existing[day], change = _apply_day(db, organization_id, schedule, emp.id, day, existing.get(day), st, times, origin, user_id)
+            if change is not None:
+                changes[day] = change
+            applied_days.add(day)
             updated_count += 1
 
         if clear_unselected and selected_set:
@@ -197,12 +262,26 @@ def apply_contract_fill(
                     continue
                 d = date(schedule.year, schedule.month, day)
                 st = rest_day_status(contracts, d, day in holiday_days)
-                existing[day] = _apply_day(db, organization_id, schedule, emp.id, day, existing.get(day), st, None, origin, user_id)
+                existing[day], _ = _apply_day(db, organization_id, schedule, emp.id, day, existing.get(day), st, None, origin, user_id)
+
+        if status == "TRABALHO" and applied_days:
+            fixed, still = _avoid_critical_violations(
+                db, organization_id, schedule, emp, existing, applied_days, holiday_days, changes
+            )
+            adjusted.extend(fixed)
+            if still:
+                unresolved[emp.name] = still
 
     db.commit()
     message = f"Preenchimento concluído! {updated_count} dias atualizados conforme o contrato."
     if skipped_manual_count:
         message += f" {skipped_manual_count} dia(s) manuais preservados."
+    if adjusted:
+        detail = "; ".join(f"{a['employee']} {a['day']:02d} ({a['reason'].lower()})" for a in adjusted)
+        message += f" {len(adjusted)} dia(s) viraram descanso para evitar irregularidade: {detail}."
+    if unresolved:
+        detail = "; ".join(f"{name}: {', '.join(items)}" for name, items in unresolved.items())
+        message += f" Irregularidades causadas por dias manuais, não resolvidas pelo lote: {detail}."
     if without_contract:
         names = ", ".join(sorted(without_contract))
         message += f" Sem contrato de jornada vigente (dias não preenchidos): {names}."
@@ -210,6 +289,8 @@ def apply_contract_fill(
         "updated_count": updated_count,
         "skipped_manual_count": skipped_manual_count,
         "without_contract": without_contract,
+        "adjusted": adjusted,
+        "unresolved": unresolved,
         "message": message,
     }
 
@@ -260,7 +341,7 @@ def clear_or_reset_schedule(
             if rec and rec.is_manual and not overwrite_manual:
                 continue
             st = rest_day_status(contracts, date(schedule.year, schedule.month, day), day in holiday_days)
-            _apply_day(db, organization_id, schedule, emp.id, day, rec, st, None, "RESET", user_id)
+            _apply_day(db, organization_id, schedule, emp.id, day, rec, st, None, "RESET", user_id)  # descanso nunca cria irregularidade
             affected_days += 1
 
     db.commit()

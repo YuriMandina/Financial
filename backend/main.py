@@ -65,6 +65,7 @@ async def startup_event():
             conn.execute(text("DROP TABLE IF EXISTS rh_schedule_days;"))
             conn.execute(text("DROP TABLE IF EXISTS rh_work_shifts;"))
             conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS late_decision VARCHAR;"))
+            conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS is_late_record BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS late_decision_note VARCHAR;"))
             conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS late_decision_by INTEGER REFERENCES users(id);"))
             conn.execute(text("ALTER TABLE rh_work_days ADD COLUMN IF NOT EXISTS late_decision_at TIMESTAMPTZ;"))

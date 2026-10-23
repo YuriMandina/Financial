@@ -501,6 +501,8 @@ class RHWorkDay(Base):
     benefit_note = Column(String, nullable=True) # Observação/justificativa do ajuste de benefício
     is_manual = Column(Boolean, default=False) # Proteção contra sobrescrita acidental em preenchimento em lote
     notes = Column(String, nullable=True)
+    # Horário registrado como ponto (atraso/saída real); sem a marca, a edição é remanejamento planejado
+    is_late_record = Column(Boolean, default=False)
     # Decisão do empregador sobre atraso fora dos limites (ACEITAR_COMPENSACAO | ABONAR | NORMAL)
     late_decision = Column(String, nullable=True)
     late_decision_note = Column(String, nullable=True)
@@ -531,6 +533,53 @@ class RHWorkDayChange(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     violation_fingerprints = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RHMonthlyAudit(Base):
+    """Auditoria mensal de conformidade: a direção lê todas as irregularidades e aprova o conjunto."""
+    __tablename__ = "rh_monthly_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, default="PENDENTE") # PENDENTE | APROVADA | REABERTA
+    approved_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    general_note = Column(String, nullable=True)
+    snapshot = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True) # Relatório lido na aprovação
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'year', 'month', name='uq_org_monthly_audit'),
+    )
+
+    items = relationship("RHAuditItem", back_populates="audit", cascade="all, delete-orphan")
+
+
+class RHAuditItem(Base):
+    """Irregularidade do mês na auditoria; irregularidade corrigida é removida (desconsiderada)."""
+    __tablename__ = "rh_audit_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    audit_id = Column(Integer, ForeignKey("rh_monthly_audits.id", ondelete="CASCADE"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False, index=True)
+    rule_code = Column(String, nullable=False)
+    severity = Column(String, nullable=False) # CRITICA | ALERTA
+    dates = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    fingerprint = Column(String, nullable=False, index=True)
+    snapshot = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True) # Ficha completa da irregularidade
+    status = Column(String, nullable=False, default="PENDENTE") # PENDENTE | APROVADA
+    note = Column(String, nullable=True)
+    is_force_majeure = Column(Boolean, default=False) # Art. 61 (força maior / serviço inadiável)
+    first_seen_at = Column(DateTime(timezone=True), server_default=func.now())
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('audit_id', 'fingerprint', name='uq_audit_item_fingerprint'),
+    )
+
+    audit = relationship("RHMonthlyAudit", back_populates="items")
 
 
 class RHBenefitAdjustment(Base):

@@ -18,7 +18,7 @@ class TestApplyContractFill(unittest.TestCase):
         needed = [
             models.Organization, models.RHRole, models.RHEmployee, models.RHEmployeeContract,
             models.RHContractTemplate, models.RHLegalRegime, models.RHMonthlySchedule,
-            models.RHWorkDay, models.RHWorkDayChange
+            models.RHWorkDay, models.RHWorkDayChange, models.RHSettings, models.RHSalaryChange
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()
@@ -27,6 +27,10 @@ class TestApplyContractFill(unittest.TestCase):
         self.db.flush()
         self.org_id = org.id
         self.schedule = self._schedule(2026, 10)
+        # O motor de regras (chamado pelo lote) consulta os feriados do próprio módulo
+        holidays_patch = patch("services.rh_compliance_service.get_effective_holidays_map", return_value={})
+        holidays_patch.start()
+        self.addCleanup(holidays_patch.stop)
 
     def _schedule(self, year, month):
         sched = models.RHMonthlySchedule(organization_id=self.org_id, year=year, month=month)
@@ -47,7 +51,7 @@ class TestApplyContractFill(unittest.TestCase):
 
     def _fill(self, schedule=None, holidays=None, **kw):
         schedule = schedule or self.schedule
-        with patch("services.rh_schedule_service.get_effective_holidays_map", return_value=holidays or {}):
+        with patch("services.rh_schedule_service.get_effective_holidays_map", return_value=holidays or {}),                 patch("services.rh_compliance_service.get_effective_holidays_map", return_value=holidays or {}):
             return apply_contract_fill(self.db, self.org_id, schedule.id, selected_days=list(range(1, 32)), **kw)
 
     def _days(self, emp, schedule=None):
