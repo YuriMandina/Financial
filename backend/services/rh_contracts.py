@@ -1,7 +1,8 @@
 """
 Service de Contratos de Jornada e Regimes Legais
 Semana-padrão individual (horários de cada dia), versões com vigência, validação legal
-e regimes de duração do trabalho (44h → 42h → 40h). Planejamento: docs/conformidade-clt (v05).
+e regimes de duração do trabalho (44h → 42h → 40h). Jornada (carga de cada dia) e escala-padrão
+(entrada e intervalo) são separadas. Planejamento: docs/conformidade-clt (v06).
 """
 
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ from services.rh_engine import compute_raw_minutes, parse_time_to_minutes
 
 WEEKDAY_LABELS = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 REST_KINDS = ("DSR", "FOLGA")
-CHANGE_REASONS = ("ADMISSAO", "ACORDO", "ADEQUACAO_LEGAL")
+CHANGE_REASONS = ("ADMISSAO", "ACORDO", "ADEQUACAO_LEGAL", "HORARIO")
 MAX_DAILY_TOTAL_MIN = 600  # 8h normais + 2h (art. 59, caput e §2º)
 
 # ==============================================================================
@@ -257,8 +258,75 @@ SYSTEM_TEMPLATES = [
 ]
 
 
+# ==============================================================================
+# --- [BLOCO: ESCALAS-PADRÃO] ---
+# A escala-padrão só posiciona no relógio a carga que a jornada define (seção 5.1):
+# saída = entrada + carga do dia + intervalo. Não tem duração própria.
+# ==============================================================================
+
+SYSTEM_STANDARD_SCHEDULES = [
+    {"code": "MANHA_07", "name": "Manhã 07h", "start": "07:00", "lunch_minutes": 60, "lunch_after_min": 300},
+    {"code": "COMERCIAL_08", "name": "Comercial 08h", "start": "08:00", "lunch_minutes": 60, "lunch_after_min": 240},
+    {"code": "TARDE_09", "name": "Tarde 09h", "start": "09:00", "lunch_minutes": 120, "lunch_after_min": 180},
+]
+SYSTEM_STANDARD_CODES = {sc["code"] for sc in SYSTEM_STANDARD_SCHEDULES}
+
+SHORT_BREAK_MIN = 15  # Jornada de 4h a 6h (CLT art. 71, §1º)
+
+
+def _fmt_clock(mins: int) -> str:
+    mins %= 1440
+    return f"{mins // 60:02d}:{mins % 60:02d}"
+
+
+def validate_standard_schedule(start: Optional[str], lunch_minutes: int, lunch_after_min: int) -> List[str]:
+    errors: List[str] = []
+    if parse_time_to_minutes(start) is None:
+        errors.append("Informe a entrada (HH:MM).")
+    if not (60 <= lunch_minutes <= 120):
+        errors.append("O intervalo deve ser de 1h a 2h (CLT art. 71).")
+    if not (60 <= lunch_after_min <= 360):
+        errors.append("O intervalo deve começar entre 1h e 6h depois da entrada.")
+    return errors
+
+
+def build_day_from_schedule(minutes: int, start: str, lunch_minutes: int, lunch_after_min: int) -> Dict[str, Any]:
+    """Horários de um dia de trabalho com a carga informada, na posição da escala-padrão."""
+    begin = parse_time_to_minutes(start)
+    if minutes > 360:
+        pause = lunch_minutes
+    elif minutes > 240:
+        pause = SHORT_BREAK_MIN
+    else:
+        pause = 0
+    if not pause:
+        return {"start": _fmt_clock(begin), "lunch_start": None, "lunch_end": None, "end": _fmt_clock(begin + minutes)}
+    before = lunch_after_min if lunch_after_min < minutes else minutes // 2
+    return {
+        "start": _fmt_clock(begin),
+        "lunch_start": _fmt_clock(begin + before),
+        "lunch_end": _fmt_clock(begin + before + pause),
+        "end": _fmt_clock(begin + minutes + pause),
+    }
+
+
+def apply_standard_schedule(days_json: Dict[str, Any], schedule: Any) -> Dict[str, Any]:
+    """Mantém a carga e os descansos de cada dia e recalcula os horários pela escala-padrão."""
+    out = normalize_days(days_json)
+    for wd, cd in parse_days(days_json).items():
+        if cd.is_work and cd.minutes > 0:
+            out[str(wd)] = build_day_from_schedule(cd.minutes, schedule.start, schedule.lunch_minutes, schedule.lunch_after_min)
+    return out
+
+
+def same_workload(a_json: Dict[str, Any], b_json: Dict[str, Any]) -> bool:
+    """Mesma carga em cada dia e mesmos descansos — só o horário muda (seção 5.3)."""
+    a, b = parse_days(a_json), parse_days(b_json)
+    return all(a[wd].rest == b[wd].rest and a[wd].minutes == b[wd].minutes for wd in range(7))
+
+
 def ensure_rh_reference_data(db: Session) -> None:
-    """Cria/atualiza regimes legais e modelos do sistema (idempotente, executado na inicialização)."""
+    """Cria/atualiza regimes legais, modelos e escalas-padrão do sistema (idempotente, executado na inicialização)."""
     for r in LEGAL_REGIMES:
         row = db.query(models.RHLegalRegime).filter(models.RHLegalRegime.valid_from == r["valid_from"]).first()
         if not row:
@@ -275,6 +343,16 @@ def ensure_rh_reference_data(db: Session) -> None:
             row = models.RHContractTemplate(organization_id=None, code=t["code"], is_system=True)
             db.add(row)
         row.name, row.description, row.days = t["name"], t["description"], t["days"]
+    for sc in SYSTEM_STANDARD_SCHEDULES:
+        row = db.query(models.RHStandardSchedule).filter(
+            models.RHStandardSchedule.organization_id.is_(None),
+            models.RHStandardSchedule.code == sc["code"]
+        ).first()
+        if not row:
+            row = models.RHStandardSchedule(organization_id=None, code=sc["code"], is_system=True)
+            db.add(row)
+        for k, v in sc.items():
+            setattr(row, k, v)
     db.commit()
 
 
@@ -327,6 +405,17 @@ def _validate_or_raise(db: Session, days_json: Dict[str, Any], valid_from: date,
     return days
 
 
+def _resolve_change_reason(emp: models.RHEmployee, valid_from: date, days_json: Dict[str, Any],
+                           requested: Optional[str], exclude_id: Optional[int] = None) -> str:
+    """HORARIO é decidido aqui, nunca pelo usuário: mesma carga e descansos da versão anterior (seção 5.3)."""
+    previous = [c for c in emp.contracts if c.valid_from < valid_from and c.id != exclude_id]
+    if not previous or requested == "ADMISSAO":
+        return "ADMISSAO"
+    if same_workload(max(previous, key=lambda c: c.valid_from).days, days_json):
+        return "HORARIO"
+    return requested if requested in ("ACORDO", "ADEQUACAO_LEGAL") else "ACORDO"
+
+
 def create_contract_version(db: Session, emp: models.RHEmployee, data: Dict[str, Any], user_id: Optional[int],
                             settings: Optional[models.RHSettings] = None) -> models.RHEmployeeContract:
     valid_from: date = data["valid_from"]
@@ -338,10 +427,11 @@ def create_contract_version(db: Session, emp: models.RHEmployee, data: Dict[str,
         if c.valid_to is None or c.valid_to >= valid_from:
             c.valid_to = valid_from - timedelta(days=1)
 
-    reason = data.get("change_reason") or ("ADMISSAO" if not emp.contracts else "ACORDO")
+    reason = _resolve_change_reason(emp, valid_from, data["days"], data.get("change_reason"))
     version = models.RHEmployeeContract(
         employee_id=emp.id,
         template_id=data.get("template_id"),
+        standard_schedule_id=data.get("standard_schedule_id"),
         valid_from=valid_from,
         valid_to=None,
         days=normalize_days(data["days"]),
@@ -351,7 +441,7 @@ def create_contract_version(db: Session, emp: models.RHEmployee, data: Dict[str,
         amendment_signed=bool(data.get("amendment_signed")),
         amendment_signed_at=data.get("amendment_signed_at"),
         amendment_file=data.get("amendment_file"),
-        change_reason=reason if reason in CHANGE_REASONS else "ACORDO",
+        change_reason=reason,
         notes=data.get("notes"),
         created_by=user_id,
     )
@@ -376,8 +466,12 @@ def update_contract_version(db: Session, emp: models.RHEmployee, version: models
     for field in ("amendment_signed_at", "amendment_file", "notes"):
         if field in data:
             setattr(version, field, data[field])
-    if data.get("change_reason") in CHANGE_REASONS:
-        version.change_reason = data["change_reason"]
+    if "standard_schedule_id" in data:
+        version.standard_schedule_id = data["standard_schedule_id"]
+    if data.get("change_reason") in CHANGE_REASONS or data.get("days") is not None:
+        version.change_reason = _resolve_change_reason(
+            emp, version.valid_from, version.days, data.get("change_reason") or version.change_reason, exclude_id=version.id
+        )
     sync_employee_summary(emp)
     return version
 
@@ -420,6 +514,8 @@ def contract_to_dict(c: models.RHEmployeeContract) -> Dict[str, Any]:
         "id": c.id,
         "employee_id": c.employee_id,
         "template_id": c.template_id,
+        "standard_schedule_id": c.standard_schedule_id,
+        "standard_schedule_name": c.standard_schedule.name if c.standard_schedule_id and c.standard_schedule else None,
         "valid_from": c.valid_from.isoformat() if c.valid_from else None,
         "valid_to": c.valid_to.isoformat() if c.valid_to else None,
         "days": normalize_days(c.days),
@@ -446,6 +542,21 @@ def template_to_dict(t: models.RHContractTemplate) -> Dict[str, Any]:
         "weekly_min": weekly_minutes(parse_days(t.days)),
         "summary": days_summary_label(t.days),
         "is_system": bool(t.is_system),
+    }
+
+
+def standard_schedule_to_dict(sc: models.RHStandardSchedule) -> Dict[str, Any]:
+    return {
+        "id": sc.id,
+        "code": sc.code,
+        "name": sc.name,
+        "start": sc.start,
+        "lunch_minutes": int(sc.lunch_minutes or 0),
+        "lunch_after_min": int(sc.lunch_after_min or 0),
+        "example": build_day_from_schedule(480, sc.start, sc.lunch_minutes, sc.lunch_after_min),
+        "is_system": bool(sc.is_system),
+        # Versão da empresa de uma escala do sistema (excluir restaura a original)
+        "customizes_system": sc.organization_id is not None and sc.code in SYSTEM_STANDARD_CODES,
     }
 
 

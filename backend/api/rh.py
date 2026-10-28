@@ -19,7 +19,8 @@ from services.rh_engine import (
 from services.rh_schedule_service import apply_contract_fill, clear_or_reset_schedule, record_change, snapshot_day
 from services.rh_contracts import (
     contract_on, contract_day_on, contract_to_dict, template_to_dict, regime_to_dict, load_regimes, regime_on,
-    create_contract_version, update_contract_version, delete_contract_version, normalize_days
+    create_contract_version, update_contract_version, delete_contract_version, normalize_days,
+    apply_standard_schedule, standard_schedule_to_dict, validate_standard_schedule
 )
 from services.rh_ledger import load_month_ledgers
 from services.rh_compliance_service import (
@@ -94,10 +95,21 @@ class RHContractTemplateCreate(BaseModel):
     description: Optional[str] = None
     days: Dict[str, Any]
 
+class RHStandardScheduleCreate(BaseModel):
+    name: str
+    start: str
+    lunch_minutes: int = 60
+    lunch_after_min: int = 300
+
+class RHStandardScheduleApply(BaseModel):
+    standard_schedule_id: int
+    days: Dict[str, Any]  # Semana com a carga de cada dia; os horários são recalculados
+
 class RHContractCreate(BaseModel):
     valid_from: date
     days: Dict[str, Any]  # {"0": {"start","lunch_start","lunch_end","end"} | {"rest": "DSR"|"FOLGA"}, ...}
     template_id: Optional[int] = None
+    standard_schedule_id: Optional[int] = None
     overtime_agreement: bool = False
     compensation_agreement: bool = False
     amendment_signed: bool = False
@@ -108,6 +120,7 @@ class RHContractCreate(BaseModel):
 
 class RHContractUpdate(BaseModel):
     days: Optional[Dict[str, Any]] = None
+    standard_schedule_id: Optional[int] = None
     overtime_agreement: Optional[bool] = None
     compensation_agreement: Optional[bool] = None
     amendment_signed: Optional[bool] = None
@@ -392,6 +405,147 @@ def delete_contract_template(
     return {"message": "Modelo removido com sucesso"}
 
 
+def _org_standard_schedule(db: Session, organization_id: int, schedule_id: Optional[int]) -> Optional[models.RHStandardSchedule]:
+    if schedule_id is None:
+        return None
+    schedule = db.query(models.RHStandardSchedule).filter(
+        models.RHStandardSchedule.id == schedule_id,
+        (models.RHStandardSchedule.organization_id.is_(None))
+        | (models.RHStandardSchedule.organization_id == organization_id)
+    ).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Escala-padrão não encontrada")
+    return schedule
+
+
+def _validate_schedule_payload(payload: "RHStandardScheduleCreate") -> None:
+    errors = validate_standard_schedule(payload.start, payload.lunch_minutes, payload.lunch_after_min)
+    if not payload.name.strip():
+        errors.insert(0, "Informe o nome da escala-padrão.")
+    if errors:
+        raise HTTPException(status_code=400, detail=" ".join(errors))
+
+
+def _repoint_org_contracts(db: Session, organization_id: int, from_id: int, to_id: Optional[int]) -> None:
+    """Troca a referência à escala só nos contratos da organização (os horários salvos não mudam)."""
+    org_employees = db.query(models.RHEmployee.id).filter(models.RHEmployee.organization_id == organization_id)
+    db.query(models.RHEmployeeContract).filter(
+        models.RHEmployeeContract.standard_schedule_id == from_id,
+        models.RHEmployeeContract.employee_id.in_(org_employees)
+    ).update({models.RHEmployeeContract.standard_schedule_id: to_id}, synchronize_session=False)
+
+
+@router.get("/standard-schedules")
+def list_standard_schedules(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Escalas da empresa + escalas do sistema que a empresa não personalizou."""
+    schedules = db.query(models.RHStandardSchedule).filter(
+        (models.RHStandardSchedule.organization_id.is_(None))
+        | (models.RHStandardSchedule.organization_id == current_user.organization_id)
+    ).order_by(models.RHStandardSchedule.start.asc(), models.RHStandardSchedule.name.asc()).all()
+    overridden = {s.code for s in schedules if s.organization_id is not None}
+    return [
+        standard_schedule_to_dict(s) for s in schedules
+        if s.organization_id is not None or s.code not in overridden
+    ]
+
+
+@router.post("/standard-schedules")
+def create_standard_schedule(
+    payload: RHStandardScheduleCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    _validate_schedule_payload(payload)
+    schedule = models.RHStandardSchedule(
+        organization_id=current_user.organization_id,
+        code="ORG_" + payload.name.strip().upper().replace(" ", "_"),
+        name=payload.name.strip(),
+        start=payload.start,
+        lunch_minutes=payload.lunch_minutes,
+        lunch_after_min=payload.lunch_after_min,
+        is_system=False
+    )
+    db.add(schedule)
+    db.commit()
+    db.refresh(schedule)
+    return standard_schedule_to_dict(schedule)
+
+
+@router.put("/standard-schedules/{schedule_id}")
+def update_standard_schedule(
+    schedule_id: int,
+    payload: RHStandardScheduleCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    Escala do sistema é compartilhada entre empresas: editá-la cria a versão da empresa,
+    que passa a substituí-la (excluir a versão da empresa restaura a do sistema).
+    Contratos já salvos guardam os horários e não mudam.
+    """
+    _validate_schedule_payload(payload)
+    schedule = _org_standard_schedule(db, current_user.organization_id, schedule_id)
+    system_id = None
+    if schedule.organization_id is None:
+        system_id = schedule.id
+        schedule = db.query(models.RHStandardSchedule).filter(
+            models.RHStandardSchedule.organization_id == current_user.organization_id,
+            models.RHStandardSchedule.code == schedule.code
+        ).first() or models.RHStandardSchedule(
+            organization_id=current_user.organization_id, code=schedule.code, is_system=False
+        )
+        db.add(schedule)
+    schedule.name = payload.name.strip()
+    schedule.start = payload.start
+    schedule.lunch_minutes = payload.lunch_minutes
+    schedule.lunch_after_min = payload.lunch_after_min
+    if system_id is not None:
+        db.flush()
+        _repoint_org_contracts(db, current_user.organization_id, system_id, schedule.id)
+    db.commit()
+    db.refresh(schedule)
+    return standard_schedule_to_dict(schedule)
+
+
+@router.delete("/standard-schedules/{schedule_id}")
+def delete_standard_schedule(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Contratos já salvos guardam os horários; só a referência à escala muda (volta à do sistema, se houver)."""
+    schedule = db.query(models.RHStandardSchedule).filter(
+        models.RHStandardSchedule.id == schedule_id,
+        models.RHStandardSchedule.organization_id == current_user.organization_id
+    ).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Escala-padrão não encontrada (escalas do sistema não podem ser excluídas)")
+    system = db.query(models.RHStandardSchedule).filter(
+        models.RHStandardSchedule.organization_id.is_(None),
+        models.RHStandardSchedule.code == schedule.code
+    ).first()
+    _repoint_org_contracts(db, current_user.organization_id, schedule.id, system.id if system else None)
+    db.delete(schedule)
+    db.commit()
+    if system:
+        return {"message": "Escala-padrão do sistema restaurada", "restored": standard_schedule_to_dict(system)}
+    return {"message": "Escala-padrão removida com sucesso"}
+
+
+@router.post("/standard-schedules/apply")
+def apply_standard_schedule_to_days(
+    payload: RHStandardScheduleApply,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Horários da semana: mesma carga e descansos de cada dia, na posição da escala-padrão."""
+    schedule = _org_standard_schedule(db, current_user.organization_id, payload.standard_schedule_id)
+    return {"days": apply_standard_schedule(payload.days, schedule)}
+
+
 @router.get("/employees/{emp_id}/contracts")
 def list_employee_contracts(
     emp_id: int,
@@ -411,6 +565,7 @@ def create_employee_contract(
 ):
     """Nova versão do contrato de jornada; a anterior passa a valer até a véspera."""
     emp = _get_org_employee(db, current_user.organization_id, emp_id)
+    _org_standard_schedule(db, current_user.organization_id, payload.standard_schedule_id)
     try:
         version = create_contract_version(
             db, emp, payload.model_dump(), current_user.id, _org_settings(db, current_user.organization_id)
@@ -433,6 +588,7 @@ def update_employee_contract(
 ):
     emp = _get_org_employee(db, current_user.organization_id, emp_id)
     version = _get_employee_contract(emp, contract_id)
+    _org_standard_schedule(db, current_user.organization_id, payload.standard_schedule_id)
     try:
         update_contract_version(
             db, emp, version, payload.model_dump(exclude_unset=True), _org_settings(db, current_user.organization_id)

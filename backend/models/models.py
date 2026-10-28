@@ -247,6 +247,21 @@ class RHContractTemplate(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class RHStandardSchedule(Base):
+    """Escala-padrão: posiciona a carga de cada dia no relógio (organization_id nulo = escala do sistema)."""
+    __tablename__ = "rh_standard_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
+    code = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    start = Column(String, nullable=False) # "09:00"
+    lunch_minutes = Column(Integer, nullable=False, default=60) # 60..120 (CLT art. 71)
+    lunch_after_min = Column(Integer, nullable=False, default=300) # Minutos trabalhados antes do intervalo
+    is_system = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class RHEmployeeContract(Base):
     """Versão do contrato de jornada do colaborador (semana-padrão com horários de cada dia)."""
     __tablename__ = "rh_employee_contracts"
@@ -254,6 +269,7 @@ class RHEmployeeContract(Base):
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False, index=True)
     template_id = Column(Integer, ForeignKey("rh_contract_templates.id", ondelete="SET NULL"), nullable=True)
+    standard_schedule_id = Column(Integer, ForeignKey("rh_standard_schedules.id", ondelete="SET NULL"), nullable=True)
     valid_from = Column(Date, nullable=False)
     valid_to = Column(Date, nullable=True)
     days = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False) # Snapshot dos horários
@@ -263,12 +279,13 @@ class RHEmployeeContract(Base):
     amendment_signed = Column(Boolean, default=False) # Aditivo assinado (art. 468); falso gera R14
     amendment_signed_at = Column(Date, nullable=True)
     amendment_file = Column(String, nullable=True)
-    change_reason = Column(String, default="ADMISSAO") # ADMISSAO | ACORDO | ADEQUACAO_LEGAL
+    change_reason = Column(String, default="ADMISSAO") # ADMISSAO | ACORDO | ADEQUACAO_LEGAL | HORARIO
     notes = Column(String, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     employee = relationship("RHEmployee", back_populates="contracts")
+    standard_schedule = relationship("RHStandardSchedule")
 
 
 class RHEmployee(Base):

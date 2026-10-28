@@ -1388,7 +1388,6 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                     token={token}
                     apiBase={API_BASE}
                     employee={editingEmployee}
-                    employees={employees}
                     weekStart={scheduleData?.settings?.week_start || 0}
                     onChanged={fetchSchedule}
                   />

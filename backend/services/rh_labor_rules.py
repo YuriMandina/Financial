@@ -778,7 +778,8 @@ def r14_contract_without_amendment(ctx: RuleContext) -> List[Violation]:
     start, end = ctx.period
     ordered = sorted(ctx.contracts, key=lambda c: c.valid_from)
     for c in _contracts_in_period(ctx):
-        if c.amendment_signed or c.change_reason == "ADMISSAO":
+        # HORARIO: mesma carga, só o horário mudou (jus variandi, seção 5.3) — não exige aditivo
+        if c.amendment_signed or c.change_reason in ("ADMISSAO", "HORARIO"):
             continue
         ref = max(start, c.valid_from)
         previous = [p for p in ordered if p.valid_from < c.valid_from]

@@ -114,10 +114,12 @@ async def startup_event():
                 WHERE r.id = sub.role_id AND COALESCE(r.base_salary, 0) = 0
                   AND NOT EXISTS (SELECT 1 FROM rh_role_salary_changes c WHERE c.role_id = r.id);
             """))
+            # Escala-padrão do contrato de jornada (planejamento v06)
+            conn.execute(text("ALTER TABLE rh_employee_contracts ADD COLUMN IF NOT EXISTS standard_schedule_id INTEGER REFERENCES rh_standard_schedules(id) ON DELETE SET NULL;"))
     except Exception as e:
         print(f"Warning during auto-migration: {e}")
 
-    # Dados de referência de RH: regimes legais (44h/42h/40h) e modelos de contrato do sistema
+    # Dados de referência de RH: regimes legais (44h/42h/40h), modelos de contrato e escalas-padrão do sistema
     try:
         from core.database import SessionLocal
         from services.rh_contracts import ensure_rh_reference_data

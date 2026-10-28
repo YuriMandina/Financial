@@ -225,6 +225,11 @@ class TestWeeklyAndContractRules(unittest.TestCase):
         changed.amendment_signed = True
         self.assertNotIn("R14", codes(ctx_for(days, [first, changed])))
 
+        # Só o horário mudou (mesma carga): jus variandi, sem aditivo
+        changed.amendment_signed = False
+        changed.change_reason = "HORARIO"
+        self.assertNotIn("R14", codes(ctx_for(days, [first, changed])))
+
     def test_violation_dict_has_legal_texts(self):
         days = base_october()
         days[date(2026, 10, 14)] = work(date(2026, 10, 14))
