@@ -469,9 +469,13 @@ export default function RHJornadaGrid({
   }, [apiBase, token, selectedYear, selectedMonth, workDays]);
 
   // Efeito de um dia no banco: horas a mais/a menos no trabalho ou a jornada inteira na folga BH
-  const bankContribution = (data, expected) => {
+  // Feriado ou DSR do contrato: horas trabalhadas são horas 100%, fora do banco comum
+  // (quitadas no mês na aba Banco de horas: folga de dia inteiro ou pagamento em dobro)
+  const restKindOf = (day, contractDay) => (holidays[day] ? 'FERIADO' : contractDay?.rest === 'DSR' ? 'DSR' : null);
+
+  const bankContribution = (data, expected, restKind) => {
     if (!data) return 0;
-    if (data.status === 'TRABALHO') return (data.worked_minutes ?? 480) - expected;
+    if (data.status === 'TRABALHO') return restKind ? 0 : (data.worked_minutes ?? 480) - expected;
     if (data.status === 'FOLGA_BH') return -expected;
     return 0;
   };
@@ -479,13 +483,28 @@ export default function RHJornadaGrid({
   const editingBank = useMemo(() => {
     if (!editingCell) return null;
     const cd = editingCell.data.contract_day;
-    const expected = cd && !cd.rest ? (cd.minutes || 0) : 0;
+    const restKind = restKindOf(editingCell.day, cd);
+    const expected = !restKind && cd && !cd.rest ? (cd.minutes || 0) : 0;
     const monthBalance = summaryMap[editingCell.empId]?.final_balance_minutes || 0;
     const original = getCellData(editingCell.empId, editingCell.day);
-    const before = (bankBase[editingCell.empId] || 0) + monthBalance - bankContribution(original, expected);
-    const after = before + bankContribution(editingCell.data, expected);
-    return { expected, before, after };
-  }, [editingCell, summaryMap, bankBase]);
+    const before = (bankBase[editingCell.empId] || 0) + monthBalance - bankContribution(original, expected, restKind);
+    const after = before + bankContribution(editingCell.data, expected, restKind);
+    const hours100 = restKind && editingCell.data.status === 'TRABALHO' ? (editingCell.data.worked_minutes || 0) : 0;
+    return { expected, before, after, restKind, hours100 };
+  }, [editingCell, summaryMap, bankBase, holidays]);
+
+  // Mira (linha + coluna) ao passar o mouse, só com CSS (:has), sem re-renderizar a grade
+  const crosshairCss = useMemo(() => {
+    const tint = 'box-shadow: inset 0 0 0 9999px rgba(129, 140, 248, 0.09);';
+    const rules = [`.jornada-grid tbody tr:hover > td { ${tint} }`];
+    daysList.forEach((d) => {
+      rules.push(`.jornada-grid:has(td[data-day="${d}"]:hover) td[data-day="${d}"] { ${tint} }`);
+      rules.push(`.jornada-grid:has(td[data-day="${d}"]:hover) th[data-day="${d}"] > div { background-color: rgba(99, 102, 241, 0.35); color: #e0e7ff; }`);
+    });
+    // Célula do cruzamento por último (mesma especificidade, vence pela ordem)
+    rules.push('.jornada-grid:has(td:hover) td[data-day]:hover { box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.45), inset 0 0 0 9999px rgba(129, 140, 248, 0.09); }');
+    return rules.join('\n');
+  }, [daysList]);
 
   const fmtBank = (m) => `${m > 0 ? '+' : m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}h${String(Math.abs(m) % 60).padStart(2, '0')}`;
 
@@ -855,11 +874,13 @@ export default function RHJornadaGrid({
 
       {/* Matriz Diária de Horas e Turnos */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+        {/* Rolagem própria (vertical e horizontal) para o cabeçalho das datas ficar ancorado no topo */}
+        <div className="overflow-auto max-h-[calc(100vh-11rem)]">
+          <style>{crosshairCss}</style>
+          <table className="jornada-grid w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-950/90 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                <th className="py-2.5 px-3 min-w-[170px] sticky left-0 bg-slate-950 z-10 border-r border-slate-800">
+                <th className="py-2.5 px-3 min-w-[170px] sticky left-0 top-0 bg-slate-950 z-30 border-r border-slate-800 shadow-[inset_0_-1px_0_#1e293b]">
                   Colaborador & Contrato
                 </th>
                 {daysList.map((day) => {
@@ -869,32 +890,36 @@ export default function RHJornadaGrid({
                   return (
                     <th
                       key={day}
-                      className={`py-2 px-0.5 text-center min-w-[38px] border-r border-slate-800/60 ${
+                      data-day={day}
+                      className="p-0 text-center min-w-[38px] border-r border-slate-800/60 sticky top-0 z-20 bg-slate-950 shadow-[inset_0_-1px_0_#1e293b]"
+                      title={isHoliday ? `${holidays[day]} (${weekdayLabel})` : isSunday ? 'Domingo' : `Dia ${day} (${weekdayLabel})`}
+                    >
+                      {/* Fundo opaco no th (ancorado) e a cor do domingo/feriado por cima */}
+                      <div className={`py-2 px-0.5 h-full ${
                         isSunday
                           ? 'bg-red-950/20 text-red-400 font-bold'
                           : isHoliday
                             ? 'bg-sky-950/30 text-sky-400 font-bold'
                             : 'text-slate-300'
-                      }`}
-                      title={isHoliday ? `${holidays[day]} (${weekdayLabel})` : isSunday ? 'Domingo' : `Dia ${day} (${weekdayLabel})`}
-                    >
-                      <div>{day}</div>
-                      <div className="text-[9px] font-normal lowercase opacity-70">
-                        {weekdayLabel}
+                      }`}>
+                        <div>{day}</div>
+                        <div className="text-[9px] font-normal lowercase opacity-70">
+                          {weekdayLabel}
+                        </div>
+                        {isHoliday && (
+                          <div className="text-[8px] font-semibold uppercase leading-none">fer</div>
+                        )}
                       </div>
-                      {isHoliday && (
-                        <div className="text-[8px] font-semibold uppercase leading-none">fer</div>
-                      )}
                     </th>
                   );
                 })}
-                <th className="py-2.5 px-3 text-center min-w-[70px] bg-slate-950 border-l border-slate-800">
+                <th className="py-2.5 px-3 text-center min-w-[70px] bg-slate-950 border-l border-slate-800 sticky top-0 z-20 shadow-[inset_0_-1px_0_#1e293b]">
                   Trabalhado
                 </th>
-                <th className="py-2.5 px-3 text-center min-w-[70px] bg-slate-950 border-l border-slate-800">
+                <th className="py-2.5 px-3 text-center min-w-[70px] bg-slate-950 border-l border-slate-800 sticky top-0 z-20 shadow-[inset_0_-1px_0_#1e293b]">
                   Esperado
                 </th>
-                <th className="py-2.5 px-3 text-center min-w-[80px] bg-slate-950 border-l border-slate-800">
+                <th className="py-2.5 px-3 text-center min-w-[80px] bg-slate-950 border-l border-slate-800 sticky top-0 z-20 shadow-[inset_0_-1px_0_#1e293b]">
                   Saldo BH
                 </th>
               </tr>
@@ -928,7 +953,8 @@ export default function RHJornadaGrid({
                       const isChangedCell = changedCells.has(cellKey(emp.id, day));
                       // Selos: do ledger (backend) quando salvo; prévia sobre a jornada do contrato quando alterado
                       const ledger = !isChangedCell ? dInfo.ledger : null;
-                      const contractMin = dInfo.contract_day && !dInfo.contract_day.rest ? (dInfo.contract_day.minutes || 0) : 0;
+                      // Em feriado não há jornada a cumprir: todo o trabalho é hora 100%
+                      const contractMin = !holidays[day] && dInfo.contract_day && !dInfo.contract_day.rest ? (dInfo.contract_day.minutes || 0) : 0;
                       const previewDiff = isChangedCell && status === 'TRABALHO' && dInfo.contract_day ? workedMin - contractMin : 0;
                       const extraMin = ledger ? ledger.extra_min : Math.max(0, previewDiff);
                       const shortMin = ledger ? ledger.short_min : Math.max(0, -previewDiff);
@@ -986,6 +1012,7 @@ export default function RHJornadaGrid({
                       return (
                         <td
                           key={day}
+                          data-day={day}
                           onMouseDown={(e) => handleCellMouseDown(e, empIdx, dayIdx)}
                           onMouseEnter={() => handleCellMouseEnter(empIdx, dayIdx)}
                           onMouseUp={() => handleCellMouseUp(emp, day)}
@@ -1242,7 +1269,16 @@ export default function RHJornadaGrid({
                       Após este ajuste: <span className={`font-bold ${editingBank.after < 0 ? 'text-rose-300' : 'text-amber-300'}`}>{fmtBank(editingBank.after)}</span>
                     </span>
                   </div>
-                  {editingCell.data.status !== 'FOLGA_BH' && (
+                  {editingBank.restKind && (
+                    <p className="text-[10px] text-sky-200 bg-sky-950/30 border border-sky-500/30 rounded-lg px-2.5 py-1.5">
+                      {editingBank.restKind === 'FERIADO' ? `Feriado (${holidays[editingCell.day]})` : 'DSR'}:
+                      {editingBank.hours100
+                        ? ` as ${fmtBank(editingBank.hours100).replace('+', '')} trabalhadas são horas 100% e não entram no banco comum.`
+                        : ' horas trabalhadas neste dia são horas 100% e não entram no banco comum.'}
+                      {' '}Quite neste mês na aba Banco de horas: folga de um dia inteiro em outro dia ou pagamento em dobro.
+                    </p>
+                  )}
+                  {editingCell.data.status !== 'FOLGA_BH' && !editingBank.restKind && (
                     <button
                       type="button"
                       onClick={() => setEditingCell({

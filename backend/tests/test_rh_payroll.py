@@ -385,6 +385,16 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(bank["month_balance_minutes"], 60)
         self.assertEqual(bank["rest_work"][0]["excess_to_bank_minutes"], 60)
 
+    def test_holiday_worked_on_contract_day_is_100_not_debit(self):
+        # Feriado de segunda (12/10), dia de 8h no contrato, trabalhado 5h: 5h a 100%, nunca −3h no banco
+        self._work_month(self.schedule)
+        self._set_day(12, "TRABALHO", 300)
+        with patch("services.rh_ledger.get_effective_holidays_map", return_value={"2026-10-12": "Nossa Senhora Aparecida"}):
+            _, bank = self._payroll(self.schedule)
+        self.assertEqual(bank["month_balance_minutes"], 0)
+        item = bank["rest_work"][0]
+        self.assertEqual((item["rest_kind"], item["status"], item["double_minutes"]), ("FERIADO", "PENDENTE", 300))
+
     def test_folga_in_next_month(self):
         # DSR no último domingo de novembro (29/11) com folga na terça 01/12, dentro do prazo
         from services.rh_rest_work_service import decide_rest_work
