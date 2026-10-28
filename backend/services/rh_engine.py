@@ -212,6 +212,12 @@ def calculate_work_days_summary(
     total_worked_minutes = 0
     total_expected_minutes = sum(dl.contracted_min for dl in ledger.values())
     total_extra_minutes = sum(dl.extra_min for dl in ledger.values())
+    # Repouso/feriado trabalhado sem folga compensatória não vai para o banco comum: fica nas horas 100%,
+    # que o administrativo quita no mês (folga de dia inteiro ou pagamento em dobro)
+    total_extra_double_minutes = sum(dl.extra_double_min for dl in ledger.values())
+    double_to_pay_minutes = sum(dl.double_to_pay_min for dl in ledger.values())
+    double_to_pay_days = sum(1 for dl in ledger.values() if dl.double_to_pay_min)
+    double_pending_days = sum(1 for dl in ledger.values() if dl.double_pending)
     total_short_minutes = sum(dl.short_min for dl in ledger.values())
     total_compensated_minutes = sum(dl.compensated_min for dl in ledger.values() if dl.status == "TRABALHO")
     rest_worked_double_days = sum(1 for dl in ledger.values() if dl.rest_worked_unpaid_double)
@@ -279,7 +285,7 @@ def calculate_work_days_summary(
     total_va_amount = round(final_va_count * emp_meal_cost, 2)
 
     # D6: Arredondamento de banco de horas aplicado EXCLUSIVAMENTE no total do mês
-    raw_balance_minutes = total_extra_minutes - total_short_minutes
+    raw_balance_minutes = total_extra_minutes - total_extra_double_minutes - total_short_minutes
     final_balance_minutes = apply_month_rounding(raw_balance_minutes, rounding_minutes, rounding_mode)
 
     # Dias estimados equivalentes de compensação em folgas (8h = 480 min)
@@ -301,6 +307,10 @@ def calculate_work_days_summary(
         "raw_balance_minutes": raw_balance_minutes,
         "final_balance_minutes": final_balance_minutes,
         "total_extra_minutes": total_extra_minutes,
+        "total_extra_double_minutes": total_extra_double_minutes,
+        "double_to_pay_minutes": double_to_pay_minutes,
+        "double_to_pay_days": double_to_pay_days,
+        "double_pending_days": double_pending_days,
         "total_short_minutes": total_short_minutes,
         "total_compensated_minutes": total_compensated_minutes,
         "rest_worked_double_days": rest_worked_double_days,

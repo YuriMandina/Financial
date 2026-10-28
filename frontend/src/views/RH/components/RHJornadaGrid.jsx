@@ -941,7 +941,9 @@ export default function RHJornadaGrid({
                       if (shortMin) tipParts.push(`−${shortHours(shortMin)} abaixo da jornada do contrato`);
                       if (compensatedMin) tipParts.push(`${shortHours(compensatedMin)} compensadas no período`);
                       if (ledger?.rest_swap_with) tipParts.push(`folga trocada com ${ledger.rest_swap_with.split('-').reverse().slice(0, 2).join('/')}`);
-                      if (paidDouble) tipParts.push('repouso trabalhado sem folga compensatória: pagamento em dobro');
+                      if (paidDouble) tipParts.push(ledger?.rest_decision === 'PAGAR'
+                        ? 'repouso/feriado trabalhado: pago em dobro + DSR na folha do mês'
+                        : 'repouso/feriado trabalhado sem folga compensatória: decidir na aba Banco de horas (folga de dia inteiro ou pagar em dobro)');
                       if (latePending) tipParts.push('atraso fora dos limites: aguarda decisão');
                       if (isChangedCell && previewDiff) tipParts.push('prévia: recalculado ao salvar');
 
@@ -1008,7 +1010,14 @@ export default function RHJornadaGrid({
                               </span>
                             )}
                             {paidDouble && (
-                              <span className="absolute -top-1.5 -left-1 px-0.5 rounded bg-red-600 text-white text-[7px] leading-none py-0.5" title="Pagamento em dobro">2x</span>
+                              <span
+                                className={`absolute -top-1.5 -left-1 px-0.5 rounded text-white text-[7px] leading-none py-0.5 ${
+                                  ledger?.rest_decision === 'PAGAR' ? 'bg-red-600' : 'bg-slate-700 ring-1 ring-red-500'
+                                }`}
+                                title={ledger?.rest_decision === 'PAGAR' ? 'Pago em dobro' : 'Sem folga compensatória: decidir na aba Banco de horas'}
+                              >
+                                2x
+                              </span>
                             )}
                             {irregularCodes.length > 0 && (
                               <span className="absolute -bottom-1 -left-1 w-2 h-2 rounded-full bg-rose-500 ring-1 ring-slate-900" />

@@ -3,6 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import date
 
 import models.models as models
 from core import auth
@@ -15,8 +16,10 @@ from services.rh_payroll_service import (
     CONFIGURABLE_PERCENT_ITEMS,
     OVERTIME_POLICIES,
     calculate_payroll_through,
+    sync_payroll_if_calculated,
     _previous_bank_balance
 )
+from services.rh_rest_work_service import decide_rest_work
 
 router = APIRouter(prefix="/api/rh/payroll", tags=["rh-payroll"])
 
@@ -76,6 +79,17 @@ class BankHoursEntryCreate(BaseModel):
     minutes: int
     pay_mode: Optional[str] = None  # PAYMENT: PAY ou PAY_NORMAL
     note: Optional[str] = None
+
+class RestWorkDecisionUpdate(BaseModel):
+    employee_id: int
+    worked_date: date
+    decision: Optional[str] = None  # FOLGA | PAGAR | None (desfaz a decisão)
+    folga_date: Optional[date] = None
+    note: Optional[str] = None
+
+class PayrollMonth(BaseModel):
+    year: int
+    month: int
 
 class SalaryAdvanceUpdate(BaseModel):
     year: int
@@ -526,6 +540,73 @@ def delete_bank_hours_entry(
     db.commit()
     calculate_payroll_through(db, org_id, schedule)
     return {"message": "Lançamento excluído do banco de horas."}
+
+
+@router.put("/bank-hours/rest-work")
+def set_rest_work_decision(
+    payload: RestWorkDecisionUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Horas 100% (DSR/feriado sem folga): conceder folga de dia inteiro ou pagar em dobro no mês."""
+    org_id = current_user.organization_id
+    emp = db.query(models.RHEmployee).filter(
+        models.RHEmployee.id == payload.employee_id,
+        models.RHEmployee.organization_id == org_id
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Colaborador não encontrado")
+    try:
+        decide_rest_work(db, org_id, emp, payload.worked_date, payload.decision, payload.folga_date,
+                         (payload.note or "").strip() or None, current_user.id)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
+    schedule = _get_or_create_schedule(db, org_id, payload.worked_date.year, payload.worked_date.month)
+    calculate_payroll_through(db, org_id, schedule)
+    if payload.folga_date and (payload.folga_date.year, payload.folga_date.month) != (schedule.year, schedule.month):
+        other = _get_or_create_schedule(db, org_id, payload.folga_date.year, payload.folga_date.month)
+        sync_payroll_if_calculated(db, org_id, other.id)
+    return {"message": "Decisão registrada."}
+
+
+@router.post("/close")
+def close_payroll(
+    payload: PayrollMonth,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Fecha (congela) a folha do mês. Horas 100% precisam estar quitadas no próprio mês."""
+    org_id = current_user.organization_id
+    schedule = _get_or_create_schedule(db, org_id, payload.year, payload.month)
+    if schedule.status == "CLOSED":
+        return {"message": "Folha já está fechada."}
+    calculate_payroll_through(db, org_id, schedule)
+    data = get_payroll_month(db, org_id, schedule)
+    pending = [r["employee_name"] for r in data["employees"] if r["bank"]["rest_work_pending"]]
+    if pending:
+        raise HTTPException(
+            status_code=400,
+            detail=("Há DSR/feriado trabalhado sem decisão (folga ou pagamento em dobro), que deve ser quitado "
+                    f"no próprio mês: {', '.join(pending)}. Decida na aba Banco de horas antes de fechar a folha.")
+        )
+    schedule.status = "CLOSED"
+    db.commit()
+    return {"message": "Folha fechada."}
+
+
+@router.post("/reopen")
+def reopen_payroll(
+    payload: PayrollMonth,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    schedule = _get_or_create_schedule(db, current_user.organization_id, payload.year, payload.month)
+    schedule.status = "DRAFT"
+    db.commit()
+    calculate_payroll_through(db, current_user.organization_id, schedule)
+    return {"message": "Folha reaberta."}
 
 
 @router.get("/bank-hours/balances")

@@ -74,6 +74,22 @@ const sameWorkload = (a, b) => Array.from({ length: 7 }, (_, wd) => wd).every((w
   return (x.rest || null) === (y.rest || null) && contractDayMinutes(x) === contractDayMinutes(y);
 });
 
+// Dia reduzido (único dia de trabalho com carga diferente dos demais) e folga (único dia de FOLGA)
+const weekShape = (days) => {
+  const all = Array.from({ length: 7 }, (_, wd) => wd);
+  const work = all.filter((wd) => !days?.[wd]?.rest && contractDayMinutes(days?.[wd]) > 0);
+  const counts = {};
+  work.forEach((wd) => { const m = contractDayMinutes(days[wd]); counts[m] = (counts[m] || 0) + 1; });
+  const common = Number(Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0]);
+  const odd = work.filter((wd) => contractDayMinutes(days[wd]) !== common);
+  const folgas = all.filter((wd) => days?.[wd]?.rest === 'FOLGA');
+  return {
+    work,
+    reduced: work.length > 2 && odd.length === 1 && contractDayMinutes(days[odd[0]]) < common ? odd[0] : null,
+    folga: folgas.length === 1 ? folgas[0] : null
+  };
+};
+
 const scheduleLabel = (s) => {
   const ex = s.example || {};
   return `${ex.start}–${ex.lunch_start} / ${ex.lunch_end}–${ex.end} em dia de 8h`;
@@ -275,6 +291,14 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
     });
   };
 
+  // Move o dia reduzido (ou a folga) trocando o conteúdo dos dois dias; a escala-padrão recalcula os horários
+  const swapDays = (from, to) => {
+    if (from === to) return;
+    replaceDays({ ...form.days, [from]: form.days[to], [to]: form.days[from] });
+  };
+
+  const shape = form ? weekShape(form.days) : null;
+
   const horarioOnly = Boolean(current && form && sameWorkload(current.days, form.days));
 
   // Prévia das regras validadas no servidor (o backend é a fonte da verdade)
@@ -473,6 +497,40 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
               />
             </div>
           </div>
+
+          {/* Dia reduzido e folga: escolhidos por dia da semana, sem editar horário por horário */}
+          {shape && (shape.reduced !== null || shape.folga !== null) && (
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
+              {[
+                ['reduced', `Dia reduzido (${shape.reduced !== null ? fmtHours(contractDayMinutes(form.days[shape.reduced])) : ''})`],
+                ['folga', 'Folga']
+              ].filter(([key]) => shape[key] !== null).map(([key, label]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className="text-slate-400 text-[11px]">{label}</span>
+                  <div className="flex gap-0.5">
+                    {orderedWeekdays(weekStart).map((wd) => {
+                      const selected = shape[key] === wd;
+                      const allowed = selected || shape.work.includes(wd);
+                      return (
+                        <button
+                          key={wd}
+                          type="button"
+                          disabled={!allowed}
+                          onClick={() => swapDays(shape[key], wd)}
+                          className={`w-9 rounded text-[10px] font-semibold py-0.5 border ${
+                            selected ? 'bg-indigo-600/40 border-indigo-500 text-white'
+                              : 'border-slate-700 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:text-slate-400'
+                          }`}
+                        >
+                          {WEEKDAYS[wd]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Escala-padrão (nova ou em edição): definida pelo horário de um dia de 8h; a saída é sempre calculada */}
           {scheduleForm && (() => {

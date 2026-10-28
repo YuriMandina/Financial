@@ -20,7 +20,7 @@ class TestMonthlyAudit(unittest.TestCase):
         engine = create_engine("sqlite:///:memory:")
         needed = [
             models.Organization, models.User, models.RHRole, models.RHEmployee, models.RHEmployeeContract,
-            models.RHContractTemplate, models.RHLegalRegime, models.RHMonthlySchedule, models.RHWorkDay,
+            models.RHContractTemplate, models.RHLegalRegime, models.RHMonthlySchedule, models.RHWorkDay, models.RHRestWorkDecision,
             models.RHWorkDayChange, models.RHSettings, models.RHSalaryChange, models.RHMonthlyAudit, models.RHAuditItem,
             models.RHBankHours
         ]

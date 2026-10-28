@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Wallet, Calculator, RefreshCw, Plus, Edit2, Trash2, X, ChevronDown, ChevronRight,
-  ListChecks, Lock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users, HandCoins, Printer
+  ListChecks, Lock, Unlock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users, HandCoins, Printer
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
@@ -125,6 +125,27 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   useEffect(() => {
     loadAll();
   }, [selectedYear, selectedMonth]);
+
+  // Fechamento: congela a folha do mês; DSR/feriado trabalhado precisa estar quitado (aba Banco de horas)
+  const closed = payroll?.status === 'CLOSED';
+  const restPending = payroll?.totals?.rest_work_pending || 0;
+
+  const toggleClosed = async () => {
+    const action = closed ? 'reopen' : 'close';
+    if (!window.confirm(closed
+      ? 'Reabrir a folha? Ela volta a ser recalculada a partir da escala.'
+      : 'Fechar a folha do mês? Os valores ficam congelados até a reabertura.')) return;
+    try {
+      const res = await request(`/api/rh/payroll/${action}`, {
+        method: 'POST',
+        body: JSON.stringify({ year: selectedYear, month: selectedMonth })
+      });
+      await loadAll();
+      flash(res.message);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   // ==============================================================================
   // --- [RUBRICAS] ---
@@ -1432,6 +1453,20 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               <Printer size={13} /> Imprimir Folha
             </button>
           )}
+          {view === 'folha' && !loading && (
+            <button
+              onClick={toggleClosed}
+              disabled={!closed && restPending > 0}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border disabled:opacity-50 ${
+                closed
+                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500'
+              }`}
+              title={!closed && restPending > 0 ? 'Há DSR/feriado trabalhado sem decisão na aba Banco de horas' : undefined}
+            >
+              {closed ? <><Unlock size={13} /> Reabrir Folha</> : <><Lock size={13} /> Fechar Folha</>}
+            </button>
+          )}
           {view === 'totais' && !loading && (
             <div className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5">
               <button
@@ -1454,6 +1489,17 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
           {msg && <span className="text-xs font-medium text-emerald-400">{msg}</span>}
         </div>
       </div>
+
+      {!loading && view === 'folha' && (closed || restPending > 0) && (
+        <div className={`print:hidden rounded-xl border px-4 py-2.5 text-xs flex items-center gap-2 ${
+          closed ? 'border-slate-700 bg-slate-900 text-slate-300' : 'border-rose-500/40 bg-rose-950/20 text-rose-200'
+        }`}>
+          {closed ? <Lock size={14} /> : <AlertCircle size={14} />}
+          {closed
+            ? 'Folha fechada: os valores estão congelados. Reabra para recalcular a partir da escala.'
+            : `${restPending} DSR/feriado(s) trabalhado(s) sem decisão. Na aba Banco de horas, conceda a folga ou marque para pagar em dobro: essas horas precisam ser quitadas neste mês para fechar a folha.`}
+        </div>
+      )}
 
       {loading ? (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-xs text-slate-400">

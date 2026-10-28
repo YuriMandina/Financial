@@ -4,7 +4,7 @@ Cada atualização do planejamento gera um **novo arquivo**; versões anteriores
 
 Convenção de nome: `vNN_AAAA-MM-DD.md`.
 
-> **Fonte da verdade: [v06_2026-10-28.md](v06_2026-10-28.md)** — v05 validada em 23/10/2026; separação entre jornada e escala-padrão aprovada em 28/10/2026. A implementação segue esta versão; qualquer mudança futura gera uma nova versão.
+> **Fonte da verdade: [v07_2026-10-28.md](v07_2026-10-28.md)** — v05 validada em 23/10/2026; escala-padrão (v06) e subcategorias da hora extra (v07) em 28/10/2026. A implementação segue esta versão; qualquer mudança futura gera uma nova versão.
 
 ## Andamento da implementação
 
@@ -17,7 +17,8 @@ Convenção de nome: `vNN_AAAA-MM-DD.md`.
 
 | Versão | Data | Arquivo | Principais mudanças |
 |---|---|---|---|
-| **v6 (atual)** | 28/10/2026 | [v06_2026-10-28.md](v06_2026-10-28.md) | **Jornada e escala-padrão separadas**: a jornada define a carga de cada dia e os descansos; a escala-padrão define entrada e intervalo, e a saída é calculada. Alteração só de horário (mesma carga) é classificada como `HORARIO` e não gera R14. |
+| **v7 (atual)** | 28/10/2026 | [v07_2026-10-28.md](v07_2026-10-28.md) | **Subcategorias da hora extra**: banco comum (entre meses) × horas 100% de DSR/feriado, quitadas no mês na aba Banco de horas com folga de dia inteiro ou pagamento em dobro + DSR; troca de folga sem débito; fechamento da folha bloqueado com pendências; seletor do dia reduzido e da folga no contrato. |
+| v6 | 28/10/2026 | [v06_2026-10-28.md](v06_2026-10-28.md) | **Jornada e escala-padrão separadas**: a jornada define a carga de cada dia e os descansos; a escala-padrão define entrada e intervalo, e a saída é calculada. Alteração só de horário (mesma carga) é classificada como `HORARIO` e não gera R14. |
 | v5 | 23/10/2026 | [v05_2026-10-23.md](v05_2026-10-23.md) | Troca do dia reduzido e troca de folga com o domingo reconhecidas como legais (sem HE nem dobra, dentro das condições); compensação mensal como padrão; tolerância, abono e compensação de atrasos com limites e ocorrências de ponto; irregularidade corrigida é desconsiderada. |
 | v4 | 23/10/2026 | [v04_2026-10-23.md](v04_2026-10-23.md) | Regimes começam na segunda-feira (**14/12/2026** e **13/12/2027**), sem semana de virada; assistente de transição removido; **turnos deixam de existir** (horário vem do contrato individual); sem versão legada nem migração (sistema em desenvolvimento). |
 | v3 | 23/10/2026 | [v03_2026-10-23.md](v03_2026-10-23.md) | Edição manual sem bloqueio nem aprovação por item: aviso rápido (toast) e **auditoria mensal** aprovada de uma vez pelo diretor; aditivo contratual não trava a vigência — a falta dele vira a irregularidade **R14** no relatório. |

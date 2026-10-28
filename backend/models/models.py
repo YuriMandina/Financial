@@ -355,6 +355,30 @@ class RHBankHours(Base):
     )
 
 
+class RHRestWorkDecision(Base):
+    """
+    Decisão do administrativo sobre o DSR/feriado trabalhado sem folga compensatória:
+    conceder folga em outro dia (dia inteiro) ou pagar em dobro na folha do mês.
+    Sem decisão, a troca encontrada na escala vale automaticamente; sem troca, fica pendente.
+    """
+    __tablename__ = "rh_rest_work_decisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False, index=True)
+    worked_date = Column(Date, nullable=False) # DSR ou feriado trabalhado
+    decision = Column(String, nullable=False) # FOLGA | PAGAR
+    folga_date = Column(Date, nullable=True) # Dia da folga compensatória (FOLGA)
+    folga_created = Column(Boolean, default=False) # A folga foi marcada na escala por esta decisão
+    note = Column(String, nullable=True)
+    decided_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decided_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('employee_id', 'worked_date', name='uq_rest_work_decision_employee_date'),
+    )
+
+
 class RHSalaryAdvance(Base):
     """Decisão do mês de pagar (ou não) o adiantamento salarial ao colaborador."""
     __tablename__ = "rh_salary_advances"

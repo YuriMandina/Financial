@@ -18,7 +18,8 @@ class TestApplyContractFill(unittest.TestCase):
         needed = [
             models.Organization, models.RHRole, models.RHEmployee, models.RHEmployeeContract,
             models.RHContractTemplate, models.RHLegalRegime, models.RHMonthlySchedule,
-            models.RHWorkDay, models.RHWorkDayChange, models.RHSettings, models.RHSalaryChange, models.RHBankHours
+            models.RHWorkDay, models.RHWorkDayChange, models.RHSettings, models.RHSalaryChange, models.RHBankHours,
+            models.RHRestWorkDecision
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()

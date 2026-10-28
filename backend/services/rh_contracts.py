@@ -235,24 +235,24 @@ _4H = _work("07:00", "11:00", None, None)
 
 SYSTEM_TEMPLATES = [
     {
-        "code": "44H_6X1_QUA", "name": "44h 6x1 — quarta reduzida",
-        "description": "8h em cinco dias + 4h na quarta; DSR no domingo. Vigência útil até 13/12/2026.",
+        "code": "44H_6X1_QUA", "name": "44h 6x1 — dia reduzido",
+        "description": "8h em cinco dias + 4h em um dia (padrão: quarta, escolhido no contrato); DSR no domingo. Vigência útil até 13/12/2026.",
         "days": _week({0: _8H, 1: _8H, 2: _4H, 3: _8H, 4: _8H, 5: _8H}, {6: "DSR"}),
     },
     {
         "code": "44H_5X2_COMP", "name": "44h 5x2 compensado (8h48)",
-        "description": "8h48 em cinco dias; folga na quarta e DSR no domingo. Exige acordo de compensação escrito.",
+        "description": "8h48 em cinco dias; folga em um dia útil (padrão: quarta) e DSR no domingo. Exige acordo de compensação escrito.",
         "days": _week({wd: _work("07:00", "16:48") for wd in (0, 1, 3, 4, 5)}, {2: "FOLGA", 6: "DSR"}),
     },
     {
         "code": "42H_5X2_COMP", "name": "42h 5x2 compensado (8h24) — transição",
-        "description": "8h24 em cinco dias; folga na quarta e DSR no domingo. A partir de 14/12/2026; "
+        "description": "8h24 em cinco dias; folga em um dia útil (padrão: quarta) e DSR no domingo. A partir de 14/12/2026; "
                        "jornada diária acima de 8h exige previsão em CCT/ACT.",
         "days": _week({wd: _work("07:00", "16:24") for wd in (0, 1, 3, 4, 5)}, {2: "FOLGA", 6: "DSR"}),
     },
     {
         "code": "40H_5X2", "name": "40h 5x2 — regime final",
-        "description": "8h em cinco dias; folga na quarta e DSR no domingo. Obrigatório a partir de 13/12/2027.",
+        "description": "8h em cinco dias; folga em um dia útil (padrão: quarta) e DSR no domingo. Obrigatório a partir de 13/12/2027.",
         "days": _week({wd: _8H for wd in (0, 1, 3, 4, 5)}, {2: "FOLGA", 6: "DSR"}),
     },
 ]

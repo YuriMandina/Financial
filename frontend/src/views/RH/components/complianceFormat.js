@@ -17,7 +17,7 @@ export const SEVERITY = {
   ALERTA: { label: 'Alerta', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40' }
 };
 
-export const ORIGIN_LABELS = { MANUAL: 'Manual', LOTE: 'Lote', RESET: 'Restauração' };
+export const ORIGIN_LABELS = { MANUAL: 'Manual', LOTE: 'Lote', RESET: 'Restauração', FOLGA_COMP: 'Folga compensatória' };
 export const NO_DAY_HISTORY_RULES = ['R03', 'R04', 'R12', 'R14'];
 
 export const fmtDate = (iso) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');

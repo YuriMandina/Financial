@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from models import models
 from services.rh_engine import calculate_work_days_summary, get_month_calendar_info
 from services.rh_contracts import contract_on
-from services.rh_ledger import load_month_ledgers
+from services.rh_ledger import load_month_ledgers, rest_folga_window
 from services.rh_holidays_service import get_effective_holidays_map
 from services.rh_salary_service import get_salary_history, salary_for_month, salary_on
 
@@ -65,6 +65,7 @@ OVERTIME_POLICIES = {
 SYSTEM_ITEMS = {
     "SALARIO": ("001", "Salário Base", "RECEITA", True, True, True, True),
     "HE50": ("002", "Horas Extras", "RECEITA", True, True, True, True),
+    "HE100": ("006", "Horas Extras 100% (DSR/feriado)", "RECEITA", True, True, True, True),
     "HE_FIXO": ("005", "Valor Fixo por Horas Extras (Banco)", "RECEITA", True, True, True, True),
     "DSR_HE": ("003", "DSR sobre Horas Extras", "RECEITA", True, True, True, True),
     "TRIENIO": ("004", "Triênio", "RECEITA", True, True, True, True),
@@ -218,16 +219,50 @@ def _previous_bank_balance(db: Session, schedule: models.RHMonthlySchedule, empl
 
 
 def daily_bank_movements(ledger: Dict[date, Any]) -> List[Dict[str, Any]]:
-    """Movimentos do banco vindos do ledger, dia a dia (horas extras, saídas antecipadas, folgas BH)."""
+    """
+    Movimentos do banco vindos do ledger, dia a dia (horas extras, saídas antecipadas, folgas BH).
+    EXTRA_100 (repouso/feriado sem folga compensatória) aparece no extrato, mas fica fora do saldo:
+    é pago a 100% na folha do mês.
+    """
     movements = []
     for d in sorted(ledger):
         dl = ledger[d]
-        if dl.extra_min:
-            movements.append({"day": d.day, "minutes": dl.extra_min, "kind": "EXTRA"})
+        if dl.extra_double_min:
+            movements.append({"day": d.day, "minutes": dl.extra_double_min, "kind": "EXTRA_100", "in_bank": False})
+        elif dl.extra_min:
+            movements.append({"day": d.day, "minutes": dl.extra_min, "kind": "EXTRA", "in_bank": True})
         if dl.short_min:
             kind = "FOLGA_BH" if dl.status == "FOLGA_BH" else "SHORT"
-            movements.append({"day": d.day, "minutes": -dl.short_min, "kind": kind})
+            movements.append({"day": d.day, "minutes": -dl.short_min, "kind": kind, "in_bank": True})
     return movements
+
+
+def rest_work_items(ledger: Dict[date, Any]) -> List[Dict[str, Any]]:
+    """
+    DSR/feriado trabalhado no mês (horas 100%): situação e prazo da folga compensatória.
+    FOLGA = quitado com folga de dia inteiro (troca na escala ou decisão); PAGAR = em dobro na folha;
+    PENDENTE = precisa de decisão antes de fechar a folha do mês.
+    """
+    items = []
+    for d in sorted(ledger):
+        dl = ledger[d]
+        if dl.status != "TRABALHO" or not dl.rest_kind:
+            continue
+        status = "FOLGA" if dl.rest_full_day else ("PAGAR" if dl.rest_decision == "PAGAR" else "PENDENTE")
+        start, end = rest_folga_window(d, dl.rest_kind)
+        items.append({
+            "date": d.isoformat(),
+            "rest_kind": dl.rest_kind,
+            "worked_minutes": dl.worked_min,
+            "status": status,
+            "auto": bool(dl.rest_swap_auto),
+            "folga_date": dl.rest_swap_with.isoformat() if dl.rest_full_day and dl.rest_swap_with else None,
+            "double_minutes": dl.extra_double_min,
+            "excess_to_bank_minutes": dl.extra_min if dl.rest_full_day else 0,
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
+        })
+    return items
 
 
 def bank_entry_to_dict(e: models.RHBankHoursEntry) -> Dict[str, Any]:
@@ -246,7 +281,8 @@ def bank_to_dict(
     emp: models.RHEmployee,
     default_policy: str,
     entries: Optional[List[models.RHBankHoursEntry]] = None,
-    movements: Optional[List[Dict[str, Any]]] = None
+    movements: Optional[List[Dict[str, Any]]] = None,
+    rest_work: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     override = row.policy if row else None
     return {
@@ -260,6 +296,8 @@ def bank_to_dict(
         "balance_minutes": int(row.balance_minutes or 0) if row else 0,
         "entries": [bank_entry_to_dict(e) for e in (entries or [])],
         "movements": movements or [],
+        "rest_work": rest_work or [],
+        "rest_work_pending": sum(1 for r in (rest_work or []) if r["status"] == "PENDENTE"),
     }
 
 
@@ -424,6 +462,7 @@ def calculate_payroll(
             paid_by_mode[policy] += max(0, available - sum(paid_by_mode.values()))
 
         paid_minutes = sum(paid_by_mode.values())
+        he_value = 0.0
         if paid_minutes > 0:
             factor_pay = 1 + overtime_rate / 100
             he_value = round(
@@ -436,7 +475,19 @@ def calculate_payroll(
             if paid_by_mode["PAY_NORMAL"]:
                 parts.append(f"{_fmt_hours(paid_by_mode['PAY_NORMAL'])} normal")
             add_auto(system_items["HE50"], he_value, " + ".join(parts))
-            add_auto(system_items["DSR_HE"], he_value / business_days * rest_days,
+
+        # DSR/feriado trabalhado sem folga compensatória que o administrativo decidiu pagar em dobro
+        # (aba Banco de horas). Quitado no próprio mês, fora do banco comum (Lei 605/49 art. 9º; Súmula 146 TST)
+        double_minutes = int(summary.get("double_to_pay_minutes") or 0)
+        he_double_value = round(double_minutes / 60 * hourly_rate * 2, 2) if double_minutes > 0 else 0.0
+        if he_double_value:
+            days_double = int(summary.get("double_to_pay_days") or 0)
+            add_auto(system_items["HE100"], he_double_value,
+                     f"{_fmt_hours(double_minutes)} a 100% ({days_double} dia(s))")
+
+        # Reflexo das horas extras habituais no DSR (Súmula 172 TST; Lei 605/49 art. 7º)
+        if he_value + he_double_value > 0:
+            add_auto(system_items["DSR_HE"], (he_value + he_double_value) / business_days * rest_days,
                      f"{rest_days}/{business_days} dias")
         if policy == "FIXED_PLUS_BANK" and month_balance > 0:
             add_auto(system_items["HE_FIXO"], month_balance / 60 * overtime_fixed_value,
@@ -626,7 +677,8 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             },
             "bank": bank_to_dict(
                 bank_rows.get(emp.id), emp, default_policy,
-                bank_entries_by_emp.get(emp.id), daily_bank_movements(ledgers.get(emp.id, {}))
+                bank_entries_by_emp.get(emp.id), daily_bank_movements(ledgers.get(emp.id, {})),
+                rest_work_items(ledgers.get(emp.id, {}))
             ),
         })
 
@@ -691,6 +743,8 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
         "irrf": round(item_sum("IRRF"), 2),
         "adiantamento": round(item_sum("ADIANTAMENTO"), 2),
         "custo_empresa": round(totals["receitas"] + totals["fgts"] + totals["beneficios"], 2),
+        # Horas 100% sem decisão: impedem o fechamento da folha (devem ser quitadas no mês)
+        "rest_work_pending": sum(r["bank"]["rest_work_pending"] for r in rows),
     })
 
     return {
@@ -698,6 +752,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
         "year": schedule.year,
         "month": schedule.month,
         "calculated": any(e.source == "AUTO" for e in entries),
+        "status": schedule.status or "DRAFT",
         "employees": rows,
         "totals": totals,
         "item_totals": item_totals,

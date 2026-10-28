@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock, Plus, X, Trash2, ChevronDown, ChevronRight, RefreshCw, Wallet,
-  TrendingUp, TrendingDown, Users, AlertCircle
+  TrendingUp, TrendingDown, Users, AlertCircle, CalendarCheck, Undo2
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 
@@ -30,8 +30,20 @@ const POLICY_LABELS = {
 
 const MOVEMENT_LABELS = {
   EXTRA: 'Horas além da jornada',
+  EXTRA_100: 'DSR/feriado sem folga compensatória',
   SHORT: 'Saída antecipada / jornada menor',
   FOLGA_BH: 'Folga de banco de horas'
+};
+
+const REST_STATUS = {
+  PENDENTE: { label: 'Pendente', cls: 'border-rose-500/40 text-rose-300 bg-rose-500/10' },
+  FOLGA: { label: 'Folga compensatória', cls: 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' },
+  PAGAR: { label: 'Pagar em dobro', cls: 'border-amber-500/40 text-amber-300 bg-amber-500/10' }
+};
+
+const fmtDay = (iso) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')} (${WEEKDAY_SHORT[new Date(y, m - 1, d).getDay()]})`;
 };
 
 const ENTRY_LABELS = {
@@ -51,6 +63,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
   const [entryModal, setEntryModal] = useState(null); // { employee, data }
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [folgaPick, setFolgaPick] = useState(null); // { key, date }: escolha do dia da folga compensatória
   const loadedPeriodRef = React.useRef(null);
 
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -111,6 +124,21 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
       });
       await load();
       flash('Destino do saldo atualizado.');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // Horas 100%: folga de dia inteiro (marcada na escala) ou pagamento em dobro na folha do mês
+  const handleRestDecision = async (emp, item, decision, folgaDate = null) => {
+    try {
+      await request('/api/rh/payroll/bank-hours/rest-work', {
+        method: 'PUT',
+        body: JSON.stringify({ employee_id: emp.employee_id, worked_date: item.date, decision, folga_date: folgaDate })
+      });
+      setFolgaPick(null);
+      await load();
+      flash(decision === 'FOLGA' ? 'Folga compensatória marcada na escala.' : decision === 'PAGAR' ? 'Dia será pago em dobro na folha.' : 'Decisão desfeita.');
     } catch (err) {
       alert(err.message);
     }
@@ -202,13 +230,17 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
         </thead>
         <tbody>
           {line('prev', 'Saldo anterior', 'Fim do mês anterior', b.previous_balance_minutes, null, true)}
-          {b.movements.map((m) => {
+          {b.movements.map((m, i) => {
             const wd = WEEKDAY_SHORT[new Date(selectedYear, selectedMonth - 1, m.day).getDay()];
+            // Fora do saldo: pago na folha do mês a 100% + reflexo no DSR (Súmula 146 TST)
+            const outside = m.in_bank === false;
             return line(
-              `mv-${m.day}`,
+              `mv-${m.day}-${m.kind}-${i}`,
               `Dia ${String(m.day).padStart(2, '0')} (${wd})`,
-              `Escala • ${MOVEMENT_LABELS[m.kind]}`,
-              m.minutes
+              `Escala • ${MOVEMENT_LABELS[m.kind]}${outside ? ' • pago na folha a 100% + DSR, fora do saldo' : ''}`,
+              m.minutes,
+              outside ? <span className="text-[9px] font-semibold text-amber-300" title="Não entra no saldo do banco">100%</span> : null,
+              outside
             );
           })}
           {b.entries.map((en) => line(
@@ -245,6 +277,131 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
           </tr>
         </tbody>
       </table>
+    );
+  };
+
+  const renderRestWork = () => {
+    const rows = employees.flatMap((emp) => (emp.bank.rest_work || []).map((item) => ({ emp, item })));
+    if (rows.length === 0) return null;
+    const pending = rows.filter((r) => r.item.status === 'PENDENTE').length;
+    const btn = 'inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border whitespace-nowrap';
+    return (
+      <div className={`bg-slate-900 border rounded-xl overflow-hidden ${pending ? 'border-rose-500/40' : 'border-slate-800'}`}>
+        <div className="px-4 py-3 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-2">
+          <div>
+            <h4 className="text-xs font-bold text-white">Horas 100% • DSR e feriados trabalhados</h4>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Quitar no próprio mês: folga de um dia inteiro em outro dia (vale para qualquer quantidade de horas)
+              ou pagamento em dobro + DSR. Não entram no banco comum.
+            </p>
+          </div>
+          {pending > 0 && (
+            <span className="text-[11px] font-semibold text-rose-300 flex items-center gap-1 whitespace-nowrap">
+              <AlertCircle size={13} /> {pending} pendente(s): a folha não fecha
+            </span>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-950/90 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                <th className="py-2 px-3 text-left">Colaborador</th>
+                <th className="py-2 px-3 text-left">Dia trabalhado</th>
+                <th className="py-2 px-3 text-right">Horas</th>
+                <th className="py-2 px-3 text-left">Situação</th>
+                <th className="py-2 px-3 text-right">Decisão</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {rows.map(({ emp, item }) => {
+                const key = `${emp.employee_id}-${item.date}`;
+                const st = REST_STATUS[item.status];
+                const picking = folgaPick?.key === key;
+                const decided = item.status === 'PAGAR' || (item.status === 'FOLGA' && !item.auto);
+                return (
+                  <tr key={key} className="hover:bg-slate-800/30">
+                    <td className="py-2 px-3">
+                      <div className="font-semibold text-white">{emp.employee_name}</div>
+                      <div className="text-[10px] text-slate-400">{emp.employee_role}</div>
+                    </td>
+                    <td className="py-2 px-3 text-slate-300">
+                      {fmtDay(item.date)} <span className="text-[10px] text-slate-500">• {item.rest_kind === 'FERIADO' ? 'Feriado' : 'DSR'}</span>
+                    </td>
+                    <td className="py-2 px-3 text-right font-semibold text-amber-300">{fmtHours(item.worked_minutes, false)}</td>
+                    <td className="py-2 px-3">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {item.status === 'FOLGA' && `Folga em ${fmtDay(item.folga_date)}${item.auto ? ' (encontrada na escala)' : ''}`}
+                        {item.status === 'FOLGA' && item.excess_to_bank_minutes > 0 && ` • ${fmtHours(item.excess_to_bank_minutes)} acima do dia no banco comum`}
+                        {item.status === 'PAGAR' && `${fmtHours(item.double_minutes, false)} a 100% + DSR na folha do mês`}
+                        {item.status === 'PENDENTE' && `Folga possível entre ${fmtDay(item.window_start)} e ${fmtDay(item.window_end)}`}
+                      </div>
+                    </td>
+                    <td className="py-2 px-3">
+                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                        {picking ? (
+                          <>
+                            <input
+                              type="date"
+                              value={folgaPick.date}
+                              min={item.window_start}
+                              max={item.window_end}
+                              onChange={(e) => setFolgaPick({ key, date: e.target.value })}
+                              className="bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-white text-[11px] [color-scheme:dark]"
+                            />
+                            <button
+                              type="button"
+                              disabled={!folgaPick.date}
+                              onClick={() => handleRestDecision(emp, item, 'FOLGA', folgaPick.date)}
+                              className={`${btn} border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-40`}
+                            >
+                              Confirmar
+                            </button>
+                            <button type="button" onClick={() => setFolgaPick(null)} className="p-1 text-slate-500 hover:text-white">
+                              <X size={13} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {item.status !== 'FOLGA' && (
+                              <button
+                                type="button"
+                                onClick={() => setFolgaPick({ key, date: '' })}
+                                className={`${btn} border-emerald-500/40 text-emerald-300 bg-slate-800 hover:bg-slate-700`}
+                              >
+                                <CalendarCheck size={12} /> Conceder folga
+                              </button>
+                            )}
+                            {item.status !== 'PAGAR' && (
+                              <button
+                                type="button"
+                                onClick={() => handleRestDecision(emp, item, 'PAGAR')}
+                                className={`${btn} border-amber-500/40 text-amber-300 bg-slate-800 hover:bg-slate-700`}
+                              >
+                                <Wallet size={12} /> Pagar em dobro
+                              </button>
+                            )}
+                            {decided && (
+                              <button
+                                type="button"
+                                onClick={() => handleRestDecision(emp, item, null)}
+                                className="p-1 text-slate-500 hover:text-white"
+                                title={item.status === 'FOLGA' ? 'Desfazer (o dia volta ao horário do contrato)' : 'Desfazer'}
+                              >
+                                <Undo2 size={13} />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     );
   };
 
@@ -363,8 +520,8 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
             Banco de Horas • {MONTH_NAMES[selectedMonth - 1]}/{selectedYear}
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Horas além ou aquém da jornada entram pela escala, dia a dia. Consuma o saldo com folgas BH, saídas antecipadas,
-            pagamento parcial em folha ou ajustes manuais.
+            Monte a escala do mês e consuma as horas aqui. DSR e feriados trabalhados (100%) são quitados no mês; o banco comum
+            acumula entre meses e é consumido com folgas BH, saídas antecipadas, pagamento parcial em folha ou ajustes manuais.
           </p>
         </div>
         {msg && <span className="text-xs font-medium text-emerald-400">{msg}</span>}
@@ -376,6 +533,8 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
         {kpi('Horas pagas em folha no mês', fmtHours(kpis.paid, false), Wallet, 'text-emerald-300')}
         {kpi('Colaboradores com saldo', String(kpis.withBalance), Users, 'text-slate-200')}
       </div>
+
+      {renderRestWork()}
 
       {employees.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-xs text-slate-400">

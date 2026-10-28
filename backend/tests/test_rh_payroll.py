@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -41,7 +42,7 @@ class TestCalculatePayroll(unittest.TestCase):
         needed = [
             models.Organization, models.RHRole, models.RHEmployee, models.RHEmployeeContract,
             models.RHLegalRegime, models.RHContractTemplate,
-            models.RHMonthlySchedule, models.RHWorkDay, models.RHSettings, models.RHBenefitAdjustment,
+            models.RHMonthlySchedule, models.RHWorkDay, models.RHWorkDayChange, models.RHRestWorkDecision, models.RHSettings, models.RHBenefitAdjustment,
             models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange, models.RHBankHours,
             models.RHBankHoursEntry, models.RHSalaryAdvance
         ]
@@ -317,6 +318,144 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(lines["HE50"]["amount"], round(4 * hourly * 1.5, 2))
         self.assertEqual(bank["paid_minutes"], 240)
         self.assertEqual(bank["balance_minutes"], 0)
+
+    def _set_day(self, day, status, minutes=0):
+        rec = self.db.query(models.RHWorkDay).filter_by(employee_id=self.emp.id, day=day).first()
+        rec.status, rec.worked_minutes, rec.raw_minutes = status, minutes, minutes
+        self.db.commit()
+
+    def _decide(self, worked_day, decision, folga_day=None):
+        from services.rh_rest_work_service import decide_rest_work
+        with patch("services.rh_rest_work_service.get_effective_holidays_map", return_value={}):
+            decide_rest_work(self.db, self.org_id, self.emp, date(2026, 10, worked_day), decision,
+                             date(2026, 10, folga_day) if folga_day else None, None, None)
+        self.db.commit()
+
+    def test_dsr_worked_without_folga_waits_for_decision(self):
+        # Sem decisão: as horas 100% ficam pendentes, fora do banco comum e fora da folha
+        self._work_month(self.schedule, extra_days=(1,))  # +2h na quinta (banco comum)
+        self._set_day(4, "TRABALHO", 480)  # domingo 04/10 (DSR), sem folga na semana
+        lines, bank = self._payroll(self.schedule)
+        self.assertNotIn("HE100", lines)
+        self.assertEqual(bank["month_balance_minutes"], 120)
+        self.assertEqual(bank["rest_work_pending"], 1)
+        item = bank["rest_work"][0]
+        self.assertEqual((item["date"], item["rest_kind"], item["status"]), ("2026-10-04", "DSR", "PENDENTE"))
+        self.assertEqual((item["window_start"], item["window_end"]), ("2026-09-28", "2026-10-10"))
+        kinds = {(m["day"], m["kind"], m["in_bank"]) for m in bank["movements"]}
+        self.assertIn((4, "EXTRA_100", False), kinds)
+        self.assertIn((1, "EXTRA", True), kinds)
+
+    def test_pay_double_decision_goes_to_payroll(self):
+        self._work_month(self.schedule)
+        self._set_day(4, "TRABALHO", 300)  # 5h no domingo
+        self._decide(4, "PAGAR")
+        lines, bank = self._payroll(self.schedule)
+        hourly = 3000.0 / 200
+        self.assertEqual(lines["HE100"]["amount"], round(5 * hourly * 2, 2))
+        self.assertIn("100%", lines["HE100"]["reference"])
+        self.assertEqual(lines["DSR_HE"]["amount"], round(5 * hourly * 2 / 27 * 4, 2))
+        self.assertEqual(bank["month_balance_minutes"], 0)
+        self.assertEqual(bank["rest_work"][0]["status"], "PAGAR")
+        self.assertEqual(bank["rest_work_pending"], 0)
+
+    def test_folga_decision_is_a_full_day_without_debit(self):
+        # 5h no domingo quitadas com a quarta inteira (8h de contrato): sem débito de 3h
+        self._work_month(self.schedule)
+        self._set_day(4, "TRABALHO", 300)
+        self._decide(4, "FOLGA", 7)
+        rec = self.db.query(models.RHWorkDay).filter_by(employee_id=self.emp.id, day=7).first()
+        self.assertEqual(rec.status, "FOLGA")
+        lines, bank = self._payroll(self.schedule)
+        self.assertNotIn("HE100", lines)
+        self.assertEqual(bank["month_balance_minutes"], 0)
+        item = bank["rest_work"][0]
+        self.assertEqual((item["status"], item["folga_date"], item["auto"]), ("FOLGA", "2026-10-07", False))
+        # Desfazer devolve a quarta ao horário do contrato e a pendência volta
+        self._decide(4, None)
+        self.assertEqual(rec.status, "TRABALHO")
+        _, bank = self._payroll(self.schedule)
+        self.assertEqual(bank["rest_work_pending"], 1)
+
+    def test_folga_hours_above_the_day_go_to_common_bank(self):
+        self._work_month(self.schedule)
+        self._set_day(4, "TRABALHO", 540)  # 9h no domingo
+        self._decide(4, "FOLGA", 7)        # quarta de 8h
+        _, bank = self._payroll(self.schedule)
+        self.assertEqual(bank["month_balance_minutes"], 60)
+        self.assertEqual(bank["rest_work"][0]["excess_to_bank_minutes"], 60)
+
+    def test_folga_in_next_month(self):
+        # DSR no último domingo de novembro (29/11) com folga na terça 01/12, dentro do prazo
+        from services.rh_rest_work_service import decide_rest_work
+        nov = models.RHMonthlySchedule(organization_id=self.org_id, year=2026, month=11)
+        self.db.add(nov)
+        self.db.flush()
+        self._work_month(nov)
+        sunday = self.db.query(models.RHWorkDay).filter_by(schedule_id=nov.id, employee_id=self.emp.id, day=29).first()
+        sunday.status, sunday.worked_minutes, sunday.raw_minutes = "TRABALHO", 480, 480
+        self.db.commit()
+        with patch("services.rh_rest_work_service.get_effective_holidays_map", return_value={}):
+            decide_rest_work(self.db, self.org_id, self.emp, date(2026, 11, 29), "FOLGA", date(2026, 12, 1), None, None)
+        self.db.commit()
+        dec = self.db.query(models.RHMonthlySchedule).filter_by(year=2026, month=12).first()
+        rec = self.db.query(models.RHWorkDay).filter_by(schedule_id=dec.id, employee_id=self.emp.id, day=1).first()
+        self.assertEqual(rec.status, "FOLGA")
+        lines, bank = self._payroll(nov)
+        self.assertEqual((bank["rest_work"][0]["status"], bank["rest_work"][0]["folga_date"]), ("FOLGA", "2026-12-01"))
+        self.assertNotIn("HE100", lines)
+        # O repouso está quitado, mas a semana de 23 a 29/11 teve 48h: as 4h acima do limite de 44h
+        # são hora extra comum (a folga cai na semana e no período de compensação seguintes)
+        self.assertEqual(bank["month_balance_minutes"], 240)
+        _, dec_bank = self._payroll(dec)
+        self.assertEqual(dec_bank["month_balance_minutes"], 0)  # a folga de 01/12 não vira débito
+
+    def test_folga_outside_window_is_rejected(self):
+        from services.rh_rest_work_service import decide_rest_work
+        self._work_month(self.schedule)
+        self._set_day(4, "TRABALHO", 480)
+        with patch("services.rh_rest_work_service.get_effective_holidays_map", return_value={}):
+            with self.assertRaises(ValueError):
+                decide_rest_work(self.db, self.org_id, self.emp, date(2026, 10, 4), "FOLGA", date(2026, 10, 14), None, None)
+            with self.assertRaises(ValueError):  # sábado já é folga do contrato
+                decide_rest_work(self.db, self.org_id, self.emp, date(2026, 10, 4), "FOLGA", date(2026, 10, 3), None, None)
+
+    def test_close_requires_rest_work_decisions(self):
+        from fastapi import HTTPException
+        from api.rh_payroll import close_payroll, PayrollMonth
+        self._work_month(self.schedule)
+        self._set_day(4, "TRABALHO", 480)
+        user = SimpleNamespace(organization_id=self.org_id, id=None)
+        with patch("services.rh_payroll_service.get_effective_holidays_map", return_value={}):
+            with self.assertRaises(HTTPException):
+                close_payroll(PayrollMonth(year=2026, month=10), self.db, user)
+            self._decide(4, "PAGAR")
+            close_payroll(PayrollMonth(year=2026, month=10), self.db, user)
+        self.assertEqual(self.schedule.status, "CLOSED")
+
+    def test_dsr_worked_with_folga_in_week_is_not_double(self):
+        self._work_month(self.schedule)
+        self._set_day(4, "TRABALHO", 480)  # domingo trabalhado...
+        self._set_day(6, "FOLGA")          # ...com folga na terça da mesma semana
+        lines, bank = self._payroll(self.schedule)
+        self.assertNotIn("HE100", lines)
+        self.assertEqual(bank["month_balance_minutes"], 0)
+        self.assertEqual((bank["rest_work"][0]["status"], bank["rest_work"][0]["auto"]), ("FOLGA", True))
+
+    def test_auto_swap_with_fewer_hours_has_no_debit(self):
+        self._work_month(self.schedule)
+        self._set_day(4, "TRABALHO", 300)  # 5h no domingo, folga na terça (8h)
+        self._set_day(6, "FOLGA")
+        _, bank = self._payroll(self.schedule)
+        self.assertEqual(bank["month_balance_minutes"], 0)
+
+    def test_folga_worked_is_regular_overtime(self):
+        self._set_policy("PAY")
+        self._work_month(self.schedule)
+        self._set_day(3, "TRABALHO", 240)  # sábado 03/10 é FOLGA no contrato, não DSR
+        lines, bank = self._payroll(self.schedule)
+        self.assertNotIn("HE100", lines)
+        self.assertEqual(lines["HE50"]["amount"], round(4 * 3000.0 / 200 * 1.5, 2))
 
     def test_absence_does_not_cancel_overtime(self):
         self._set_policy("PAY")

@@ -1,14 +1,14 @@
 """
 Apuração Única de Horas (Ledger Diário)
 Hora extra = excedente da jornada contratada do dia + excedente do limite semanal, sem dupla contagem;
-compensação no período, troca de repouso, tolerância e atrasos. Planejamento: docs/conformidade-clt (v05, seção 6).
+compensação no período, troca de repouso, tolerância e atrasos. Planejamento: docs/conformidade-clt (v07, seção 6).
 
 Este módulo é puro (sem banco); o bloco final adapta os registros ORM.
 """
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from typing import Callable, Dict, Iterable, List, Optional, Set
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from services.rh_contracts import ContractDay, Regime, contract_day_on, default_regimes, regime_on
 from services.rh_engine import parse_time_to_minutes
@@ -16,6 +16,8 @@ from services.rh_holidays_service import get_effective_holidays_map
 
 MAX_COMPENSABLE_DAY_MIN = 600  # Dias acima de 10h não são compensáveis (art. 59, §2º)
 REST_SWAP_WINDOW_DAYS = 6
+# Decisão do administrativo por DSR/feriado trabalhado: (FOLGA | PAGAR, dia da folga)
+RestDecisions = Dict[date, Tuple[str, Optional[date]]]
 TOLERANCE_PER_MARK_MIN = 5   # CLT art. 58, §1º
 TOLERANCE_PER_DAY_MIN = 10
 
@@ -86,6 +88,10 @@ class DayLedger:
     compensated_min: int = 0
     rest_swap_with: Optional[date] = None
     rest_worked_unpaid_double: bool = False
+    rest_kind: Optional[str] = None      # DSR | FERIADO quando o dia trabalhado é repouso semanal ou feriado
+    rest_full_day: bool = False          # Folga compensatória de dia inteiro quita o repouso (Lei 605/49 art. 9º)
+    rest_swap_auto: bool = False         # Troca encontrada na escala, sem decisão do administrativo
+    rest_decision: Optional[str] = None  # FOLGA | PAGAR (aba Banco de horas)
     late_min: int = 0
     late_waived_min: int = 0
     late_compensated_min: int = 0
@@ -102,6 +108,20 @@ class DayLedger:
             return None
         return "SEMANAL" if self.extra_daily_min <= 0 < self.extra_weekly_min else "DIARIA"
 
+    @property
+    def extra_double_min(self) -> int:
+        """Extra em repouso (DSR) ou feriado sem folga compensatória: a 100%, fora do banco (Súmula 146 TST)."""
+        return self.extra_min if self.rest_worked_unpaid_double else 0
+
+    @property
+    def double_pending(self) -> bool:
+        """Sem folga e sem decisão de pagar: precisa ser quitado no próprio mês."""
+        return self.rest_worked_unpaid_double and self.rest_decision != "PAGAR"
+
+    @property
+    def double_to_pay_min(self) -> int:
+        return self.extra_double_min if self.rest_decision == "PAGAR" else 0
+
     def to_dict(self) -> Dict:
         return {
             "date": self.date.isoformat(),
@@ -110,11 +130,17 @@ class DayLedger:
             "normal_min": self.normal_min,
             "extra_min": self.extra_min,
             "extra_kind": self.extra_kind,
+            "extra_double_min": self.extra_double_min,
             "short_min": self.short_min,
             "reduction_min": self.reduction_min,
             "compensated_min": self.compensated_min,
             "rest_swap_with": self.rest_swap_with.isoformat() if self.rest_swap_with else None,
             "rest_worked_unpaid_double": self.rest_worked_unpaid_double,
+            "rest_kind": self.rest_kind,
+            "rest_full_day": self.rest_full_day,
+            "rest_swap_auto": self.rest_swap_auto,
+            "rest_decision": self.rest_decision,
+            "double_pending": self.double_pending,
             "late_min": self.late_min,
             "late_waived_min": self.late_waived_min,
             "late_compensated_min": self.late_compensated_min,
@@ -156,10 +182,12 @@ def build_ledger(
     settings: Optional[LedgerSettings] = None,
     regimes: Optional[List[Regime]] = None,
     period: Optional[tuple] = None,
+    rest_decisions: Optional[RestDecisions] = None,
 ) -> Dict[date, DayLedger]:
     """
     Calcula o ledger diário. `days` pode incluir dias de contexto (semanas que cruzam o mês);
-    `period` (início, fim) limita os dias devolvidos.
+    `period` (início, fim) limita os dias devolvidos. `rest_decisions` traz as decisões do
+    administrativo sobre DSR/feriado trabalhado (folga compensatória ou pagamento em dobro).
     """
     settings = settings or LedgerSettings()
     regimes = regimes or default_regimes()
@@ -188,7 +216,7 @@ def build_ledger(
         led[di.date] = dl
 
     # 2. Troca de repouso: repouso/feriado trabalhado ↔ dia de contrato dado como folga (seção 6.6)
-    _pair_rest_swaps(led, settings.week_start)
+    _pair_rest_swaps(led, settings.week_start, rest_decisions or {}, contract_resolver)
 
     # 3. Diário: tolerância, atrasos e excedente sobre a jornada do dia
     late_auto_count: Dict[tuple, int] = {}
@@ -230,28 +258,69 @@ def build_ledger(
     return led
 
 
-def _pair_rest_swaps(led: Dict[date, DayLedger], week_start: int) -> None:
+def _pair_rest_swaps(led: Dict[date, DayLedger], week_start: int, decisions: RestDecisions,
+                     contract_resolver: Callable[[date], Optional[ContractDay]]) -> None:
+    """
+    Repouso/feriado trabalhado ↔ dia de contrato dado como folga (seção 6.6).
+    DSR e feriado: a folga compensatória é de **dia inteiro** e quita o repouso sem débito; o que passar
+    da jornada do dia que virou folga é hora extra comum. Folga (não DSR) trabalhada troca por horas.
+    Decisão do administrativo prevalece sobre a troca automática (seção 6.8).
+    """
     worked_rest = [
         dl for dl in led.values()
         if dl.status == "TRABALHO" and (dl.is_holiday or (dl._contract is not None and not dl._contract.is_work))
     ]
-    given_rest = [dl for dl in led.values() if dl.status in ("DSR", "FOLGA") and dl.reduction_min > 0]
+    given_rest = {dl.date: dl for dl in led.values() if dl.status in ("DSR", "FOLGA") and dl.reduction_min > 0}
+    claimed = {fd for kind, fd in decisions.values() if kind == "FOLGA" and fd}
     used: Set[date] = set()
+
+    def pair(wr: DayLedger, folga_date: date, g: Optional[DayLedger]) -> None:
+        cd = g._contract if g is not None else contract_resolver(folga_date)
+        wr.contracted_min = g.reduction_min if g is not None else (cd.minutes if cd and cd.is_work else 0)
+        wr.rest_swap_with = folga_date
+        wr.rest_full_day = wr.rest_kind is not None
+        if g is not None:
+            g.rest_swap_with = wr.date
+            g.reduction_min = 0
+            used.add(g.date)
+        # O horário de referência do dia trocado é o do dia de contrato que virou folga
+        wr._contract = cd
+
     for wr in sorted(worked_rest, key=lambda x: x.date):
-        candidates = [g for g in given_rest if g.date not in used and abs((g.date - wr.date).days) <= REST_SWAP_WINDOW_DAYS]
+        if wr.is_holiday:
+            wr.rest_kind = "FERIADO"
+        elif wr._contract is not None and wr._contract.rest == "DSR":
+            wr.rest_kind = "DSR"
+        decision = decisions.get(wr.date) if wr.rest_kind else None
+        if decision:
+            kind, folga_date = decision
+            wr.rest_decision = kind
+            if kind == "FOLGA" and folga_date:
+                g = led.get(folga_date)
+                if g is None:
+                    # Folga fora dos dias carregados (ex.: início do mês seguinte), validada na decisão
+                    pair(wr, folga_date, None)
+                    continue
+                if folga_date in given_rest and folga_date not in used:
+                    pair(wr, folga_date, given_rest[folga_date])
+                    continue
+                # A folga decidida não está mais na escala: volta a ficar pendente
+                wr.rest_decision = None
+            wr.rest_worked_unpaid_double = True
+            continue
+        candidates = [
+            g for g in given_rest.values()
+            if g.date not in used and g.date not in claimed and abs((g.date - wr.date).days) <= REST_SWAP_WINDOW_DAYS
+        ]
         if not candidates:
-            if wr.is_holiday or (wr._contract is not None and wr._contract.rest == "DSR"):
+            if wr.rest_kind:
                 wr.rest_worked_unpaid_double = True
             continue
         same_week = [g for g in candidates if week_key(g.date, week_start) == week_key(wr.date, week_start)]
         pool = same_week or candidates
         g = min(pool, key=lambda x: (abs((x.date - wr.date).days), x.date))
-        used.add(g.date)
-        wr.contracted_min = g.reduction_min
-        wr.rest_swap_with, g.rest_swap_with = g.date, wr.date
-        g.reduction_min = 0
-        # O horário de referência do dia trocado é o do dia de contrato que virou folga
-        wr._contract = g._contract
+        pair(wr, g.date, g)
+        wr.rest_swap_auto = True
 
 
 def _apply_daily(dl: DayLedger, s: LedgerSettings, late_auto_count: Dict[tuple, int]) -> None:
@@ -261,6 +330,11 @@ def _apply_daily(dl: DayLedger, s: LedgerSettings, late_auto_count: Dict[tuple, 
 
     if dl.no_contract:
         dl.normal_min = worked
+        return
+    if dl.rest_full_day:
+        # Folga compensatória de dia inteiro: nada de débito; só o que passar da jornada do dia é extra
+        dl.normal_min = min(worked, contracted)
+        dl.extra_daily_min = dl.extra_min = max(0, worked - contracted)
         return
     if contracted <= 0:
         # Repouso/feriado trabalhado sem troca: todo o tempo é extra
@@ -381,10 +455,12 @@ def employee_month_ledger(
     holidays: Set[date],
     settings=None,
     regimes: Optional[List[Regime]] = None,
+    rest_decisions: Optional[RestDecisions] = None,
 ) -> Dict[date, DayLedger]:
     """
     Ledger do mês de um colaborador. `work_days_by_date` deve trazer os registros do mês
-    e, quando existirem, os do mês anterior (semana que cruza o dia 1).
+    e, quando existirem, os do mês anterior (semana que cruza o dia 1) e do início do seguinte
+    (folga compensatória de DSR no fim do mês).
     """
     import calendar
     num_days = calendar.monthrange(year, month)[1]
@@ -398,6 +474,7 @@ def employee_month_ledger(
         LedgerSettings.from_settings(settings),
         regimes,
         period=(start, end),
+        rest_decisions=rest_decisions,
     )
 
 
@@ -438,7 +515,52 @@ def load_month_ledgers(db, organization_id: int, schedule, employees: List, sett
             if wd.employee_id in by_emp:
                 by_emp[wd.employee_id][date(prev_year, prev_month, wd.day)] = wd
 
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    next_schedule = db.query(models.RHMonthlySchedule).filter(
+        models.RHMonthlySchedule.organization_id == organization_id,
+        models.RHMonthlySchedule.year == next_year,
+        models.RHMonthlySchedule.month == next_month
+    ).first()
+    if next_schedule:
+        # Início do mês seguinte: folga compensatória de DSR trabalhado no fim do mês
+        for wd in db.query(models.RHWorkDay).filter(
+            models.RHWorkDay.schedule_id == next_schedule.id,
+            models.RHWorkDay.day <= REST_SWAP_WINDOW_DAYS
+        ).all():
+            if wd.employee_id in by_emp:
+                by_emp[wd.employee_id][date(next_year, next_month, wd.day)] = wd
+
+    decisions = load_rest_decisions(db, [emp.id for emp in employees],
+                                    date(prev_year, prev_month, 1), date(next_year, next_month, 28))
     return {
-        emp.id: employee_month_ledger(emp, year, month, by_emp[emp.id], holidays, settings, regimes)
+        emp.id: employee_month_ledger(emp, year, month, by_emp[emp.id], holidays, settings, regimes,
+                                      rest_decisions=decisions.get(emp.id, {}))
         for emp in employees
     }
+
+
+def rest_folga_window(worked: date, rest_kind: str) -> Tuple[date, date]:
+    """
+    Prazo da folga compensatória: DSR até 6 dias antes/depois (sem 7º dia seguido — OJ 410 SDI-1 TST);
+    feriado também em qualquer dia do próprio mês (Lei 605/49 art. 9º não fixa prazo).
+    """
+    import calendar
+    start, end = worked - timedelta(days=REST_SWAP_WINDOW_DAYS), worked + timedelta(days=REST_SWAP_WINDOW_DAYS)
+    if rest_kind == "FERIADO":
+        month_end = date(worked.year, worked.month, calendar.monthrange(worked.year, worked.month)[1])
+        start, end = min(start, worked.replace(day=1)), max(end, month_end)
+    return start, end
+
+
+def load_rest_decisions(db, employee_ids: List[int], start: date, end: date) -> Dict[int, RestDecisions]:
+    from models import models
+    out: Dict[int, RestDecisions] = {}
+    if not employee_ids:
+        return out
+    for r in db.query(models.RHRestWorkDecision).filter(
+        models.RHRestWorkDecision.employee_id.in_(employee_ids),
+        models.RHRestWorkDecision.worked_date >= start,
+        models.RHRestWorkDecision.worked_date <= end
+    ).all():
+        out.setdefault(r.employee_id, {})[r.worked_date] = (r.decision, r.folga_date)
+    return out
