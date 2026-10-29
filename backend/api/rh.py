@@ -3,7 +3,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import calendar
 
 import models.models as models
@@ -29,6 +29,7 @@ from services.rh_compliance_service import (
 )
 from services.rh_compliance_report import build_report, parse_month, report_to_csv, report_to_pdf
 from services.rh_payroll_service import sync_payroll_if_calculated, OVERTIME_POLICIES
+from services.rh_accounting_report import TERMINATION_REASONS
 from services.rh_salary_service import (
     get_salary_history, current_salary, current_role_salary, apply_salary_change, sync_current_salary
 )
@@ -66,6 +67,9 @@ class RHSettingsSchema(BaseModel):
     late_compensation_mode: str = "AUTO"  # AUTO, MANUAL ou OFF
     late_compensation_max_min: int = 30
     late_compensation_max_per_month: int = 4
+    accounting_email: Optional[str] = None
+    accounting_greeting: Optional[str] = None
+    accounting_signature: Optional[str] = None
 
     @field_validator(
         "transport_ticket_unit_price",
@@ -138,6 +142,8 @@ class RHEmployeeCreate(BaseModel):
     daily_meal_cost: float = 25.00
     dependents: int = 0
     admission_date: Optional[date] = None
+    termination_date: Optional[date] = None
+    termination_reason: Optional[str] = None
     overtime_policy: Optional[str] = None
     profile: Optional[Dict[str, Any]] = None
     active: bool = True
@@ -151,6 +157,8 @@ class RHEmployeeUpdate(BaseModel):
     daily_meal_cost: Optional[float] = None
     dependents: Optional[int] = None
     admission_date: Optional[date] = None
+    termination_date: Optional[date] = None
+    termination_reason: Optional[str] = None
     overtime_policy: Optional[str] = None
     profile: Optional[Dict[str, Any]] = None
     active: Optional[bool] = None
@@ -709,6 +717,10 @@ def update_rh_settings(
                   "habitual_overtime_weeks", "late_waiver_auto_min", "late_compensation_max_min",
                   "late_compensation_max_per_month"):
         setattr(settings, field, max(0, int(getattr(payload, field))))
+    # Dados do informe à contabilidade: editados na aba do informe; só mudam quando enviados
+    for field in ("accounting_email", "accounting_greeting", "accounting_signature"):
+        if field in payload.model_fields_set:
+            setattr(settings, field, (getattr(payload, field) or "").strip() or None)
 
     db.commit()
     db.refresh(settings)
@@ -746,6 +758,8 @@ def list_employees(
             "base_salary": current_salary(db, emp),
             "dependents": emp.dependents or 0,
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
+            "termination_date": emp.termination_date.isoformat() if emp.termination_date else None,
+            "termination_reason": emp.termination_reason,
             "overtime_policy": emp.overtime_policy,
             "profile": emp.profile or {},
             "active": emp.active
@@ -783,6 +797,15 @@ def _sync_irrf_dependents(emp: models.RHEmployee, raw_profile: Optional[Dict[str
         emp.dependents = sum(1 for d in deps if isinstance(d, dict) and d.get("irrf") and (d.get("nome") or "").strip())
 
 
+def _termination_reason(termination_date: Optional[date], reason: Optional[str]) -> Optional[str]:
+    """Motivo só existe com data de desligamento; precisa ser um dos motivos conhecidos."""
+    if not termination_date or not reason:
+        return None
+    if reason not in TERMINATION_REASONS:
+        raise HTTPException(status_code=400, detail="Motivo do desligamento inválido")
+    return reason
+
+
 @router.post("/employees")
 def create_employee(
     payload: RHEmployeeCreate,
@@ -805,6 +828,8 @@ def create_employee(
         daily_meal_cost=payload.daily_meal_cost,
         dependents=payload.dependents or 0,
         admission_date=payload.admission_date,
+        termination_date=payload.termination_date,
+        termination_reason=_termination_reason(payload.termination_date, payload.termination_reason),
         overtime_policy=payload.overtime_policy if payload.overtime_policy in OVERTIME_POLICIES else None,
         profile=_clean_profile(payload.profile),
         active=payload.active
@@ -847,6 +872,13 @@ def update_employee(
         emp.dependents = payload.dependents
     if "admission_date" in payload.model_fields_set:
         emp.admission_date = payload.admission_date
+    if "termination_date" in payload.model_fields_set or "termination_reason" in payload.model_fields_set:
+        if "termination_date" in payload.model_fields_set:
+            emp.termination_date = payload.termination_date
+        emp.termination_reason = _termination_reason(
+            emp.termination_date,
+            payload.termination_reason if "termination_reason" in payload.model_fields_set else emp.termination_reason
+        )
     if payload.profile is not None:
         emp.profile = _clean_profile(payload.profile)
         _sync_irrf_dependents(emp, payload.profile)
@@ -939,6 +971,92 @@ def delete_holiday(
 # ==============================================================================
 # --- [BLOCO: ESCALAS MENSAIS E MATRIZ DE DIAS] ---
 # ==============================================================================
+
+def _build_prior_sundays_context(
+    db: Session,
+    organization_id: int,
+    year: int,
+    month: int,
+    employees: List[models.RHEmployee],
+    sundays: List[int]
+) -> Dict[str, Any]:
+    """
+    Carrega os 4 domingos imediatamente anteriores ao 1º domingo do mês selecionado.
+    Retorna:
+      - prior_sunday_dates: metadados dos 2 últimos domingos do mês anterior (para a Visão de Domingos)
+      - by_employee[emp_id]: { prior_sundays: [...2 últimos], prior_sunday_streak: { count, dates, isos } }
+    """
+    if not sundays or not employees:
+        return {"prior_sunday_dates": [], "by_employee": {}}
+
+    first_sun = date(year, month, sundays[0])
+    prior_dates = [first_sun - timedelta(days=7 * i) for i in range(4, 0, -1)]
+    visible_prior_dates = prior_dates[-2:]
+    needed_months = {(d.year, d.month) for d in prior_dates}
+
+    schedules = {
+        s.id: s for s in db.query(models.RHMonthlySchedule).filter(
+            models.RHMonthlySchedule.organization_id == organization_id
+        ).all() if (s.year, s.month) in needed_months
+    }
+
+    emp_ids = [e.id for e in employees]
+    records_by_emp: Dict[int, Dict[date, models.RHWorkDay]] = {eid: {} for eid in emp_ids}
+    if schedules:
+        for wd in db.query(models.RHWorkDay).filter(
+            models.RHWorkDay.schedule_id.in_(list(schedules.keys())),
+            models.RHWorkDay.employee_id.in_(emp_ids)
+        ).all():
+            sched = schedules[wd.schedule_id]
+            d_obj = date(sched.year, sched.month, wd.day)
+            if d_obj in prior_dates:
+                records_by_emp[wd.employee_id][d_obj] = wd
+
+    by_employee: Dict[int, Dict[str, Any]] = {}
+    for emp in employees:
+        emp_recs = records_by_emp.get(emp.id, {})
+        streak_dates: List[date] = []
+        for d_obj in reversed(prior_dates):
+            wd = emp_recs.get(d_obj)
+            if wd and wd.status == "TRABALHO":
+                streak_dates.append(d_obj)
+            else:
+                break
+        streak_dates.reverse()
+
+        prior_list = []
+        for d_obj in visible_prior_dates:
+            wd = emp_recs.get(d_obj)
+            st = wd.status if wd else "DSR"
+            prior_list.append({
+                "iso": d_obj.isoformat(),
+                "label": d_obj.strftime("%d/%m"),
+                "day": d_obj.day,
+                "month": d_obj.month,
+                "status": st,
+                "start_time": wd.start_time if wd else None,
+                "end_time": wd.end_time if wd else None,
+                "worked_minutes": int(wd.worked_minutes or 0) if wd else 0,
+                "worked": st == "TRABALHO"
+            })
+
+        by_employee[emp.id] = {
+            "prior_sundays": prior_list,
+            "prior_sunday_streak": {
+                "count": len(streak_dates),
+                "dates": [d.strftime("%d/%m") for d in streak_dates],
+                "isos": [d.isoformat() for d in streak_dates]
+            }
+        }
+
+    return {
+        "prior_sunday_dates": [
+            {"iso": d.isoformat(), "label": d.strftime("%d/%m"), "day": d.day, "month": d.month}
+            for d in visible_prior_dates
+        ],
+        "by_employee": by_employee
+    }
+
 
 @router.get("/schedules")
 def get_monthly_schedule(
@@ -1138,6 +1256,11 @@ def get_monthly_schedule(
             for adj in benefit_adjustments_db
         ]
 
+        # Contexto dos domingos imediatamente anteriores ao mês (para prevenção de R07 e Visão de Domingos)
+        prior_sun_ctx = _build_prior_sundays_context(
+            db, current_user.organization_id, year, month, employees, sundays
+        )
+
         return {
             "schedule_id": schedule.id,
             "year": year,
@@ -1145,6 +1268,7 @@ def get_monthly_schedule(
             "status": schedule.status,
             "num_days": num_days,
             "sundays": sundays,
+            "prior_sunday_dates": prior_sun_ctx["prior_sunday_dates"],
             "holidays": holidays_by_day,
             "organization_name": (db.query(models.Organization).get(current_user.organization_id).name
                                   if current_user.organization_id else None),
@@ -1194,7 +1318,11 @@ def get_monthly_schedule(
                     "dependents": emp.dependents or 0,
                     "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
                     "overtime_policy": emp.overtime_policy,
-                    "profile": emp.profile or {}
+                    "profile": emp.profile or {},
+                    **(prior_sun_ctx["by_employee"].get(emp.id, {
+                        "prior_sundays": [],
+                        "prior_sunday_streak": {"count": 0, "dates": [], "isos": []}
+                    }))
                 }
                 for emp in employees
             ],
