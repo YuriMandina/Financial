@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Users, Bus, Utensils, AlertTriangle, Calendar, Printer, 
   RefreshCw, Plus, Trash2, Edit2, CheckCircle2, Clock,
   ChevronLeft, ChevronRight, ShieldAlert, Sparkles, CalendarClock,
-  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays, Wallet, TrendingUp
+  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays, Wallet, TrendingUp, Filter, Check, Eye, EyeOff
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
 import RHJornadasTab from './components/RHJornadasTab';
@@ -79,6 +79,9 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   const [workDays, setWorkDays] = useState({});
   const [benefitAdjustments, setBenefitAdjustments] = useState([]);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+  const [selectedPrintEmpIds, setSelectedPrintEmpIds] = useState(null); // null = todos visíveis; Set/Array de IDs caso filtrado
+  const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
+  const filterPopoverRef = useRef(null);
 
   // Modais de Cadastro
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
@@ -391,6 +394,12 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   const roles = scheduleData?.roles || [];
   const ticketUnitPrice = scheduleData?.settings?.transport_ticket_unit_price || 4.70;
 
+  // Lista de colaboradores filtrados para a visualização/impressão do mural
+  const activePrintEmployees = useMemo(() => {
+    if (!selectedPrintEmpIds) return employees;
+    return employees.filter((e) => selectedPrintEmpIds.includes(e.id));
+  }, [employees, selectedPrintEmpIds]);
+
   const handlePrint = () => {
     window.print();
   };
@@ -485,8 +494,23 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
     const pad = (n) => String(n).padStart(2, '0');
     const mm = pad(selectedMonth);
 
+    const isAllSelected = !selectedPrintEmpIds || selectedPrintEmpIds.length === employees.length;
+    const selectedCount = selectedPrintEmpIds ? selectedPrintEmpIds.length : employees.length;
+
+    const toggleEmpPrint = (id) => {
+      const currentSelected = selectedPrintEmpIds ? [...selectedPrintEmpIds] : employees.map((e) => e.id);
+      if (currentSelected.includes(id)) {
+        setSelectedPrintEmpIds(currentSelected.filter((item) => item !== id));
+      } else {
+        setSelectedPrintEmpIds([...currentSelected, id]);
+      }
+    };
+
+    const selectAllPrint = () => setSelectedPrintEmpIds(employees.map((e) => e.id));
+    const clearAllPrint = () => setSelectedPrintEmpIds([]);
+
     // Grade do mês já resolvida + lista de horários especiais e folgas por colaborador
-    const muralRows = employees.map((emp) => {
+    const muralRows = activePrintEmployees.map((emp) => {
       const days = {};
       const specials = [];
       const folgas = [];
@@ -550,7 +574,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       <div className="space-y-6">
         <style>{'@media print { @page { size: A4 landscape; margin: 4mm; } }'}</style>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm print:bg-white print:border-0 print:shadow-none print:p-0">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <div>
               <h3 className="text-base font-semibold text-white flex items-center gap-2 print:text-black print:text-xl">
                 <Clock className="text-indigo-400 print:hidden" size={20} />
@@ -558,15 +582,108 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
               </h3>
               <p className="text-xs text-slate-400 print:text-slate-700">
                 Programação diária de entrada, almoço e saída de todos os colaboradores.
+                {!isAllSelected && (
+                  <span className="ml-2 font-medium text-amber-400 print:hidden">
+                    • Exibindo {selectedCount} de {employees.length} colaboradores
+                  </span>
+                )}
               </p>
             </div>
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors print:hidden"
-            >
-              <Printer size={15} />
-              Imprimir Mural
-            </button>
+            <div className="flex items-center gap-2 print:hidden relative">
+              <div className="relative" ref={filterPopoverRef}>
+                <button
+                  type="button"
+                  onClick={() => setFilterPopoverOpen(!filterPopoverOpen)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    isAllSelected
+                      ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      : 'bg-indigo-950/80 hover:bg-indigo-900/80 text-indigo-300 border-indigo-700/60'
+                  }`}
+                  title="Selecionar quais colaboradores aparecem no mural e na impressão"
+                >
+                  <Filter size={14} className={isAllSelected ? 'text-slate-400' : 'text-indigo-400'} />
+                  <span>Filtrar Colaboradores</span>
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-900 text-slate-300 border border-slate-700">
+                    {selectedCount}/{employees.length}
+                  </span>
+                </button>
+
+                {filterPopoverOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 z-50 text-slate-200">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Users size={14} className="text-indigo-400" /> Colaboradores no Mural
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {selectedCount} selecionado(s)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 mb-2">
+                      <button
+                        type="button"
+                        onClick={selectAllPrint}
+                        className="flex-1 py-1 px-2 rounded text-[10px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                      >
+                        Marcar Todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearAllPrint}
+                        className="flex-1 py-1 px-2 rounded text-[10px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-red-300 border border-slate-700 transition-colors"
+                      >
+                        Desmarcar Todos
+                      </button>
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-1 pr-1">
+                      {employees.map((emp) => {
+                        const checked = !selectedPrintEmpIds || selectedPrintEmpIds.includes(emp.id);
+                        return (
+                          <label
+                            key={emp.id}
+                            className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
+                              checked ? 'bg-slate-800/80 hover:bg-slate-800 text-white' : 'bg-transparent hover:bg-slate-800/40 text-slate-500'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate pr-2">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleEmpPrint(emp.id)}
+                                className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0 cursor-pointer"
+                              />
+                              <span className="truncate text-[11px] font-medium">{emp.name}</span>
+                            </div>
+                            <span className="text-[9px] text-slate-500 shrink-0">
+                              {emp.role || 'Geral'}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-2.5 mt-2 border-t border-slate-800 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setFilterPopoverOpen(false)}
+                        className="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+                      >
+                        Concluído
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+              >
+                <Printer size={15} />
+                Imprimir Mural
+              </button>
+            </div>
           </div>
 
           {employees.length === 0 ? (
@@ -609,12 +726,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                         <td
                           key={day}
                           className={`px-0 py-1 text-center border border-slate-500 whitespace-nowrap ${
-                            isBH
-                              ? empIdx % 2 === 1 ? 'bg-slate-300 font-bold' : 'bg-slate-200 font-bold'
-                              : weekday === 0 || holidays[day]
-                                ? empIdx % 2 === 1 ? 'bg-red-100' : 'bg-red-50/60'
-                                : ''
-                          } ${isWork ? '' : isBH ? '' : 'italic text-slate-500'}`}
+                            isWork ? '' : isBH ? 'font-bold text-slate-800' : 'italic text-slate-500'
+                          }`}
                         >
                           {isWork ? (
                             <div className="flex flex-col items-center justify-center leading-tight">
@@ -637,10 +750,63 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                 ))}
               </tbody>
             </table>
-            <p className="hidden print:block text-[9px] text-slate-700 mt-2">
-              Legenda: {Object.values(MURAL_KIND_LABELS).map((c) => `${c.short} = ${c.label}`).join(' · ')} · * = horário especial / domingo / feriado (ver cards abaixo) · Célula: linha superior = jornada / linha inferior = almoço
-              {Object.keys(holidays).length > 0 && ` · Feriados: ${Object.entries(holidays).map(([d, n]) => `${pad(d)}/${mm} ${n}`).join(', ')}`}
-            </p>
+            {/* Legenda Estruturada em Badges para Impressão */}
+            <div className="hidden print:block mt-2.5 text-[8.5px] text-slate-800 space-y-1.5 break-inside-avoid">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-bold text-[8px] uppercase tracking-wider text-slate-600 mr-0.5">Legenda:</span>
+                
+                {/* Badge Códigos */}
+                <div className="border border-slate-400 bg-slate-50 rounded px-1.5 py-0.5 whitespace-nowrap">
+                  <span className="font-bold text-slate-900">-</span>
+                  <span className="ml-1 text-slate-700">Folga</span>
+                </div>
+
+                <div className="border border-slate-500 bg-slate-200 rounded px-1.5 py-0.5 whitespace-nowrap">
+                  <span className="font-bold text-slate-900">BH</span>
+                  <span className="ml-1 text-slate-700">Folga (banco de horas)</span>
+                </div>
+
+                <div className="border border-red-300 bg-red-50 rounded px-1.5 py-0.5 whitespace-nowrap text-red-950">
+                  <span className="font-bold text-red-700">F</span>
+                  <span className="ml-1">Feriado</span>
+                </div>
+
+                <div className="border border-slate-400 bg-slate-50 rounded px-1.5 py-0.5 whitespace-nowrap">
+                  <span className="font-bold text-slate-900">FE</span>
+                  <span className="ml-1 text-slate-700">Férias</span>
+                </div>
+
+                <div className="border border-slate-500 bg-white rounded px-1.5 py-0.5 whitespace-nowrap">
+                  <span className="font-bold text-slate-900">*</span>
+                  <span className="ml-1 text-slate-700">Horário Especial / Domingo / Feriado (detalhes abaixo)</span>
+                </div>
+
+                {/* Badge Leitura da Célula */}
+                <div className="border border-indigo-300 bg-indigo-50/70 text-indigo-950 rounded px-1.5 py-0.5 whitespace-nowrap">
+                  <span className="font-bold font-mono">7‑16 / alm 12‑13</span>
+                  <span className="mx-1 text-slate-400">|</span>
+                  <span>Topo: Entrada–Saída · Base: Almoço</span>
+                </div>
+              </div>
+
+              {/* Badges de Feriados */}
+              {Object.keys(holidays).length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span className="font-bold text-[8px] uppercase tracking-wider text-red-700 mr-0.5">Feriados:</span>
+                  {Object.entries(holidays).map(([d, n]) => {
+                    const hDay = parseInt(d, 10);
+                    const hWeekday = new Date(selectedYear, selectedMonth - 1, hDay).getDay();
+                    return (
+                      <div key={d} className="border border-red-200 bg-red-50/80 rounded px-1.5 py-0.5 whitespace-nowrap text-red-950">
+                        <span className="font-bold text-red-700">{pad(d)}/{mm} {WEEKDAY_LABELS[hWeekday]}</span>
+                        <span className="mx-1 text-red-300">|</span>
+                        <span>{n}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             {rowsWithCards.length > 0 && (
               <div className="hidden print:block mt-3 text-black">
                 <div className="font-bold text-[10px] uppercase tracking-wide mb-1.5 border-b border-black pb-0.5 flex items-center justify-between">
