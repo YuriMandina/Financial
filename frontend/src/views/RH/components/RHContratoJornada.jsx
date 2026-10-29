@@ -106,6 +106,7 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
   const [schedules, setSchedules] = useState([]);
   const [regimes, setRegimes] = useState([]);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [editingContractId, setEditingContractId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState(null);
@@ -161,7 +162,8 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
     return data.days;
   };
 
-  const openEditor = async () => {
+  const openNewVersion = async () => {
+    setEditingContractId(null);
     const base = current?.days || templates.find((t) => t.code === '44H_6X1_QUA')?.days || {};
     const scheduleId = current?.standard_schedule_id || null;
     setForm({
@@ -183,6 +185,33 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
       try { setBaseDays(await buildDays(base, scheduleId)); } catch { /* sem marcação de ajuste */ }
     }
   };
+
+  const openEditContract = async (version) => {
+    if (!version) return;
+    setEditingContractId(version.id);
+    const base = version.days || {};
+    const scheduleId = version.standard_schedule_id || null;
+    setForm({
+      valid_from: version.valid_from || todayIso(),
+      days: JSON.parse(JSON.stringify(base)),
+      template_id: null,
+      standard_schedule_id: scheduleId,
+      overtime_agreement: version.overtime_agreement ?? false,
+      compensation_agreement: version.compensation_agreement ?? false,
+      amendment_signed: version.amendment_signed ?? false,
+      change_reason: version.change_reason || (versions[versions.length - 1]?.id === version.id ? 'ADMISSAO' : 'ACORDO'),
+      notes: version.notes || ''
+    });
+    setBaseDays(null);
+    setScheduleForm(null);
+    setError('');
+    setEditorOpen(true);
+    if (scheduleId) {
+      try { setBaseDays(await buildDays(base, scheduleId)); } catch { /* sem marcação de ajuste */ }
+    }
+  };
+
+  const openEditor = openNewVersion;
 
   // Troca a semana mantendo a escala-padrão escolhida (se houver)
   const replaceDays = async (days, patch = {}) => {
@@ -322,18 +351,27 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
     setSaving(true);
     setError('');
     try {
-      const res = await fetch(`${apiBase}/api/rh/employees/${employee.id}/contracts`, {
-        method: 'POST',
+      const isEditing = Boolean(editingContractId);
+      const url = isEditing
+        ? `${apiBase}/api/rh/employees/${employee.id}/contracts/${editingContractId}`
+        : `${apiBase}/api/rh/employees/${employee.id}/contracts`;
+      const method = isEditing ? 'PUT' : 'POST';
+
+      const payload = {
+        ...form,
+        amendment_signed: horarioOnly ? false : form.amendment_signed,
+        amendment_signed_at: form.amendment_signed && !horarioOnly ? todayIso() : null
+      };
+
+      const res = await fetch(url, {
+        method,
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          amendment_signed: horarioOnly ? false : form.amendment_signed,
-          amendment_signed_at: form.amendment_signed && !horarioOnly ? todayIso() : null
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Contrato inválido');
       setEditorOpen(false);
+      setEditingContractId(null);
       await load();
       if (onChanged) onChanged();
     } catch (err) {
@@ -410,13 +448,24 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
               : 'Sem contrato de jornada'}
           </div>
           {!editorOpen && (
-            <button
-              type="button"
-              onClick={openEditor}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white"
-            >
-              <Plus size={13} /> {current ? 'Nova versão a partir de…' : 'Definir contrato'}
-            </button>
+            <div className="flex items-center gap-2">
+              {current && (
+                <button
+                  type="button"
+                  onClick={() => openEditContract(current)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+                >
+                  <Pencil size={12} className="text-indigo-400" /> Editar contrato
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={openNewVersion}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+              >
+                <Plus size={13} /> {current ? 'Nova versão a partir de…' : 'Definir contrato'}
+              </button>
+            </div>
           )}
         </div>
         {current ? (
@@ -439,7 +488,13 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
       {editorOpen && form && (
         <div className="border border-indigo-500/30 rounded-lg p-3 space-y-3 bg-slate-950">
           <div className="flex items-center justify-between">
-            <span className="text-indigo-300 font-semibold">{current ? 'Nova versão do contrato' : 'Contrato de jornada'}</span>
+            <span className="text-indigo-300 font-semibold">
+              {editingContractId
+                ? `Editar contrato de jornada (vigência ${fmtDate(form.valid_from)})`
+                : current
+                  ? 'Nova versão do contrato'
+                  : 'Contrato de jornada'}
+            </span>
             <button type="button" onClick={() => setEditorOpen(false)} className="text-slate-400 hover:text-white p-1">
               <X size={14} />
             </button>
@@ -748,7 +803,7 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
             >
               {saving ? <RefreshCw size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-              Salvar contrato
+              {editingContractId ? 'Salvar alterações' : 'Salvar contrato'}
             </button>
           </div>
         </div>
@@ -788,6 +843,14 @@ export default function RHContratoJornada({ token, apiBase, employee, weekStart 
                     <FileSignature size={11} /> Aditivo pendente
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => openEditContract(v)}
+                  className="p-1 text-slate-400 hover:text-indigo-300"
+                  title="Editar esta versão"
+                >
+                  <Pencil size={13} />
+                </button>
                 <button type="button" onClick={() => deleteVersion(v)} className="p-1 text-slate-500 hover:text-red-400" title="Excluir versão">
                   <Trash2 size={13} />
                 </button>

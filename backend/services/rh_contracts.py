@@ -454,6 +454,8 @@ def create_contract_version(db: Session, emp: models.RHEmployee, data: Dict[str,
 def update_contract_version(db: Session, emp: models.RHEmployee, version: models.RHEmployeeContract,
                             data: Dict[str, Any], settings: Optional[models.RHSettings] = None) -> models.RHEmployeeContract:
     compensation = bool(data.get("compensation_agreement", version.compensation_agreement))
+    if "valid_from" in data and data["valid_from"] is not None:
+        version.valid_from = data["valid_from"]
     if "days" in data and data["days"] is not None:
         days = _validate_or_raise(db, data["days"], version.valid_from, compensation, settings)
         version.days = normalize_days(data["days"])

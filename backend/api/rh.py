@@ -123,6 +123,7 @@ class RHContractCreate(BaseModel):
     notes: Optional[str] = None
 
 class RHContractUpdate(BaseModel):
+    valid_from: Optional[date] = None
     days: Optional[Dict[str, Any]] = None
     standard_schedule_id: Optional[int] = None
     overtime_agreement: Optional[bool] = None
