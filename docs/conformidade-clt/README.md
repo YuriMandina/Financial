@@ -4,20 +4,22 @@ Cada atualização do planejamento gera um **novo arquivo**; versões anteriores
 
 Convenção de nome: `vNN_AAAA-MM-DD.md`.
 
-> **Fonte da verdade: [v07_2026-10-28.md](v07_2026-10-28.md)** — v05 validada em 23/10/2026; escala-padrão (v06) e subcategorias da hora extra (v07) em 28/10/2026. A implementação segue esta versão; qualquer mudança futura gera uma nova versão.
+> **Fonte da verdade: [v08_2026-10-28.md](v08_2026-10-28.md)** — v05 validada em 23/10/2026; escala-padrão (v06) e subcategorias da hora extra (v07) em 28/10/2026; informe à contabilidade (v08, seção 20) validado em 28/10/2026. A implementação segue esta versão; qualquer mudança futura gera uma nova versão.
 
 ## Andamento da implementação
 
 | Fase | Situação |
 |---|---|
-| 1 — Base | **Implementada** (23/10/2026): regimes legais, contratos de jornada em grade semanal (modelos, versões, aditivo), turnos removidos, ledger único (compensação, troca de folga, tolerância e atrasos), lote pelo contrato, histórico de alterações. |
+| 1 — Base | **Implementada** (23/10/2026): regimes legais, contratos de jornada em grade semanal (modelos, versões, aditivo), turnos removidos, ledger único (compensação, troca de folga, tolerância e atrasos), lote pelo contrato e lote com ajuste personalizado (multi-colaborador, horário fixo ou variação sobre o contrato), histórico de alterações. |
 | 2 — Conformidade | **Implementada** (23/10/2026): motor de regras R01–R11, R13 e R14 com contagem entre meses; consequências financeira e administrativa; aviso rápido na edição; auditoria mensal com aprovação do conjunto e snapshot; ocorrências de ponto; lote que evita irregularidade crítica. R12 (vencimento do banco) segue na Fase 3. |
 | 3 — Relatório | **Implementada** (23/10/2026): relatório do período com filtros (período, colaborador, regra, gravidade, situação), totais por regra/colaborador/mês, reincidência em 12 meses, ficha completa com histórico, exportação CSV e PDF; R12 (vencimento do banco de horas). |
 | 4 — Escala-padrão | **Implementada** (28/10/2026): cadastro e edição de escalas-padrão (3 do sistema, editáveis como versão da empresa, + as da empresa), contrato montado por jornada × escala-padrão com saída calculada, dias ajustados com "voltar à escala", classificação automática `HORARIO` sem R14. |
+| 5 — Informe à contabilidade | **Implementada** (28/10/2026): rubricas com informe em quantidade ou valor; quantidade e datas nos lançamentos; rubricas Prêmio e Horas Pagas sem Acréscimo; data e motivo do desligamento; aba do informe com texto, PDF/CSV, marcação de envio, histórico e retificação. |
 
 | Versão | Data | Arquivo | Principais mudanças |
 |---|---|---|---|
-| **v7 (atual)** | 28/10/2026 | [v07_2026-10-28.md](v07_2026-10-28.md) | **Subcategorias da hora extra**: banco comum (entre meses) × horas 100% de DSR/feriado, quitadas no mês na aba Banco de horas com folga de dia inteiro ou pagamento em dobro + DSR; troca de folga sem débito; fechamento da folha bloqueado com pendências; seletor do dia reduzido e da folga no contrato. |
+| **v8 (atual)** | 28/10/2026 | [v08_2026-10-28.md](v08_2026-10-28.md) | **Informe mensal à contabilidade** (seção 20): variáveis do mês por colaborador geradas da folha fechada (HE e faltas em quantidade, prêmio e descontos em valor), eventos do mês (admissão, desligamento, férias, atestado), marcação de envio com cópia congelada e retificação só com as diferenças; rubrica Prêmio; data e motivo do desligamento. |
+| v7 | 28/10/2026 | [v07_2026-10-28.md](v07_2026-10-28.md) | **Subcategorias da hora extra**: banco comum (entre meses) × horas 100% de DSR/feriado, quitadas no mês na aba Banco de horas com folga de dia inteiro ou pagamento em dobro + DSR; troca de folga sem débito; fechamento da folha bloqueado com pendências; seletor do dia reduzido e da folga no contrato. |
 | v6 | 28/10/2026 | [v06_2026-10-28.md](v06_2026-10-28.md) | **Jornada e escala-padrão separadas**: a jornada define a carga de cada dia e os descansos; a escala-padrão define entrada e intervalo, e a saída é calculada. Alteração só de horário (mesma carga) é classificada como `HORARIO` e não gera R14. |
 | v5 | 23/10/2026 | [v05_2026-10-23.md](v05_2026-10-23.md) | Troca do dia reduzido e troca de folga com o domingo reconhecidas como legais (sem HE nem dobra, dentro das condições); compensação mensal como padrão; tolerância, abono e compensação de atrasos com limites e ocorrências de ponto; irregularidade corrigida é desconsiderada. |
 | v4 | 23/10/2026 | [v04_2026-10-23.md](v04_2026-10-23.md) | Regimes começam na segunda-feira (**14/12/2026** e **13/12/2027**), sem semana de virada; assistente de transição removido; **turnos deixam de existir** (horário vem do contrato individual); sem versão legada nem migração (sistema em desenvolvimento). |
