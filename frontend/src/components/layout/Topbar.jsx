@@ -1,9 +1,21 @@
 import React from 'react';
-import { Settings as SettingsIcon, LogOut, Users } from 'lucide-react';
+import { Settings as SettingsIcon, LogOut, Users, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 
-export default function Topbar({ menuAtivo, setMenuAtivo, userName, handleLogout }) {
+export default function Topbar({ menuAtivo, setMenuAtivo, userName, handleLogout, sidebarCollapsed, onToggleSidebar }) {
   return (
-    <header className="h-16 shrink-0 bg-slate-900 border-b border-slate-800 flex items-center justify-end px-6 z-40 sticky top-0 print:hidden">
+    <header className="h-16 shrink-0 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 sm:px-6 z-40 sticky top-0 print:hidden">
+      {/* Botão de Toggle da Sidebar na Topbar */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          title={sidebarCollapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={18} className="text-indigo-400" /> : <PanelLeftClose size={18} />}
+        </button>
+      </div>
+
       <div className="flex items-center gap-3">
         <button 
           onClick={() => setMenuAtivo('configuracoes')}

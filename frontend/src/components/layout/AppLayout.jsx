@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import { useAuth } from '../../context/AuthContext';
@@ -15,8 +15,25 @@ export default function AppLayout() {
   // --- [BLOCO: Estado de Navegação e Layout Base] ---
   const [menuAtivo, setMenuAtivo] = useState('dashboard');
   const [settingsTab, setSettingsTab] = useState(null); // aba inicial ao abrir Configurações por atalho
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('financial_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   const { token, userName, handleLogout } = useAuth();
   const { handleGlobalTaskStart, globalRefreshCounter } = useTaskSync();
+
+  const handleToggleSidebar = (val) => {
+    setSidebarCollapsed(val);
+    try {
+      localStorage.setItem('financial_sidebar_collapsed', String(val));
+    } catch {
+      /* ignore */
+    }
+  };
 
   // --- [BLOCO: Renderização Condicional de Vistas] ---
   const renderCurrentView = () => {
@@ -72,6 +89,8 @@ export default function AppLayout() {
       {/* Barra Lateral de Navegação */}
       <Sidebar
         menuAtivo={menuAtivo}
+        collapsed={sidebarCollapsed}
+        setCollapsed={handleToggleSidebar}
         setMenuAtivo={(id) => {
           setSettingsTab(null);
           setMenuAtivo(id);
@@ -87,6 +106,8 @@ export default function AppLayout() {
           setMenuAtivo={setMenuAtivo}
           userName={userName}
           handleLogout={handleLogout}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={() => handleToggleSidebar(!sidebarCollapsed)}
         />
 
         {/* View Ativa */}
