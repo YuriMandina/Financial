@@ -11,7 +11,10 @@ import RHJornadaBatchPanel, {
   toMinutes,
   computeWorkedMinutes,
   formatWorked,
-  contractTimes
+  contractTimes,
+  evaluateEmployeeSundayConflicts,
+  getEmployeeSundaySummary,
+  SundayConflictModal
 } from './RHJornadaBatchPanel';
 
 const UNDO_LIMIT = 50;
@@ -62,9 +65,19 @@ export default function RHJornadaGrid({
   onDirtyChange,
   onOpenAudit,
   complianceDays = {}, // { empId: { day: ['R01', ...] } } irregularidades da auditoria do mês
-  absenceDsrMode = 'ONE'
+  absenceDsrMode = 'ONE',
+  maxConsecutiveSundays = 2,
+  priorSundayDates = []
 }) {
   const [dirty, setDirty] = useState(false);
+  const [sundayFocusMode, setSundayFocusMode] = useState(false);
+  const [pendingSundayAction, setPendingSundayAction] = useState(null); // { conflicts, onSkipConflicts, onForceApply }
+
+  // Dias visíveis na tabela: todos os dias no modo normal, ou apenas os domingos no modo Visão de Domingos
+  const visibleDaysList = useMemo(
+    () => (sundayFocusMode ? sundays : daysList),
+    [sundayFocusMode, sundays, daysList]
+  );
 
   // Informa a tela principal sobre edições pendentes (aviso ao trocar de aba/mês)
   React.useEffect(() => {
@@ -187,10 +200,22 @@ export default function RHJornadaGrid({
     if (undoStack.length === 1) setDirty(false);
   };
 
-  const handleApplyCellEdit = () => {
-    if (!editingCell) return;
-    const { empId, day, data } = editingCell;
+  // Verifica se o ajuste atual no modal gera domingos consecutivos acima do limite (R07)
+  const editingSundayConflicts = useMemo(() => {
+    if (!editingCell || editingCell.data.status !== 'TRABALHO') return [];
+    const emp = employees.find((e) => e.id === editingCell.empId);
+    if (!emp) return [];
+    return evaluateEmployeeSundayConflicts({
+      emp,
+      sundays,
+      selectedMonth,
+      currentEmpDays: localWorkDays[editingCell.empId] || {},
+      proposedByDay: { [editingCell.day]: editingCell.data.status },
+      maxConsecutiveSundays
+    });
+  }, [editingCell, employees, sundays, selectedMonth, localWorkDays, maxConsecutiveSundays]);
 
+  const applySingleCellCommit = (empId, day, data) => {
     commitLocalChange((prev) => ({
       ...prev,
       [empId]: {
@@ -202,6 +227,25 @@ export default function RHJornadaGrid({
       }
     }));
     setEditingCell(null);
+  };
+
+  const handleApplyCellEdit = () => {
+    if (!editingCell) return;
+    const { empId, day, data } = editingCell;
+
+    if (editingSundayConflicts.length > 0) {
+      setPendingSundayAction({
+        conflicts: editingSundayConflicts,
+        onSkipConflicts: null,
+        onForceApply: () => {
+          setPendingSundayAction(null);
+          applySingleCellCommit(empId, day, data);
+        }
+      });
+      return;
+    }
+
+    applySingleCellCommit(empId, day, data);
   };
 
   // ==============================================================================
@@ -216,7 +260,9 @@ export default function RHJornadaGrid({
     const [d1, d2] = [Math.min(from.dayIdx, to.dayIdx), Math.max(from.dayIdx, to.dayIdx)];
     for (let e = e1; e <= e2; e++) {
       for (let d = d1; d <= d2; d++) {
-        keys.push(cellKey(employees[e].id, daysList[d]));
+        if (employees[e] && visibleDaysList[d] !== undefined) {
+          keys.push(cellKey(employees[e].id, visibleDaysList[d]));
+        }
       }
     }
     return keys;
@@ -226,7 +272,7 @@ export default function RHJornadaGrid({
     if (e.button !== 0) return;
     e.preventDefault();
     const pos = { empIdx, dayIdx };
-    const key = cellKey(employees[empIdx].id, daysList[dayIdx]);
+    const key = cellKey(employees[empIdx].id, visibleDaysList[dayIdx]);
     const additive = e.ctrlKey || e.metaKey;
 
     if (e.shiftKey && selectionAnchorRef.current) {
@@ -271,12 +317,11 @@ export default function RHJornadaGrid({
     return () => window.removeEventListener('mouseup', endDrag);
   }, []);
 
-  // Aplica turno ou status a todas as células selecionadas
-  const handleBulkApply = (action) => {
-    if (selectedCells.size === 0) return;
+  const executeBulkCommit = (action, skipKeys = new Set()) => {
     commitLocalChange((prev) => {
       const next = { ...prev };
       selectedCells.forEach((key) => {
+        if (skipKeys.has(key)) return;
         const [empIdStr, dayStr] = key.split(':');
         const empId = parseInt(empIdStr, 10);
         const day = parseInt(dayStr, 10);
@@ -302,6 +347,61 @@ export default function RHJornadaGrid({
       });
       return next;
     });
+  };
+
+  // Aplica turno ou status a todas as células selecionadas (com checagem preventiva de domingos R07)
+  const handleBulkApply = (action) => {
+    if (selectedCells.size === 0) return;
+
+    // Monta mapa de status proposto por colaborador para verificar domingos consecutivos
+    const proposedByEmp = {};
+    selectedCells.forEach((key) => {
+      const [empIdStr, dayStr] = key.split(':');
+      const empId = parseInt(empIdStr, 10);
+      const day = parseInt(dayStr, 10);
+      const current = getCellData(empId, day, localWorkDays);
+      const nextStatus = action.type === 'contract'
+        ? contractEntry({ ...current, day }).status
+        : action.status;
+      if (!proposedByEmp[empId]) proposedByEmp[empId] = {};
+      proposedByEmp[empId][day] = nextStatus;
+    });
+
+    const empById = new Map(employees.map((e) => [e.id, e]));
+    const allConflicts = [];
+    Object.entries(proposedByEmp).forEach(([empIdStr, proposedMap]) => {
+      const empId = parseInt(empIdStr, 10);
+      const emp = empById.get(empId);
+      if (!emp) return;
+      const empConflicts = evaluateEmployeeSundayConflicts({
+        emp,
+        sundays,
+        selectedMonth,
+        currentEmpDays: localWorkDays[empId] || {},
+        proposedByDay: proposedMap,
+        maxConsecutiveSundays
+      });
+      allConflicts.push(...empConflicts);
+    });
+
+    if (allConflicts.length > 0) {
+      setPendingSundayAction({
+        conflicts: allConflicts,
+        onSkipConflicts: () => {
+          const skipSet = new Set();
+          allConflicts.forEach((c) => skipSet.add(cellKey(c.empId, c.day)));
+          setPendingSundayAction(null);
+          executeBulkCommit(action, skipSet);
+        },
+        onForceApply: () => {
+          setPendingSundayAction(null);
+          executeBulkCommit(action);
+        }
+      });
+      return;
+    }
+
+    executeBulkCommit(action);
   };
 
   // Atalhos: Ctrl+Z desfaz, Esc limpa a seleção (ignorados com modal aberto ou em campos de texto)
@@ -585,6 +685,23 @@ export default function RHJornadaGrid({
 
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            type="button"
+            onClick={() => {
+              setSundayFocusMode((prev) => !prev);
+              setSelectedCells(new Set());
+            }}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+              sundayFocusMode
+                ? 'bg-amber-500/20 text-amber-200 border-amber-500/60 ring-1 ring-amber-500/30'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title="Filtra a grade para exibir apenas os 2 últimos domingos do mês anterior e os domingos do mês atual"
+          >
+            <Calendar size={14} className={sundayFocusMode ? 'text-amber-300' : 'text-slate-400'} />
+            {sundayFocusMode ? 'Sair da Visão de Domingos' : 'Visão de Domingos'}
+          </button>
+
+          <button
             onClick={() => setFillDrawerOpen(!fillDrawerOpen)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 transition-colors"
           >
@@ -632,6 +749,27 @@ export default function RHJornadaGrid({
         </div>
       </div>
 
+      {/* Faixa Informativa da Visão de Domingos (exibida apenas sob demanda) */}
+      {sundayFocusMode && (
+        <div className="bg-amber-950/20 border border-amber-500/30 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200">
+          <div className="flex items-center gap-2">
+            <Calendar size={15} className="text-amber-400 shrink-0" />
+            <span>
+              <strong>Planejamento de Domingos:</strong> exibindo os 2 últimos domingos do mês anterior (consulta) e os domingos de{' '}
+              <strong>{MONTH_NAMES[selectedMonth - 1]}</strong>. Limite legal/configurado: até{' '}
+              <strong>{maxConsecutiveSundays} domingos seguidos</strong> sem irregularidade (R07).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSundayFocusMode(false)}
+            className="text-[11px] font-semibold text-amber-300 hover:text-white underline"
+          >
+            Voltar para grade completa ({daysList.length} dias)
+          </button>
+        </div>
+      )}
+
       {/* Gaveta Dobrável: Painel Unificado de Preenchimento e Ajuste em Lote */}
       {fillDrawerOpen && (
         <RHJornadaBatchPanel
@@ -643,6 +781,7 @@ export default function RHJornadaGrid({
           selectedMonth={selectedMonth}
           scheduleId={scheduleId}
           workDays={localWorkDays}
+          maxConsecutiveSundays={maxConsecutiveSundays}
           token={token}
           apiBase={apiBase}
           onClose={() => setFillDrawerOpen(false)}
@@ -716,7 +855,19 @@ export default function RHJornadaGrid({
                 <th className="py-2.5 px-3 min-w-[170px] sticky left-0 top-0 bg-slate-950 z-30 border-r border-slate-800 shadow-[inset_0_-1px_0_#1e293b]">
                   Colaborador & Contrato
                 </th>
-                {daysList.map((day) => {
+                {sundayFocusMode && priorSundayDates.map((ps) => (
+                  <th
+                    key={ps.iso}
+                    className="p-0 text-center min-w-[54px] border-r border-slate-800/80 sticky top-0 z-20 bg-slate-950 shadow-[inset_0_-1px_0_#1e293b]"
+                    title={`Domingo do mês anterior (${ps.label}) — somente leitura`}
+                  >
+                    <div className="py-1.5 px-1 h-full bg-amber-950/20 text-amber-300/90 font-bold">
+                      <div>{ps.label}</div>
+                      <div className="text-[8px] font-normal lowercase opacity-75">mês ant.</div>
+                    </div>
+                  </th>
+                ))}
+                {visibleDaysList.map((day) => {
                   const isSunday = sundays.includes(day);
                   const isHoliday = !!holidays[day];
                   const weekdayLabel = WEEKDAY_SHORT[new Date(selectedYear, selectedMonth - 1, day).getDay()];
@@ -746,6 +897,11 @@ export default function RHJornadaGrid({
                     </th>
                   );
                 })}
+                {sundayFocusMode && (
+                  <th className="py-2.5 px-2 text-center min-w-[90px] bg-slate-950 border-l border-slate-800 sticky top-0 z-20 shadow-[inset_0_-1px_0_#1e293b] text-amber-300">
+                    Seq. Domingos
+                  </th>
+                )}
                 <th className="py-2.5 px-3 text-center min-w-[70px] bg-slate-950 border-l border-slate-800 sticky top-0 z-20 shadow-[inset_0_-1px_0_#1e293b]">
                   Trabalhado
                 </th>
@@ -762,6 +918,9 @@ export default function RHJornadaGrid({
               {employees.map((emp, empIdx) => {
                 const empDays = localWorkDays[emp.id] || {};
                 const summary = summaryMap[emp.id] || {};
+                const sunStats = sundayFocusMode
+                  ? getEmployeeSundaySummary(emp, sundays, selectedMonth, empDays, maxConsecutiveSundays)
+                  : null;
 
                 return (
                   <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
@@ -775,7 +934,32 @@ export default function RHJornadaGrid({
                       )}
                     </td>
 
-                    {daysList.map((day, dayIdx) => {
+                    {sundayFocusMode && priorSundayDates.map((ps) => {
+                      const pInfo = (emp.prior_sundays || []).find((item) => item.iso === ps.iso) || { status: 'DSR', worked: false };
+                      const pWorked = pInfo.worked || pInfo.status === 'TRABALHO';
+                      const pLabel = pWorked
+                        ? (compactRange(pInfo.start_time, pInfo.end_time) || 'TRAB')
+                        : (pInfo.status === 'FERIAS' ? 'FE' : 'DSR');
+                      return (
+                        <td
+                          key={ps.iso}
+                          className="py-1 px-1 text-center bg-slate-950/60 border-r border-slate-800/70 opacity-80 select-none"
+                          title={`Mês anterior (${ps.label}): ${pInfo.status}${pWorked ? ' (Domingo trabalhado)' : ' (Descanso)'}`}
+                        >
+                          <div
+                            className={`min-w-[2.6rem] h-8 px-1 mx-auto rounded flex items-center justify-center font-bold text-[10px] border ${
+                              pWorked
+                                ? 'bg-emerald-900/25 text-emerald-300 border-emerald-500/30'
+                                : 'bg-slate-900 text-slate-500 border-slate-800'
+                            }`}
+                          >
+                            {pLabel}
+                          </div>
+                        </td>
+                      );
+                    })}
+
+                    {visibleDaysList.map((day, dayIdx) => {
                       const dInfo = empDays[day] || {};
                       const lostDsrBy = lostDsr[emp.id]?.[day]; // dias de falta que causaram a perda deste DSR
                       const status = dInfo.status || (sundays.includes(day) ? 'DSR' : (holidays[day] ? 'FERIADO' : 'TRABALHO'));
@@ -902,6 +1086,29 @@ export default function RHJornadaGrid({
                       );
                     })}
 
+                    {sundayFocusMode && sunStats && (
+                      <td
+                        className="py-2 px-2 text-center border-l border-slate-800"
+                        title={
+                          sunStats.priorCount > 0
+                            ? `Vem de ${sunStats.priorCount} domingo(s) seguido(s) no mês anterior (${sunStats.priorDates.join(', ')})`
+                            : 'Sem domingos seguidos vindos do mês anterior'
+                        }
+                      >
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                            sunStats.hasViolation
+                              ? 'bg-rose-950/70 text-rose-300 border-rose-500/50'
+                              : sunStats.maxStreak === maxConsecutiveSundays
+                                ? 'bg-amber-950/60 text-amber-300 border-amber-500/40'
+                                : 'bg-emerald-950/50 text-emerald-300 border-emerald-500/30'
+                          }`}
+                        >
+                          {sunStats.maxStreak}/{maxConsecutiveSundays} seg.
+                        </span>
+                      </td>
+                    )}
+
                     <td className="py-2 px-2 text-center font-bold text-slate-200 border-l border-slate-800">
                       {summary.worked_hours_formatted || '0h00'}
                     </td>
@@ -937,7 +1144,12 @@ export default function RHJornadaGrid({
                         <div className="text-[10px] text-slate-500 truncate max-w-[150px]">{row.name}</div>
                       )}
                     </td>
-                    {daysList.map((day) => {
+                    {sundayFocusMode && priorSundayDates.map((ps) => (
+                      <td key={ps.iso} className="py-1.5 px-0.5 text-center text-[11px] border-r border-slate-800/50 text-slate-700">
+                        ·
+                      </td>
+                    ))}
+                    {visibleDaysList.map((day) => {
                       const n = row.counts[day] || 0;
                       return (
                         <td
@@ -951,7 +1163,7 @@ export default function RHJornadaGrid({
                         </td>
                       );
                     })}
-                    <td colSpan={3} className="border-l border-slate-800" />
+                    <td colSpan={sundayFocusMode ? 4 : 3} className="border-l border-slate-800" />
                   </tr>
                   {Object.entries(row.roles)
                     .sort(([a], [b]) => a.localeCompare(b, 'pt-BR'))
@@ -960,7 +1172,12 @@ export default function RHJornadaGrid({
                         <td className="py-1 pl-6 pr-3 sticky left-0 bg-slate-950 border-r border-slate-800 z-10">
                           <div className="text-[10px] text-slate-400 truncate max-w-[140px]" title={role}>↳ {role}</div>
                         </td>
-                        {daysList.map((day) => {
+                        {sundayFocusMode && priorSundayDates.map((ps) => (
+                          <td key={ps.iso} className="py-1 px-0.5 text-center text-[10px] border-r border-slate-800/50 text-slate-700">
+                            ·
+                          </td>
+                        ))}
+                        {visibleDaysList.map((day) => {
                           const n = roleCounts[day] || 0;
                           return (
                             <td
@@ -974,7 +1191,7 @@ export default function RHJornadaGrid({
                             </td>
                           );
                         })}
-                        <td colSpan={3} className="border-l border-slate-800" />
+                        <td colSpan={sundayFocusMode ? 4 : 3} className="border-l border-slate-800" />
                       </tr>
                     ))}
                   </React.Fragment>
@@ -983,7 +1200,12 @@ export default function RHJornadaGrid({
                   <td className="py-2 px-3 sticky left-0 bg-slate-950 border-r border-slate-800 z-10 text-[11px] font-bold uppercase tracking-wider text-slate-300">
                     Total no dia
                   </td>
-                  {daysList.map((day) => {
+                  {sundayFocusMode && priorSundayDates.map((ps) => (
+                    <td key={ps.iso} className="py-2 px-0.5 text-center text-[11px] border-r border-slate-800/50 text-slate-600">
+                      —
+                    </td>
+                  ))}
+                  {visibleDaysList.map((day) => {
                     const n = dailyShiftTotals.totals[day] || 0;
                     return (
                       <td
@@ -997,7 +1219,7 @@ export default function RHJornadaGrid({
                       </td>
                     );
                   })}
-                  <td colSpan={3} className="border-l border-slate-800" />
+                  <td colSpan={sundayFocusMode ? 4 : 3} className="border-l border-slate-800" />
                 </tr>
               </tfoot>
             )}
@@ -1090,6 +1312,27 @@ export default function RHJornadaGrid({
                   ))}
                 </div>
               </div>
+
+              {/* Alerta Preventivo de Domingos Consecutivos (R07) no ajuste individual */}
+              {editingSundayConflicts.length > 0 && (() => {
+                const worst = editingSundayConflicts[editingSundayConflicts.length - 1];
+                return (
+                  <div className="bg-amber-950/35 border border-amber-500/50 rounded-lg p-2.5 space-y-1 text-amber-100">
+                    <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-300">
+                      <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+                      Atenção: {worst.streakCount}º domingo consecutivo trabalhado (R07)
+                    </div>
+                    <p className="text-[11px] text-amber-200/90 leading-snug">
+                      Sequência:{' '}
+                      <strong className="text-white">{worst.streakLabels.join(' → ')}</strong>
+                      {worst.priorLabels.length > 0 && (
+                        <span> (inclui {worst.priorLabels.join(' e ')} do mês anterior)</span>
+                      )}
+                      . O limite sem irregularidade é de até {maxConsecutiveSundays} domingos seguidos.
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* Banco de horas do colaborador */}
               {editingBank && (
@@ -1444,6 +1687,17 @@ export default function RHJornadaGrid({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Confirmação Preventiva de Domingos Consecutivos (R07) na Grade */}
+      {pendingSundayAction && (
+        <SundayConflictModal
+          conflicts={pendingSundayAction.conflicts}
+          maxConsecutiveSundays={maxConsecutiveSundays}
+          onCancel={() => setPendingSundayAction(null)}
+          onSkipConflicts={pendingSundayAction.onSkipConflicts}
+          onForceApply={pendingSundayAction.onForceApply}
+        />
       )}
     </div>
   );

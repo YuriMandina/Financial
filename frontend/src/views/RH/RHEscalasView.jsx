@@ -17,7 +17,7 @@ import RHEmployeeProfileForm from './components/RHEmployeeProfileForm';
 import RHFichaCadastral from './components/RHFichaCadastral';
 import RHContratoJornada from './components/RHContratoJornada';
 import RHAuditoriaMensal from './components/RHAuditoriaMensal';
-import { PROFILE_TABS, profileCompleteness } from './components/employeeProfileSchema';
+import { PROFILE_TABS, profileCompleteness, TERMINATION_REASON_OPTIONS } from './components/employeeProfileSchema';
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
 import { API_BASE } from '../../config/api';
@@ -91,6 +91,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
     base_salary: '0,00',
     dependents: 0,
     admission_date: '',
+    termination_date: '',
+    termination_reason: '',
     overtime_policy: '',
     profile: {},
     active: true
@@ -240,6 +242,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
         daily_meal_cost: parseFloat(String(employeeFormData.daily_meal_cost).replace(',', '.')) || 25.00,
         dependents: parseInt(employeeFormData.dependents, 10) || 0,
         admission_date: employeeFormData.admission_date || null,
+        termination_date: employeeFormData.termination_date || null,
+        termination_reason: (employeeFormData.termination_date && employeeFormData.termination_reason) || null,
         overtime_policy: employeeFormData.overtime_policy || null,
         profile: employeeFormData.profile || {},
         active: employeeFormData.active
@@ -713,6 +717,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                 base_salary: '0,00',
                 dependents: 0,
                 admission_date: '',
+                termination_date: '',
+                termination_reason: '',
                 overtime_policy: '',
                 profile: {},
                 active: true
@@ -813,6 +819,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                             base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
                             dependents: emp.dependents || 0,
                             admission_date: emp.admission_date || '',
+                            termination_date: emp.termination_date || '',
+                            termination_reason: emp.termination_reason || '',
                             overtime_policy: emp.overtime_policy || '',
                             profile: emp.profile || {},
                             active: true
@@ -1197,6 +1205,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           onOpenAudit={openAudit}
           complianceDays={compliance?.days || {}}
           absenceDsrMode={scheduleData?.settings?.absence_dsr_mode || 'ONE'}
+          maxConsecutiveSundays={scheduleData?.settings?.max_consecutive_sundays ?? 2}
+          priorSundayDates={scheduleData?.prior_sunday_dates || []}
           employees={employees}
           workDays={workDays}
           daysList={daysList}
@@ -1270,6 +1280,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
               base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
               dependents: emp.dependents || 0,
               admission_date: emp.admission_date || '',
+              termination_date: emp.termination_date || '',
+              termination_reason: emp.termination_reason || '',
               overtime_policy: emp.overtime_policy || '',
               profile: emp.profile || {},
               active: true
@@ -1429,6 +1441,36 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                   )}
                 </div>
               </div>
+
+              {editingEmployee && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Data de Desligamento</label>
+                    <input
+                      type="date"
+                      value={employeeFormData.termination_date || ''}
+                      min={employeeFormData.admission_date || undefined}
+                      onChange={(e) => setEmployeeFormData({ ...employeeFormData, termination_date: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-slate-400 mb-1">Motivo do Desligamento</label>
+                    <SelectDropdown
+                      value={employeeFormData.termination_reason}
+                      disabled={!employeeFormData.termination_date}
+                      onChange={(val) => setEmployeeFormData({ ...employeeFormData, termination_reason: val })}
+                      placeholder={employeeFormData.termination_date ? 'Selecione o motivo...' : 'Informe a data primeiro'}
+                      options={TERMINATION_REASON_OPTIONS}
+                    />
+                    {employeeFormData.termination_date && (
+                      <span className="text-[10px] text-slate-500">
+                        Continua na folha do mês do desligamento e entra no informe à contabilidade.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
