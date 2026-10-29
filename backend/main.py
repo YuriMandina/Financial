@@ -116,6 +116,17 @@ async def startup_event():
             """))
             # Escala-padrão do contrato de jornada (planejamento v06)
             conn.execute(text("ALTER TABLE rh_employee_contracts ADD COLUMN IF NOT EXISTS standard_schedule_id INTEGER REFERENCES rh_standard_schedules(id) ON DELETE SET NULL;"))
+            # Informe mensal à contabilidade (planejamento v08, seção 20)
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS termination_date DATE;"))
+            conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS termination_reason VARCHAR;"))
+            conn.execute(text("ALTER TABLE rh_payroll_items ADD COLUMN IF NOT EXISTS report_to_accounting BOOLEAN;"))
+            conn.execute(text("ALTER TABLE rh_payroll_items ADD COLUMN IF NOT EXISTS report_mode VARCHAR;"))
+            conn.execute(text("ALTER TABLE rh_payroll_entries ADD COLUMN IF NOT EXISTS quantity FLOAT;"))
+            conn.execute(text("ALTER TABLE rh_payroll_entries ADD COLUMN IF NOT EXISTS quantity_unit VARCHAR;"))
+            conn.execute(text("ALTER TABLE rh_payroll_entries ADD COLUMN IF NOT EXISTS dates JSONB;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS accounting_email VARCHAR;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS accounting_greeting VARCHAR;"))
+            conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS accounting_signature VARCHAR;"))
     except Exception as e:
         print(f"Warning during auto-migration: {e}")
 

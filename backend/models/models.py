@@ -306,6 +306,9 @@ class RHEmployee(Base):
     dependents = Column(Integer, default=0) # Dependentes para dedução do IRRF
     admission_date = Column(Date, nullable=True) # Data de admissão (tempo de casa / triênio)
     overtime_policy = Column(String, nullable=True) # Destino das horas extras (None = padrão da empresa)
+    # Desligamento: o colaborador continua na folha do mês do desligamento (informe à contabilidade, v08 seção 20)
+    termination_date = Column(Date, nullable=True)
+    termination_reason = Column(String, nullable=True) # Ver TERMINATION_REASONS em rh_accounting_report
     # Ficha cadastral: {pessoal, documentos, contato, contrato, bancarios, dependentes[], saude, uniforme, observacoes}
     profile = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     active = Column(Boolean, default=True)
@@ -425,6 +428,9 @@ class RHPayrollItem(Base):
     incide_fgts = Column(Boolean, default=True)
     system_key = Column(String, nullable=True) # Rubricas automáticas do sistema (SALARIO, HE50, INSS...)
     affects_net = Column(Boolean, default=True) # False para itens informativos (FGTS, VA)
+    # Informe mensal à contabilidade: entra no e-mail? Em QUANTIDADE (horas/dias) ou VALOR (R$)
+    report_to_accounting = Column(Boolean, default=True)
+    report_mode = Column(String, default="VALOR") # QUANTIDADE | VALOR
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -442,6 +448,9 @@ class RHPayrollEntry(Base):
     item_id = Column(Integer, ForeignKey("rh_payroll_items.id"), nullable=False, index=True)
     reference = Column(String, nullable=True) # Ex: "12h30", "2 dias", "7,5%"
     amount = Column(Float, nullable=False, default=0.0)
+    quantity = Column(Float, nullable=True) # Quantidade informada à contabilidade (HE, faltas)
+    quantity_unit = Column(String, nullable=True) # MIN | DIAS
+    dates = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True) # Dias de origem ("2026-10-14", ...)
     source = Column(String, default="MANUAL") # MANUAL ou AUTO
     notes = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -481,6 +490,10 @@ class RHSettings(Base):
     late_compensation_mode = Column(String, default="AUTO") # AUTO | MANUAL | OFF
     late_compensation_max_min = Column(Integer, default=30)
     late_compensation_max_per_month = Column(Integer, default=4)
+    # Informe mensal à contabilidade (v08 seção 20)
+    accounting_email = Column(String, nullable=True)
+    accounting_greeting = Column(String, nullable=True)
+    accounting_signature = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     organization = relationship("Organization")
@@ -574,6 +587,23 @@ class RHWorkDayChange(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     violation_fingerprints = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RHAccountingReport(Base):
+    """Versão enviada do informe mensal à contabilidade: 1 = original, 2+ = retificações."""
+    __tablename__ = "rh_accounting_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("rh_monthly_schedules.id", ondelete="CASCADE"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    snapshot = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False) # Conteúdo exatamente como enviado
+    text = Column(Text, nullable=False)
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('schedule_id', 'version', name='uq_rh_accounting_report_version'),
+    )
 
 
 class RHMonthlyAudit(Base):

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Wallet, Calculator, RefreshCw, Plus, Edit2, Trash2, X, ChevronDown, ChevronRight,
-  ListChecks, Lock, Unlock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users, HandCoins, Printer
+  ListChecks, Lock, Unlock, TrendingUp, TrendingDown, Landmark, Gift, AlertCircle, BarChart3, Building2, Users, HandCoins, Printer,
+  Mail
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
+import RHInformeContabilidade from './RHInformeContabilidade';
 
 const MONTH_NAMES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -41,7 +43,33 @@ const EMPTY_ITEM = {
   incide_inss: true,
   incide_irrf: true,
   incide_fgts: true,
-  active: true
+  active: true,
+  report_to_accounting: true,
+  report_mode: 'VALOR'
+};
+
+// Quantidade informada à contabilidade (HE e faltas): minutos (MIN) ou dias (DIAS)
+const quantityUnitFor = (item) => (item?.system_key === 'FALTAS' ? 'DIAS' : 'MIN');
+
+const fmtQuantity = (quantity, unit) => {
+  if (quantity === null || quantity === undefined) return '';
+  if (unit === 'DIAS') return String(quantity);
+  const m = Math.round(Number(quantity));
+  return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
+};
+
+// Horas aceitam "4h30", "4:30", "4,5" ou "4"; dias, um número inteiro
+const parseQuantity = (value, unit) => {
+  const str = String(value ?? '').trim();
+  if (!str) return null;
+  if (unit === 'DIAS') {
+    const days = parseInt(str, 10);
+    return Number.isNaN(days) ? null : days;
+  }
+  const hm = str.match(/^(\d+)\s*[h:]\s*(\d{0,2})$/i);
+  if (hm) return parseInt(hm[1], 10) * 60 + (parseInt(hm[2] || '0', 10) || 0);
+  const hours = parseFloat(str.replace(',', '.'));
+  return Number.isNaN(hours) ? null : Math.round(hours * 60);
 };
 
 // Quadro de impressão: o cabeçalho e o rodapé vazios se repetem em cada página e
@@ -70,7 +98,7 @@ const PrintFrame = ({ children }) => (
 );
 
 export default function RHFolhaPagamento({ token, apiBase, selectedYear, selectedMonth }) {
-  const [view, setView] = useState('folha'); // 'folha' | 'totais' | 'rubricas'
+  const [view, setView] = useState('folha'); // 'folha' | 'totais' | 'rubricas' | 'informe'
   const [loading, setLoading] = useState(true);
   const [payroll, setPayroll] = useState(null);
   const [items, setItems] = useState([]);
@@ -162,19 +190,18 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
   const handleSaveItem = async (e) => {
     e.preventDefault();
     const { id, data, system } = itemModal;
+    const incidences = { incide_inss: data.incide_inss, incide_irrf: data.incide_irrf, incide_fgts: data.incide_fgts };
     const payload = !system
       ? { ...data, default_value: parseMoney(data.default_value) }
-      : data.configurable
-        ? {
-          code: data.code,
-          name: data.name,
-          active: data.active,
-          default_value: parseMoney(data.default_value),
-          incide_inss: data.incide_inss,
-          incide_irrf: data.incide_irrf,
-          incide_fgts: data.incide_fgts
-        }
-        : { code: data.code, name: data.name, active: data.active };
+      : {
+        code: data.code,
+        name: data.name,
+        active: data.active,
+        report_to_accounting: data.report_to_accounting,
+        report_mode: data.report_mode,
+        ...(data.configurable ? { default_value: parseMoney(data.default_value), ...incidences } : {}),
+        ...(data.configurable_incidence && !data.configurable ? incidences : {})
+      };
     try {
       await request(id ? `/api/rh/payroll/items/${id}` : '/api/rh/payroll/items', {
         method: id ? 'PUT' : 'POST',
@@ -216,19 +243,24 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
 
   const openNewEntry = (employee) => setEntryModal({
     employee,
-    data: { item_id: '', amount: '', reference: '', notes: '' }
+    data: { item_id: '', amount: '', reference: '', notes: '', quantity: '', quantity_unit: 'MIN' }
   });
 
-  const openEditEntry = (employee, entry) => setEntryModal({
-    employee,
-    entry,
-    data: {
-      item_id: entry.item_id,
-      amount: toInputMoney(entry.amount),
-      reference: entry.reference || '',
-      notes: entry.notes || ''
-    }
-  });
+  const openEditEntry = (employee, entry) => {
+    const unit = entry.quantity_unit || quantityUnitFor(entry);
+    setEntryModal({
+      employee,
+      entry,
+      data: {
+        item_id: entry.item_id,
+        amount: toInputMoney(entry.amount),
+        reference: entry.reference || '',
+        notes: entry.notes || '',
+        quantity: fmtQuantity(entry.quantity, unit),
+        quantity_unit: unit
+      }
+    });
+  };
 
   const handleSaveEntry = async (e) => {
     e.preventDefault();
@@ -238,11 +270,17 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
       return;
     }
     const amount = parseMoney(data.amount);
+    const quantity = parseQuantity(data.quantity, data.quantity_unit);
+    if (String(data.quantity ?? '').trim() && quantity === null) {
+      alert(data.quantity_unit === 'DIAS' ? 'Quantidade de dias inválida.' : 'Quantidade de horas inválida (ex: 4h30).');
+      return;
+    }
+    const quantityFields = quantity !== null ? { quantity, quantity_unit: data.quantity_unit } : {};
     try {
       if (entry) {
         await request(`/api/rh/payroll/entries/${entry.id}`, {
           method: 'PUT',
-          body: JSON.stringify({ amount, reference: data.reference, notes: data.notes })
+          body: JSON.stringify({ amount, reference: data.reference, notes: data.notes, ...quantityFields })
         });
       } else {
         await request('/api/rh/payroll/entries', {
@@ -254,7 +292,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             item_id: parseInt(data.item_id, 10),
             amount,
             reference: data.reference || null,
-            notes: data.notes || null
+            notes: data.notes || null,
+            ...quantityFields
           })
         });
       }
@@ -410,7 +449,14 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                             {isOpen ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />}
                             <div>
                               <div className="font-semibold text-white">{emp.employee_name}</div>
-                              <div className="text-[10px] text-slate-400">{emp.employee_role}</div>
+                              <div className="text-[10px] text-slate-400">
+                                {emp.employee_role}
+                                {emp.termination_date && (
+                                  <span className="ml-1.5 text-rose-300">
+                                    • Desligamento em {emp.termination_date.split('-').reverse().join('/')}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -1099,6 +1145,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               <th className="py-2.5 px-3 text-left">Tipo</th>
               <th className="py-2.5 px-3 text-left">Cálculo</th>
               <th className="py-2.5 px-3 text-left">Incidências</th>
+              <th className="py-2.5 px-3 text-left">Contabilidade</th>
               <th className="py-2.5 px-3 text-center">Lançamentos</th>
               <th className="py-2.5 px-3" />
             </tr>
@@ -1144,6 +1191,15 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                     {renderIncidence('IRRF', it.incide_irrf)}
                     {renderIncidence('FGTS', it.incide_fgts)}
                   </div>
+                </td>
+                <td className="py-2 px-3">
+                  {it.report_to_accounting
+                    ? (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-indigo-600/15 text-indigo-300 border-indigo-500/30">
+                        {it.report_mode === 'QUANTIDADE' ? 'QUANTIDADE' : 'VALOR'}
+                      </span>
+                    )
+                    : <span className="text-[10px] text-slate-600">Não informa</span>}
                 </td>
                 <td className="py-2 px-3 text-center text-slate-400">{it.usage_count}</td>
                 <td className="py-2 px-3 text-right whitespace-nowrap">
@@ -1195,8 +1251,10 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             <div className="flex items-start gap-2 bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-slate-400">
               <Lock size={13} className="mt-0.5 shrink-0" />
               {data.configurable
-                ? 'Rubrica calculada automaticamente: código, nome, percentual, incidências e situação podem ser alterados.'
-                : 'Rubrica calculada automaticamente pelo sistema: apenas código, nome e situação podem ser alterados.'}
+                ? 'Rubrica calculada automaticamente: código, nome, percentual, incidências, situação e informe à contabilidade podem ser alterados.'
+                : data.configurable_incidence
+                  ? 'Rubrica do sistema lançada à mão: código, nome, incidências, situação e informe à contabilidade podem ser alterados.'
+                  : 'Rubrica calculada automaticamente pelo sistema: apenas código, nome, situação e informe à contabilidade podem ser alterados.'}
             </div>
           )}
 
@@ -1264,6 +1322,21 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             </>
           )}
 
+          {system && data.configurable_incidence && !data.configurable && (
+            <div className="space-y-1">
+              <div className="grid grid-cols-3 gap-2">
+                <StyledCheckbox checked={data.incide_inss} onChange={(c) => set({ incide_inss: c })} label="Incide INSS" />
+                <StyledCheckbox checked={data.incide_irrf} onChange={(c) => set({ incide_irrf: c })} label="Incide IRRF" />
+                <StyledCheckbox checked={data.incide_fgts} onChange={(c) => set({ incide_fgts: c })} label="Incide FGTS" />
+              </div>
+              {data.system_key === 'PREMIO' && (
+                <span className="text-[10px] text-slate-500">
+                  Prêmio por desempenho (CLT, art. 457, §§ 2º e 4º) pode não ter INSS e FGTS: confirme com a contabilidade antes de desmarcar.
+                </span>
+              )}
+            </div>
+          )}
+
           {!system && (
             <>
               <div>
@@ -1295,6 +1368,28 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             </>
           )}
 
+          <div className="space-y-2 bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+            <StyledCheckbox
+              checked={data.report_to_accounting}
+              onChange={(checked) => set({ report_to_accounting: checked })}
+              label="Informar à contabilidade"
+              description="Entra no e-mail mensal com os proventos e descontos (aba Informe à Contabilidade)"
+            />
+            {data.report_to_accounting && (
+              <div>
+                <label className="block text-slate-400 mb-1">Como informar</label>
+                <SelectDropdown
+                  value={data.report_mode}
+                  onChange={(val) => set({ report_mode: val })}
+                  options={[
+                    { value: 'QUANTIDADE', label: 'Quantidade (horas ou dias)', subtitle: 'A contabilidade calcula o valor' },
+                    { value: 'VALOR', label: 'Valor (R$)' }
+                  ]}
+                />
+              </div>
+            )}
+          </div>
+
           <StyledCheckbox
             checked={data.active}
             onChange={(checked) => set({ active: checked })}
@@ -1319,6 +1414,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
     const { employee, entry, data } = entryModal;
     const set = (patch) => setEntryModal({ ...entryModal, data: { ...data, ...patch } });
     const inputCls = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500';
+    const selectedItem = entry || items.find((i) => i.id === parseInt(data.item_id, 10));
+    const asksQuantity = selectedItem?.report_to_accounting && selectedItem?.report_mode === 'QUANTIDADE';
     return (
       <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
         <form onSubmit={handleSaveEntry} className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 shadow-2xl space-y-4 text-xs">
@@ -1350,7 +1447,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 placeholder="Selecione a rubrica"
                 onChange={(val) => {
                   const it = items.find((i) => i.id === parseInt(val, 10));
-                  set({ item_id: val, amount: suggestedAmount(it, employee) });
+                  set({ item_id: val, amount: suggestedAmount(it, employee), quantity_unit: quantityUnitFor(it) });
                 }}
                 options={selectableItems.map((it) => ({
                   value: it.id,
@@ -1384,9 +1481,39 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             </div>
           </div>
 
+          {asksQuantity && (
+            <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 space-y-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Quantidade para a contabilidade</label>
+                  <input
+                    value={data.quantity}
+                    onChange={(e) => set({ quantity: e.target.value })}
+                    placeholder={data.quantity_unit === 'DIAS' ? 'Ex: 2' : 'Ex: 4h30'}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Unidade</label>
+                  <SelectDropdown
+                    value={data.quantity_unit}
+                    onChange={(val) => set({ quantity_unit: val })}
+                    options={[{ value: 'MIN', label: 'Horas' }, { value: 'DIAS', label: 'Dias' }]}
+                  />
+                </div>
+              </div>
+              <span className="text-[10px] text-slate-500">
+                Esta rubrica vai em quantidade no informe à contabilidade. Sem quantidade, o informe leva o valor.
+              </span>
+            </div>
+          )}
+
           <div>
             <label className="block text-slate-400 mb-1">Observação</label>
             <input value={data.notes} onChange={(e) => set({ notes: e.target.value })} className={inputCls} />
+            {selectedItem?.report_to_accounting && (
+              <span className="text-[10px] text-slate-500">Vai junto no informe à contabilidade (ex: motivo do desconto).</span>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
@@ -1441,6 +1568,14 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
               }`}
             >
               <ListChecks size={13} /> Rubricas
+            </button>
+            <button
+              onClick={() => setView('informe')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold ${
+                view === 'informe' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Mail size={13} /> Informe à Contabilidade
             </button>
           </div>
 
@@ -1509,7 +1644,20 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
       ) : (
         <>
           <div className="print:hidden">
-            {view === 'folha' ? renderFolha() : view === 'totais' ? renderTotais() : renderRubricas()}
+            {view === 'folha'
+              ? renderFolha()
+              : view === 'totais'
+                ? renderTotais()
+                : view === 'rubricas'
+                  ? renderRubricas()
+                  : (
+                    <RHInformeContabilidade
+                      token={token}
+                      apiBase={apiBase}
+                      selectedYear={selectedYear}
+                      selectedMonth={selectedMonth}
+                    />
+                  )}
           </div>
           {view === 'folha' && renderPrintFolha()}
           {view === 'totais' && renderPrintTotais()}

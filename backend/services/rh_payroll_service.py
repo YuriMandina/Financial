@@ -6,6 +6,7 @@ de salário, horas extras, faltas, VT/VA e encargos (INSS, IRRF, FGTS).
 
 from typing import Dict, List, Optional, Any
 from datetime import date
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from models import models
 from services.rh_engine import calculate_work_days_summary, get_month_calendar_info
@@ -65,10 +66,12 @@ OVERTIME_POLICIES = {
 SYSTEM_ITEMS = {
     "SALARIO": ("001", "Salário Base", "RECEITA", True, True, True, True),
     "HE50": ("002", "Horas Extras", "RECEITA", True, True, True, True),
+    "HE_NORMAL": ("008", "Horas Pagas sem Acréscimo", "RECEITA", True, True, True, True),
     "HE100": ("006", "Horas Extras 100% (DSR/feriado)", "RECEITA", True, True, True, True),
     "HE_FIXO": ("005", "Valor Fixo por Horas Extras (Banco)", "RECEITA", True, True, True, True),
     "DSR_HE": ("003", "DSR sobre Horas Extras", "RECEITA", True, True, True, True),
     "TRIENIO": ("004", "Triênio", "RECEITA", True, True, True, True),
+    "PREMIO": ("007", "Prêmio", "RECEITA", True, True, True, True),
     "FALTAS": ("101", "Faltas", "DESPESA", True, True, True, True),
     "DSR_FALTA": ("102", "DSR sobre Faltas", "DESPESA", True, True, True, True),
     "VT": ("103", "Vale Transporte (6%)", "DESPESA", False, False, False, True),
@@ -84,6 +87,21 @@ TAX_KEYS = {"INSS", "IRRF", "FGTS"}
 # Rubricas do sistema com percentual configurável: system_key -> % padrão
 CONFIGURABLE_PERCENT_ITEMS = {"TRIENIO": 4.0, "ADIANTAMENTO": 40.0}
 
+# Rubricas do sistema lançadas à mão, com incidências editáveis (prêmio: confirmar com a contabilidade)
+CONFIGURABLE_INCIDENCE_ITEMS = {"PREMIO"}
+
+# Informe à contabilidade (v08 seção 20.3): system_key -> (informa, forma). Ausentes não são informados:
+# a contabilidade calcula ou já tem (salário, triênio, DSR, VT, VA, adiantamento e encargos).
+ACCOUNTING_REPORT_DEFAULTS = {
+    "HE50": (True, "QUANTIDADE"),
+    "HE_NORMAL": (True, "QUANTIDADE"),
+    "HE100": (True, "QUANTIDADE"),
+    "HE_FIXO": (True, "VALOR"),
+    "FALTAS": (True, "QUANTIDADE"),
+    "PREMIO": (True, "VALOR"),
+}
+REPORT_MODES = {"QUANTIDADE", "VALOR"}
+
 
 def ensure_system_items(db: Session, organization_id: int) -> Dict[str, models.RHPayrollItem]:
     """Garante as rubricas automáticas da organização e retorna o mapa system_key -> rubrica."""
@@ -97,19 +115,46 @@ def ensure_system_items(db: Session, organization_id: int) -> Dict[str, models.R
     for key, (code, name, kind, inss, irrf, fgts, affects_net) in SYSTEM_ITEMS.items():
         if key in existing:
             continue
+        report, mode = ACCOUNTING_REPORT_DEFAULTS.get(key, (False, "VALOR"))
         item = models.RHPayrollItem(
             organization_id=organization_id, code=code, name=name, kind=kind,
             calc_type="PERCENT" if key in CONFIGURABLE_PERCENT_ITEMS else "FIXED",
             default_value=CONFIGURABLE_PERCENT_ITEMS.get(key, 0.0), recurring=False,
             incide_inss=inss, incide_irrf=irrf, incide_fgts=fgts,
-            system_key=key, affects_net=affects_net, active=True
+            system_key=key, affects_net=affects_net, active=True,
+            report_to_accounting=report, report_mode=mode
         )
         db.add(item)
         existing[key] = item
         created = True
+
+    # Rubricas anteriores ao informe à contabilidade (colunas novas vazias): aplica os padrões uma vez
+    for item in db.query(models.RHPayrollItem).filter(
+        models.RHPayrollItem.organization_id == organization_id,
+        models.RHPayrollItem.report_mode.is_(None)
+    ).all():
+        if item.system_key:
+            report, mode = ACCOUNTING_REPORT_DEFAULTS.get(item.system_key, (False, "VALOR"))
+        else:
+            report, mode = True, "VALOR"
+        item.report_to_accounting, item.report_mode = report, mode
+        created = True
     if created:
         db.flush()
     return existing
+
+
+def payroll_employees(db: Session, organization_id: int, schedule: models.RHMonthlySchedule) -> List[models.RHEmployee]:
+    """
+    Colaboradores da folha do mês: ativos sem desligamento anterior ao mês e desligados dentro do mês
+    (mesmo já inativos), que continuam na folha do mês do desligamento.
+    """
+    month_start = date(schedule.year, schedule.month, 1)
+    employees = db.query(models.RHEmployee).filter(
+        models.RHEmployee.organization_id == organization_id,
+        or_(models.RHEmployee.active == True, models.RHEmployee.termination_date >= month_start)
+    ).order_by(models.RHEmployee.name.asc()).all()
+    return [e for e in employees if not e.termination_date or e.termination_date >= month_start]
 
 
 # ==============================================================================
@@ -343,13 +388,9 @@ def calculate_payroll(
         models.RHSettings.organization_id == organization_id
     ).first()
 
-    emp_query = db.query(models.RHEmployee).filter(
-        models.RHEmployee.organization_id == organization_id,
-        models.RHEmployee.active == True
-    )
+    employees = payroll_employees(db, organization_id, schedule)
     if employee_ids:
-        emp_query = emp_query.filter(models.RHEmployee.id.in_(employee_ids))
-    employees = emp_query.all()
+        employees = [e for e in employees if e.id in employee_ids]
 
     recurring_items = db.query(models.RHPayrollItem).filter(
         models.RHPayrollItem.organization_id == organization_id,
@@ -410,13 +451,14 @@ def calculate_payroll(
         ).all()
         manual_item_ids = {e.item_id for e in manual_entries}
 
-        lines: List[tuple] = []  # (item, amount, reference)
+        lines: List[tuple] = []  # (item, amount, reference, quantidade: (valor, unidade, datas) | None)
 
-        def add_auto(item: models.RHPayrollItem, amount: float, reference: Optional[str] = None):
+        def add_auto(item: models.RHPayrollItem, amount: float, reference: Optional[str] = None,
+                     quantity: Optional[tuple] = None):
             amount = round(amount, 2)
             if item.id in manual_item_ids or amount <= 0:
                 return
-            lines.append((item, amount, reference))
+            lines.append((item, amount, reference, quantity))
 
         # Salário do cargo vigente no mês (proporcional se o aumento for no meio do mês)
         salary, salary_reference, end_salary = salary_for_month(
@@ -465,16 +507,13 @@ def calculate_payroll(
         he_value = 0.0
         if paid_minutes > 0:
             factor_pay = 1 + overtime_rate / 100
-            he_value = round(
-                paid_by_mode["PAY"] / 60 * hourly_rate * factor_pay
-                + paid_by_mode["PAY_NORMAL"] / 60 * hourly_rate, 2
-            )
-            parts = []
-            if paid_by_mode["PAY"]:
-                parts.append(f"{_fmt_hours(paid_by_mode['PAY'])} a {overtime_rate:g}%")
-            if paid_by_mode["PAY_NORMAL"]:
-                parts.append(f"{_fmt_hours(paid_by_mode['PAY_NORMAL'])} normal")
-            add_auto(system_items["HE50"], he_value, " + ".join(parts))
+            he_rate_value = round(paid_by_mode["PAY"] / 60 * hourly_rate * factor_pay, 2)
+            he_normal_value = round(paid_by_mode["PAY_NORMAL"] / 60 * hourly_rate, 2)
+            he_value = he_rate_value + he_normal_value
+            add_auto(system_items["HE50"], he_rate_value,
+                     f"{_fmt_hours(paid_by_mode['PAY'])} a {overtime_rate:g}%", (paid_by_mode["PAY"], "MIN", None))
+            add_auto(system_items["HE_NORMAL"], he_normal_value,
+                     f"{_fmt_hours(paid_by_mode['PAY_NORMAL'])} normal", (paid_by_mode["PAY_NORMAL"], "MIN", None))
 
         # DSR/feriado trabalhado sem folga compensatória que o administrativo decidiu pagar em dobro
         # (aba Banco de horas). Quitado no próprio mês, fora do banco comum (Lei 605/49 art. 9º; Súmula 146 TST)
@@ -482,8 +521,11 @@ def calculate_payroll(
         he_double_value = round(double_minutes / 60 * hourly_rate * 2, 2) if double_minutes > 0 else 0.0
         if he_double_value:
             days_double = int(summary.get("double_to_pay_days") or 0)
+            double_dates = [d.isoformat() for d, dl in sorted(ledgers[emp.id].items())
+                            if dl.double_to_pay_min and d.month == schedule.month]
             add_auto(system_items["HE100"], he_double_value,
-                     f"{_fmt_hours(double_minutes)} a 100% ({days_double} dia(s))")
+                     f"{_fmt_hours(double_minutes)} a 100% ({days_double} dia(s))",
+                     (double_minutes, "MIN", double_dates))
 
         # Reflexo das horas extras habituais no DSR (Súmula 172 TST; Lei 605/49 art. 7º)
         if he_value + he_double_value > 0:
@@ -500,9 +542,11 @@ def calculate_payroll(
         bank.balance_minutes = available - paid_minutes
 
         # Faltas: desconto do dia e perda do DSR da semana
-        absence_days = [d for d, wd in work_days.items() if wd.status == "FALTA"]
+        absence_days = sorted(d for d, wd in work_days.items() if wd.status == "FALTA")
         if absence_days:
-            add_auto(system_items["FALTAS"], len(absence_days) * daily_rate, f"{len(absence_days)} dia(s)")
+            add_auto(system_items["FALTAS"], len(absence_days) * daily_rate, f"{len(absence_days)} dia(s)",
+                     (len(absence_days), "DIAS",
+                      [date(schedule.year, schedule.month, d).isoformat() for d in absence_days]))
             dsr_lost = count_lost_dsr(absence_days, work_days, schedule, num_days, dsr_mode)
             add_auto(system_items["DSR_FALTA"], dsr_lost * daily_rate, f"{dsr_lost} DSR")
 
@@ -530,7 +574,7 @@ def calculate_payroll(
                 add_auto(item, value)
 
         # Bases de cálculo a partir de todos os lançamentos (auto + manuais)
-        all_lines = [(it, amt) for it, amt, _ in lines] + [(e.item, e.amount) for e in manual_entries]
+        all_lines = [(it, amt) for it, amt, _, _ in lines] + [(e.item, e.amount) for e in manual_entries]
 
         def base_for(flag: str) -> float:
             total = 0.0
@@ -551,10 +595,12 @@ def calculate_payroll(
                  f"base {irrf_base:.2f}")
         add_auto(system_items["FGTS"], fgts_base * FGTS_RATE, f"base {fgts_base:.2f}")
 
-        for item, amount, reference in lines:
+        for item, amount, reference, quantity in lines:
+            qty, unit, dates = quantity or (None, None, None)
             db.add(models.RHPayrollEntry(
                 schedule_id=schedule.id, employee_id=emp.id, item_id=item.id,
-                reference=reference, amount=amount, source="AUTO"
+                reference=reference, amount=amount, source="AUTO",
+                quantity=qty, quantity_unit=unit, dates=dates
             ))
 
     db.commit()
@@ -604,16 +650,18 @@ def entry_to_dict(entry: models.RHPayrollEntry) -> Dict[str, Any]:
         "affects_net": item.affects_net,
         "reference": entry.reference,
         "amount": round(entry.amount or 0.0, 2),
+        "quantity": entry.quantity,
+        "quantity_unit": entry.quantity_unit,
+        "dates": entry.dates or [],
+        "report_to_accounting": bool(item.report_to_accounting),
+        "report_mode": item.report_mode or "VALOR",
         "source": entry.source,
         "notes": entry.notes,
     }
 
 
 def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMonthlySchedule) -> Dict[str, Any]:
-    employees = db.query(models.RHEmployee).filter(
-        models.RHEmployee.organization_id == organization_id,
-        models.RHEmployee.active == True
-    ).order_by(models.RHEmployee.name.asc()).all()
+    employees = payroll_employees(db, organization_id, schedule)
 
     entries = db.query(models.RHPayrollEntry).filter(
         models.RHPayrollEntry.schedule_id == schedule.id
@@ -669,6 +717,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "base_salary": salary_on(emp.role_obj, get_salary_history(db, emp.role_id), month_end),
             "dependents": emp.dependents or 0,
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
+            "termination_date": emp.termination_date.isoformat() if emp.termination_date else None,
             "entries": [entry_to_dict(e) for e in emp_entries],
             "totals": totals,
             "advance": {

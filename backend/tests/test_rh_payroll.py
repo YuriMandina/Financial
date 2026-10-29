@@ -508,7 +508,9 @@ class TestCalculatePayroll(unittest.TestCase):
         row.policy = "PAY_NORMAL"
         self.db.commit()
         lines, bank = self._payroll(nov)
-        self.assertEqual(lines["HE50"]["amount"], round(8 * 3000.0 / 200, 2))
+        self.assertEqual(lines["HE_NORMAL"]["amount"], round(8 * 3000.0 / 200, 2))
+        self.assertEqual(lines["HE_NORMAL"]["quantity"], 480)
+        self.assertNotIn("HE50", lines)
         self.assertEqual(bank["balance_minutes"], 0)
 
     def test_fixed_value_plus_bank(self):

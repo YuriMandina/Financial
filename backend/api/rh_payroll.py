@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -14,12 +15,15 @@ from services.rh_payroll_service import (
     get_payroll_month,
     entry_to_dict,
     CONFIGURABLE_PERCENT_ITEMS,
+    CONFIGURABLE_INCIDENCE_ITEMS,
+    REPORT_MODES,
     OVERTIME_POLICIES,
     calculate_payroll_through,
     sync_payroll_if_calculated,
     _previous_bank_balance
 )
 from services.rh_rest_work_service import decide_rest_work
+from services import rh_accounting_report as accounting
 
 router = APIRouter(prefix="/api/rh/payroll", tags=["rh-payroll"])
 
@@ -38,6 +42,8 @@ class PayrollItemCreate(BaseModel):
     incide_irrf: bool = True
     incide_fgts: bool = True
     active: bool = True
+    report_to_accounting: bool = True
+    report_mode: str = "VALOR"  # QUANTIDADE ou VALOR
 
 class PayrollItemUpdate(BaseModel):
     code: Optional[str] = None
@@ -50,6 +56,8 @@ class PayrollItemUpdate(BaseModel):
     incide_irrf: Optional[bool] = None
     incide_fgts: Optional[bool] = None
     active: Optional[bool] = None
+    report_to_accounting: Optional[bool] = None
+    report_mode: Optional[str] = None
 
 class PayrollCalculateRequest(BaseModel):
     year: int
@@ -64,6 +72,8 @@ class PayrollEntryCreate(BaseModel):
     amount: float
     reference: Optional[str] = None
     notes: Optional[str] = None
+    quantity: Optional[float] = None  # Minutos (MIN) ou dias (DIAS), para o informe à contabilidade
+    quantity_unit: Optional[str] = None
 
 class BankHoursPolicyUpdate(BaseModel):
     year: int
@@ -101,6 +111,8 @@ class PayrollEntryUpdate(BaseModel):
     amount: Optional[float] = None
     reference: Optional[str] = None
     notes: Optional[str] = None
+    quantity: Optional[float] = None
+    quantity_unit: Optional[str] = None
 
 # ==============================================================================
 # --- [BLOCO: AUXILIARES] ---
@@ -108,12 +120,14 @@ class PayrollEntryUpdate(BaseModel):
 
 VALID_KINDS = {"RECEITA", "DESPESA"}
 VALID_CALC_TYPES = {"FIXED", "PERCENT"}
+VALID_QUANTITY_UNITS = {"MIN", "DIAS"}
 
 # Campos que definem o comportamento do cálculo automático: bloqueados nas rubricas do sistema
 SYSTEM_LOCKED_FIELDS = {"kind", "calc_type", "default_value", "recurring", "incide_inss", "incide_irrf", "incide_fgts"}
 
 # Rubricas do sistema que permitem ajustar o percentual e as incidências (ex: Triênio)
 SYSTEM_CONFIGURABLE_FIELDS = {"default_value", "incide_inss", "incide_irrf", "incide_fgts"}
+SYSTEM_INCIDENCE_FIELDS = {"incide_inss", "incide_irrf", "incide_fgts"}
 
 
 def _get_or_create_schedule(db: Session, organization_id: int, year: int, month: int) -> models.RHMonthlySchedule:
@@ -150,11 +164,20 @@ def _get_entry(db: Session, organization_id: int, entry_id: int) -> models.RHPay
     return entry
 
 
-def _validate_item_fields(kind: Optional[str], calc_type: Optional[str]):
+def _validate_item_fields(kind: Optional[str], calc_type: Optional[str], report_mode: Optional[str] = None):
     if kind is not None and kind not in VALID_KINDS:
         raise HTTPException(status_code=400, detail="Tipo inválido: use RECEITA ou DESPESA")
     if calc_type is not None and calc_type not in VALID_CALC_TYPES:
         raise HTTPException(status_code=400, detail="Cálculo inválido: use FIXED ou PERCENT")
+    if report_mode is not None and report_mode not in REPORT_MODES:
+        raise HTTPException(status_code=400, detail="Forma do informe inválida: use QUANTIDADE ou VALOR")
+
+
+def _validate_quantity(quantity: Optional[float], unit: Optional[str]):
+    if quantity is not None and quantity < 0:
+        raise HTTPException(status_code=400, detail="Informe uma quantidade positiva")
+    if unit is not None and unit not in VALID_QUANTITY_UNITS:
+        raise HTTPException(status_code=400, detail="Unidade inválida: use MIN ou DIAS")
 
 
 def _item_to_dict(item: models.RHPayrollItem, usage_count: int) -> dict:
@@ -171,6 +194,10 @@ def _item_to_dict(item: models.RHPayrollItem, usage_count: int) -> dict:
         "incide_fgts": bool(item.incide_fgts),
         "system_key": item.system_key,
         "configurable": item.system_key in CONFIGURABLE_PERCENT_ITEMS,
+        "configurable_incidence": item.system_key is None or item.system_key in CONFIGURABLE_PERCENT_ITEMS
+        or item.system_key in CONFIGURABLE_INCIDENCE_ITEMS,
+        "report_to_accounting": bool(item.report_to_accounting),
+        "report_mode": item.report_mode or "VALOR",
         "affects_net": bool(item.affects_net),
         "active": bool(item.active),
         "usage_count": usage_count,
@@ -205,7 +232,7 @@ def create_item(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    _validate_item_fields(payload.kind, payload.calc_type)
+    _validate_item_fields(payload.kind, payload.calc_type, payload.report_mode)
     if not payload.code.strip() or not payload.name.strip():
         raise HTTPException(status_code=400, detail="Código e nome são obrigatórios")
 
@@ -221,7 +248,9 @@ def create_item(
         incide_irrf=payload.incide_irrf,
         incide_fgts=payload.incide_fgts,
         affects_net=True,
-        active=payload.active
+        active=payload.active,
+        report_to_accounting=payload.report_to_accounting,
+        report_mode=payload.report_mode
     )
     db.add(item)
     db.commit()
@@ -237,16 +266,21 @@ def update_item(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     item = _get_item(db, current_user.organization_id, item_id)
-    _validate_item_fields(payload.kind, payload.calc_type)
+    _validate_item_fields(payload.kind, payload.calc_type, payload.report_mode)
 
     changes = payload.model_dump(exclude_unset=True)
     if item.system_key:
         locked = SYSTEM_LOCKED_FIELDS & changes.keys()
         if item.system_key in CONFIGURABLE_PERCENT_ITEMS:
             locked -= SYSTEM_CONFIGURABLE_FIELDS
+        if item.system_key in CONFIGURABLE_INCIDENCE_ITEMS:
+            locked -= SYSTEM_INCIDENCE_FIELDS
         locked = {f for f in locked if changes[f] != getattr(item, f)}
         if locked:
-            raise HTTPException(status_code=400, detail="Rubricas do sistema só permitem alterar código e nome")
+            raise HTTPException(
+                status_code=400,
+                detail="Rubricas do sistema só permitem alterar código, nome e o informe à contabilidade"
+            )
 
     for field, value in changes.items():
         if value is None:
@@ -331,11 +365,14 @@ def create_entry(
         raise HTTPException(status_code=404, detail="Colaborador não encontrado")
     if payload.amount < 0:
         raise HTTPException(status_code=400, detail="Informe um valor positivo; o tipo da rubrica define se soma ou desconta")
+    _validate_quantity(payload.quantity, payload.quantity_unit)
 
     schedule = _get_or_create_schedule(db, org_id, payload.year, payload.month)
+    has_quantity = payload.quantity is not None
     entry = models.RHPayrollEntry(
         schedule_id=schedule.id, employee_id=emp.id, item_id=item.id,
-        amount=round(payload.amount, 2), reference=payload.reference, notes=payload.notes, source="MANUAL"
+        amount=round(payload.amount, 2), reference=payload.reference, notes=payload.notes, source="MANUAL",
+        quantity=payload.quantity, quantity_unit=(payload.quantity_unit or "MIN") if has_quantity else None
     )
     db.add(entry)
     db.commit()
@@ -361,6 +398,10 @@ def update_entry(
         entry.reference = payload.reference
     if payload.notes is not None:
         entry.notes = payload.notes
+    _validate_quantity(payload.quantity, payload.quantity_unit)
+    if payload.quantity is not None:
+        entry.quantity = payload.quantity
+        entry.quantity_unit = payload.quantity_unit or entry.quantity_unit or "MIN"
     # Editar um valor automático transforma o lançamento em manual (passa a prevalecer)
     entry.source = "MANUAL"
     db.commit()
@@ -651,3 +692,69 @@ def bank_hours_balances(
             "base_minutes": previous + credits - debits - payments,
         }
     return result
+
+
+# ==============================================================================
+# --- [BLOCO: INFORME À CONTABILIDADE] ---
+# Planejamento docs/conformidade-clt, v08 seção 20.
+# ==============================================================================
+
+def _accounting_schedule(db: Session, organization_id: int, year: int, month: int) -> models.RHMonthlySchedule:
+    """Folha do mês atualizada (folhas fechadas ficam congeladas) para montar o informe."""
+    schedule = _get_or_create_schedule(db, organization_id, year, month)
+    calculate_payroll_through(db, organization_id, schedule)
+    return schedule
+
+
+@router.get("/accounting-report")
+def get_accounting_report(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    org_id = current_user.organization_id
+    schedule = _accounting_schedule(db, org_id, year, month)
+    report = accounting.get_report(db, org_id, schedule)
+    db.commit()
+    return report
+
+
+@router.post("/accounting-report/sent")
+def mark_accounting_report_sent(
+    payload: PayrollMonth,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    org_id = current_user.organization_id
+    schedule = _accounting_schedule(db, org_id, payload.year, payload.month)
+    try:
+        return accounting.mark_sent(db, org_id, schedule, current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/accounting-report/export")
+def export_accounting_report(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    format: str = Query("pdf", pattern="^(pdf|csv)$"),
+    version: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    org_id = current_user.organization_id
+    schedule = _accounting_schedule(db, org_id, year, month)
+    try:
+        content = accounting.content_for_version(db, org_id, schedule, version)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    db.commit()
+    suffix = f"_v{version}" if version else ""
+    filename = f"informe_contabilidade_{year}-{month:02d}{suffix}"
+    if format == "csv":
+        return Response(accounting.content_to_csv(content), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'})
+    company = accounting._company_name(db.get(models.Organization, org_id))
+    return Response(accounting.content_to_pdf(content, company, version), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'})
