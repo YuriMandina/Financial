@@ -39,7 +39,7 @@ body.performance-mode * {
   /* Define o tamanho da folha como A4 Paisagem para caber todas as colunas */
   @page { 
     size: A4 landscape; 
-    margin: 6mm 8mm; 
+    margin: 4mm; 
   }
 
   /* Remove o fundo escuro APENAS do background global */
@@ -50,7 +50,7 @@ body.performance-mode * {
   }
 
   /* ── TABELA: reduz padding e fonte para caber na página ── */
-  table { 
+  table:not(.mural-print-table) { 
     width: 100% !important; 
     max-width: 100% !important;
     table-layout: auto !important;
@@ -60,7 +60,8 @@ body.performance-mode * {
     font-size: 8.5pt !important;
   }
 
-  th, td {
+  table:not(.mural-print-table) th,
+  table:not(.mural-print-table) td {
     font-size: 8.5pt !important;
     padding: 2px 4px !important;
     word-break: break-word !important;
@@ -69,8 +70,48 @@ body.performance-mode * {
   }
 
   /* Coluna Produto pode ser mais larga */
-  th:nth-child(2), td:nth-child(2) {
+  table:not(.mural-print-table) th:nth-child(2),
+  table:not(.mural-print-table) td:nth-child(2) {
     word-break: break-word !important;
+  }
+
+  /* ── MURAL DE HORÁRIOS (30/31 COLUNAS FIXAS SEM QUEBRA DE LINHA) ── */
+  table.mural-print-table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    border: 1px solid #64748b !important;
+    font-size: 7.5pt !important;
+  }
+
+  table.mural-print-table th,
+  table.mural-print-table td {
+    font-size: 7.5pt !important;
+    padding: 1.5px 0.5px !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+    overflow: hidden !important;
+    border: 1px solid #64748b !important;
+    vertical-align: middle !important;
+  }
+
+  table.mural-print-table th:first-child,
+  table.mural-print-table td:first-child {
+    padding: 2px 4px !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* Listras em zebra para leitura horizontal facilitada */
+  table.mural-print-table tbody tr:nth-child(even) {
+    background-color: #f1f5f9 !important;
+  }
+
+  /* Cards de horários especiais e folgas do mural */
+  .mural-special-card {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   /* A MÁGICA DA QUEBRA DE PÁGINA: O 'avoid' deve ficar APENAS no TR */
@@ -81,7 +122,8 @@ body.performance-mode * {
   }
 
   /* Bordas forçadas para todas as células */
-  td, th { 
+  table:not(.mural-print-table) td,
+  table:not(.mural-print-table) th { 
     border: 1px solid #cbd5e1 !important; 
   }
 
@@ -104,4 +146,3 @@ body.performance-mode * {
     display: table-row-group !important;
   }
 }
-

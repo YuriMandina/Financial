@@ -424,32 +424,53 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
     const jd = workDays[emp.id]?.[day];
     const cd = jd?.contract_day;
     const planned = cd && !cd.rest ? cd : null;
-    const workInfo = (src, special) => ({
-      kind: 'WORK',
-      start: src?.start_time,
-      end: src?.end_time,
-      lunchStart: src?.lunch_start,
-      lunchEnd: src?.lunch_end,
-      special
-    });
+    const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
+    const isHoliday = !!holidays[day];
+    const isSunday = weekday === 0;
 
-    if (!jd) return { kind: 'OFF' };
+    const workInfo = (src, special, specialType) => {
+      const lunchStart = (src && src.lunch_start !== undefined) ? src.lunch_start : planned?.lunch_start;
+      const lunchEnd = (src && src.lunch_end !== undefined) ? src.lunch_end : planned?.lunch_end;
+      return {
+        kind: 'WORK',
+        start: src?.start_time,
+        end: src?.end_time,
+        lunchStart,
+        lunchEnd,
+        special,
+        specialType
+      };
+    };
+
+    if (!jd) return { kind: 'OFF', label: isSunday ? 'DSR' : 'Folga Semanal' };
     switch (jd.status) {
       case 'TRABALHO': {
-        const special = !!planned && (jd.start_time !== planned.start_time || jd.end_time !== planned.end_time);
-        return workInfo(jd.start_time ? jd : planned, special);
+        const timeDiff = !!planned && (jd.start_time !== planned.start_time || jd.end_time !== planned.end_time);
+        const special = !planned || isSunday || isHoliday || timeDiff;
+        let specialType = null;
+        if (special) {
+          if (isSunday) specialType = 'Domingo';
+          else if (isHoliday) specialType = 'Feriado';
+          else if (timeDiff) specialType = 'Horário Especial';
+          else specialType = 'Extraordinário';
+        }
+        return workInfo(jd.start_time ? jd : planned, special, specialType);
       }
       case 'FALTA':
       case 'ATESTADO':
-        return planned ? workInfo(planned, false) : { kind: 'OFF' };
+        return planned ? workInfo(planned, false, null) : { kind: 'OFF', label: isSunday ? 'DSR' : 'Folga Semanal' };
       case 'FOLGA_BH':
-        return { kind: 'BH' };
+        return { kind: 'BH', label: 'Folga Banco de Horas' };
       case 'FERIADO':
-        return { kind: 'FER' };
+        return { kind: 'FER', label: `Feriado (${holidays[day] || 'Descanso'})` };
       case 'FERIAS':
-        return { kind: 'FE' };
+        return { kind: 'FE', label: 'Férias' };
+      case 'DSR':
+        return { kind: 'OFF', label: 'DSR' };
+      case 'FOLGA':
+        return { kind: 'OFF', label: isSunday ? 'DSR' : 'Folga Semanal' };
       default:
-        return { kind: 'OFF' };
+        return { kind: 'OFF', label: isSunday ? 'DSR' : 'Folga Semanal' };
     }
   };
 
@@ -464,25 +485,70 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
     const pad = (n) => String(n).padStart(2, '0');
     const mm = pad(selectedMonth);
 
-    // Grade do mês já resolvida + lista de horários especiais por colaborador
+    // Grade do mês já resolvida + lista de horários especiais e folgas por colaborador
     const muralRows = employees.map((emp) => {
       const days = {};
       const specials = [];
+      const folgas = [];
       daysList.forEach((day) => {
         const info = getMuralDay(emp, day);
         days[day] = info;
-        if (info.kind === 'WORK' && info.special) specials.push({ day, ...info });
-      });
-      return { emp, days, specials };
-    });
-    const rowsWithSpecials = muralRows.filter((r) => r.specials.length > 0);
+        const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
+        const isSunday = weekday === 0;
 
-    const formatTimes = (info) =>
-      `${info.start}–${info.end}${info.lunchStart ? ` (alm ${info.lunchStart}–${info.lunchEnd})` : ''}`;
+        if (info.kind === 'WORK') {
+          if (info.special) {
+            specials.push({
+              day,
+              weekday,
+              isSunday,
+              isHoliday: info.specialType === 'Feriado',
+              tag: info.specialType,
+              ...info
+            });
+          }
+        } else if (info.kind === 'BH') {
+          folgas.push({
+            day,
+            weekday,
+            isBH: true,
+            isSunday,
+            label: info.label || 'Folga Banco de Horas'
+          });
+        } else if (info.kind === 'OFF') {
+          folgas.push({
+            day,
+            weekday,
+            isBH: false,
+            isSunday,
+            label: info.label || (isSunday ? 'DSR' : 'Folga Semanal')
+          });
+        } else if (info.kind === 'FER') {
+          folgas.push({
+            day,
+            weekday,
+            isBH: false,
+            isSunday,
+            isHoliday: true,
+            label: info.label || 'Feriado'
+          });
+        }
+      });
+      return { emp, days, specials, folgas };
+    });
+    const rowsWithCards = muralRows.filter((r) => r.specials.length > 0 || r.folgas.length > 0);
+
+    const formatTimes = (info) => {
+      const s = info.start?.slice(0, 5) || '';
+      const e = info.end?.slice(0, 5) || '';
+      const ls = info.lunchStart?.slice(0, 5);
+      const le = info.lunchEnd?.slice(0, 5);
+      return `${s}–${e}${ls && le ? ` (alm ${ls}–${le})` : ''}`;
+    };
 
     return (
       <div className="space-y-6">
-        <style>{'@media print { @page { size: A4 landscape; margin: 8mm; } }'}</style>
+        <style>{'@media print { @page { size: A4 landscape; margin: 4mm; } }'}</style>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm print:bg-white print:border-0 print:shadow-none print:p-0">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -508,9 +574,9 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           ) : (
             <>
             {/* Versão compacta para impressão: mês inteiro em uma grade */}
-            <table className="hidden print:table w-full border-collapse table-fixed text-[9px] leading-tight text-black" style={{ wordBreak: 'keep-all', overflowWrap: 'normal' }}>
+            <table className="mural-print-table hidden print:table w-full border-collapse table-fixed text-[9px] leading-tight text-black">
               <colgroup>
-                <col style={{ width: '40mm' }} />
+                <col style={{ width: '34mm' }} />
                 {daysList.map((day) => <col key={day} />)}
               </colgroup>
               <thead>
@@ -522,18 +588,17 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                     return (
                       <th key={day} className={`px-0.5 py-1 text-center whitespace-nowrap border border-slate-500 font-semibold ${isRed ? 'bg-red-100' : ''}`}>
                         <div>{WEEKDAY_LABELS[weekday].charAt(0)}</div>
-                        <div className="text-[10px]">{pad(day)}</div>
+                        <div className="text-[9px]">{pad(day)}</div>
                       </th>
                     );
                   })}
                 </tr>
               </thead>
               <tbody>
-                {muralRows.map(({ emp, days }) => (
-                  <tr key={emp.id} className="break-inside-avoid">
-                    <td className="px-1.5 py-1 border border-slate-500">
-                      <div className="font-bold text-[10px] whitespace-nowrap">{emp.name}</div>
-                      <div className="text-[8px] text-slate-600 whitespace-nowrap">{emp.role || 'Geral'}</div>
+                {muralRows.map(({ emp, days }, empIdx) => (
+                  <tr key={emp.id} className={`break-inside-avoid ${empIdx % 2 === 1 ? 'bg-slate-100' : 'bg-white'}`}>
+                    <td className="px-1.5 py-1 border border-slate-500 max-w-[34mm] truncate">
+                      <div className="font-bold text-[9.5px] whitespace-nowrap truncate">{emp.name}</div>
                     </td>
                     {daysList.map((day) => {
                       const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
@@ -543,13 +608,28 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                       return (
                         <td
                           key={day}
-                          className={`px-0 py-1.5 text-center border border-slate-500 whitespace-nowrap ${
-                            isBH ? 'bg-slate-300 font-bold' : weekday === 0 || holidays[day] ? 'bg-red-50' : ''
-                          } ${isWork ? 'font-bold' : isBH ? '' : 'italic text-slate-500'}`}
+                          className={`px-0 py-1 text-center border border-slate-500 whitespace-nowrap ${
+                            isBH
+                              ? empIdx % 2 === 1 ? 'bg-slate-300 font-bold' : 'bg-slate-200 font-bold'
+                              : weekday === 0 || holidays[day]
+                                ? empIdx % 2 === 1 ? 'bg-red-100' : 'bg-red-50/60'
+                                : ''
+                          } ${isWork ? '' : isBH ? '' : 'italic text-slate-500'}`}
                         >
-                          {isWork
-                            ? `${compactTime(info.start)}-${compactTime(info.end)}${info.special ? '*' : ''}`
-                            : MURAL_KIND_LABELS[info.kind].short}
+                          {isWork ? (
+                            <div className="flex flex-col items-center justify-center leading-tight">
+                              <span className="font-bold">
+                                {`${compactTime(info.start)}\u2011${compactTime(info.end)}${info.special ? '*' : ''}`}
+                              </span>
+                              {info.lunchStart && info.lunchEnd ? (
+                                <span className="text-[6.5pt] font-normal text-slate-600 block tracking-tight">
+                                  {`${compactTime(info.lunchStart)}\u2011${compactTime(info.lunchEnd)}`}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            MURAL_KIND_LABELS[info.kind].short
+                          )}
                         </td>
                       );
                     })}
@@ -558,29 +638,89 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
               </tbody>
             </table>
             <p className="hidden print:block text-[9px] text-slate-700 mt-2">
-              Legenda: {Object.values(MURAL_KIND_LABELS).map((c) => `${c.short} = ${c.label}`).join(' · ')} · * = horário especial (ver abaixo)
+              Legenda: {Object.values(MURAL_KIND_LABELS).map((c) => `${c.short} = ${c.label}`).join(' · ')} · * = horário especial / domingo / feriado (ver cards abaixo) · Célula: linha superior = jornada / linha inferior = almoço
               {Object.keys(holidays).length > 0 && ` · Feriados: ${Object.entries(holidays).map(([d, n]) => `${pad(d)}/${mm} ${n}`).join(', ')}`}
             </p>
-            {rowsWithSpecials.length > 0 && (
-              <div className="hidden print:block mt-2 text-[9px] text-black break-inside-avoid">
-                <div className="font-bold mb-0.5">* Horários especiais</div>
-                <ul className="space-y-1">
-                  {rowsWithSpecials.map(({ emp, specials }) => (
-                    <li key={emp.id} className="flex items-start gap-1.5 break-inside-avoid">
-                      <span className="font-bold whitespace-nowrap pt-0.5 min-w-[28mm]">{emp.name}</span>
-                      <div className="flex flex-wrap gap-1">
-                        {specials.map((s) => (
-                          <div key={s.day} className="border border-slate-500 rounded px-1.5 py-0.5 whitespace-nowrap">
-                            <span className="font-bold">{pad(s.day)}/{mm}</span>{' '}
-                            {WEEKDAY_LABELS[new Date(selectedYear, selectedMonth - 1, s.day).getDay()]}
-                            <span className="mx-1 text-slate-400">|</span>
-                            <span className="font-mono">{formatTimes(s)}</span>
-                          </div>
-                        ))}
+            {rowsWithCards.length > 0 && (
+              <div className="hidden print:block mt-3 text-black">
+                <div className="font-bold text-[10px] uppercase tracking-wide mb-1.5 border-b border-black pb-0.5 flex items-center justify-between">
+                  <span>* Programação de Horários Especiais e Folgas por Colaborador</span>
+                  <span className="text-[8px] font-normal normal-case text-slate-600">
+                    Mês de {MONTH_LABELS[selectedMonth - 1]} / {selectedYear}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {rowsWithCards.map(({ emp, specials, folgas }) => (
+                    <div
+                      key={emp.id}
+                      className="mural-special-card border border-slate-500 rounded-md p-2 bg-white break-inside-avoid shadow-none"
+                    >
+                      <div className="font-bold text-[9.5px] text-black border-b border-slate-300 pb-1 mb-1.5 flex items-center justify-between">
+                        <span>{emp.name}</span>
+                        <span className="text-[7.5px] font-normal text-slate-600">
+                          {specials.length} especial(is) · {folgas.length} folga(s)
+                        </span>
                       </div>
-                    </li>
+
+                      {specials.length > 0 && (
+                        <div className="mb-1.5">
+                          <div className="text-[7px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
+                            Jornadas Especiais, Domingos e Feriados:
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {specials.map((s) => (
+                              <div
+                                key={s.day}
+                                className={`border rounded px-1.5 py-0.5 text-[8px] whitespace-nowrap leading-tight ${
+                                  s.isSunday || s.isHoliday
+                                    ? 'border-red-400 bg-red-50 text-red-950 font-semibold'
+                                    : 'border-slate-400 bg-white'
+                                }`}
+                              >
+                                <span className="font-bold">{pad(s.day)}/{mm}</span>{' '}
+                                {WEEKDAY_LABELS[s.weekday]}
+                                <span className="mx-1 text-slate-400">|</span>
+                                <span className="font-mono">{formatTimes(s)}</span>
+                                {s.tag && (
+                                  <span className="ml-1 text-[7px] font-semibold px-1 py-0.2 rounded bg-slate-200 text-slate-800">
+                                    {s.tag}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {folgas.length > 0 && (
+                        <div>
+                          <div className="text-[7px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">
+                            Folgas Programadas:
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {folgas.map((f) => (
+                              <div
+                                key={f.day}
+                                className={`border rounded px-1.5 py-0.5 text-[8px] whitespace-nowrap leading-tight ${
+                                  f.isBH
+                                    ? 'border-slate-500 bg-slate-200 font-semibold text-slate-900'
+                                    : f.isSunday
+                                      ? 'border-red-300 bg-red-50 text-red-900'
+                                      : 'border-slate-300 bg-slate-50 text-slate-800'
+                                }`}
+                              >
+                                <span className="font-bold">{pad(f.day)}/{mm}</span>{' '}
+                                {WEEKDAY_LABELS[f.weekday]}
+                                <span className="mx-1 text-slate-400">|</span>
+                                <span>{f.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
             )}
 
