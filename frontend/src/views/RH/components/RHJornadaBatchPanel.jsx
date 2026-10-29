@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Sparkles, Sliders, Users, Calendar, Clock, Check, ChevronDown,
-  Search, X, RefreshCw, FileText, AlertCircle
+  Search, X, RefreshCw, FileText, AlertCircle, AlertTriangle
 } from 'lucide-react';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
 import CalendarCheckboxDropdown from '../../../components/common/CalendarCheckboxDropdown';
@@ -50,6 +50,220 @@ export const shiftClockTime = (timeStr, minutesDiff, fallback = '07:00') => {
 export const contractTimes = (cd) => (cd && !cd.rest && cd.start_time
   ? { start_time: cd.start_time, lunch_start: cd.lunch_start || null, lunch_end: cd.lunch_end || null, end_time: cd.end_time }
   : null);
+
+// ==============================================================================
+// --- [BLOCO: VALIDADOR PREVENTIVO DE DOMINGOS CONSECUTIVOS (REGRA R07)] ---
+// ==============================================================================
+
+/**
+ * Avalia se a escala proposta para um colaborador gera domingos consecutivos trabalhados
+ * acima de `maxConsecutiveSundays` (considerando os domingos trabalhados no fim do mês anterior).
+ *
+ * @param {object} emp Objeto do colaborador (com prior_sunday_streak.dates)
+ * @param {number[]} sundays Dias do mês atual que são domingo (ex: [4, 11, 18, 25])
+ * @param {number} selectedMonth Mês atual (1..12)
+ * @param {object} currentEmpDays Mapa atual de dias do colaborador { [day]: { status } }
+ * @param {object} proposedByDay Mapa de alterações propostas neste ato { [day]: status }
+ * @param {number} maxConsecutiveSundays Limite máximo de domingos seguidos (padrão 2)
+ */
+export function evaluateEmployeeSundayConflicts({
+  emp,
+  sundays = [],
+  selectedMonth,
+  currentEmpDays = {},
+  proposedByDay = {},
+  maxConsecutiveSundays = 2
+}) {
+  const priorDates = emp?.prior_sunday_streak?.dates || [];
+  let streak = priorDates.map((label) => ({ day: null, label, isPrior: true, isProposed: false }));
+  const conflicts = [];
+
+  sundays.forEach((sunDay) => {
+    const hasProposal = Object.prototype.hasOwnProperty.call(proposedByDay, sunDay);
+    const effectiveStatus = hasProposal
+      ? proposedByDay[sunDay]
+      : (currentEmpDays[sunDay]?.status || 'DSR');
+    const worked = effectiveStatus === 'TRABALHO';
+    const label = `${String(sunDay).padStart(2, '0')}/${String(selectedMonth).padStart(2, '0')}`;
+
+    if (worked) {
+      streak.push({ day: sunDay, label, isPrior: false, isProposed: hasProposal });
+      if (streak.length > maxConsecutiveSundays) {
+        const anyProposedInStreak = streak.some((item) => item.isProposed);
+        if (anyProposedInStreak) {
+          // Domingos propostos nesta operação que participam da sequência irregular
+          const proposedDaysInStreak = streak.filter((item) => item.isProposed).map((item) => item.day);
+          conflicts.push({
+            empId: emp.id,
+            empName: emp.name,
+            day: sunDay,
+            dayLabel: label,
+            streakCount: streak.length,
+            streakLabels: streak.map((s) => s.label),
+            priorLabels: streak.filter((s) => s.isPrior).map((s) => s.label),
+            proposedDaysToSkip: proposedDaysInStreak
+          });
+        }
+      }
+    } else {
+      streak = [];
+    }
+  });
+
+  return conflicts;
+}
+
+/**
+ * Calcula o resumo de domingos de um colaborador no mês (maior sequência e se há R07)
+ * para exibição na Visão de Domingos.
+ */
+export function getEmployeeSundaySummary(emp, sundays = [], selectedMonth, empDays = {}, maxConsecutiveSundays = 2) {
+  const priorDates = emp?.prior_sunday_streak?.dates || [];
+  let currentStreak = priorDates.length;
+  let maxStreak = currentStreak;
+  let workedInMonth = 0;
+
+  sundays.forEach((sunDay) => {
+    const st = empDays[sunDay]?.status || 'DSR';
+    if (st === 'TRABALHO') {
+      workedInMonth += 1;
+      currentStreak += 1;
+      if (currentStreak > maxStreak) maxStreak = currentStreak;
+    } else {
+      currentStreak = 0;
+    }
+  });
+
+  return {
+    priorCount: priorDates.length,
+    priorDates,
+    workedInMonth,
+    maxStreak,
+    hasViolation: maxStreak > maxConsecutiveSundays
+  };
+}
+
+// ==============================================================================
+// --- [BLOCO: MODAL DE CONFIRMAÇÃO PREVENTIVA DE DOMINGOS SEGUIDOS] ---
+// ==============================================================================
+
+export function SundayConflictModal({
+  conflicts = [],
+  maxConsecutiveSundays = 2,
+  onCancel,
+  onSkipConflicts,
+  onForceApply
+}) {
+  if (!conflicts || conflicts.length === 0) return null;
+
+  // Agrupa por colaborador para exibição limpa
+  const groupedByEmp = useMemo(() => {
+    const map = new Map();
+    conflicts.forEach((c) => {
+      if (!map.has(c.empId)) {
+        map.set(c.empId, {
+          empId: c.empId,
+          empName: c.empName,
+          items: []
+        });
+      }
+      map.get(c.empId).items.push(c);
+    });
+    return Array.from(map.values());
+  }, [conflicts]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-amber-500/50 rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4 text-xs text-slate-200 animate-in zoom-in-95 duration-150">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2.5 text-amber-300 font-bold text-sm">
+            <AlertTriangle size={20} className="text-amber-400 shrink-0" />
+            Alerta de Domingos Consecutivos (Regra R07)
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-slate-400 hover:text-white p-1 rounded"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <p className="text-slate-300 leading-relaxed">
+          A configuração selecionada fará com que{' '}
+          <strong className="text-white">
+            {groupedByEmp.length} {groupedByEmp.length === 1 ? 'colaborador trabalhe' : 'colaboradores trabalhem'}
+          </strong>{' '}
+          mais de <strong className="text-amber-300">{maxConsecutiveSundays} domingos consecutivos</strong>{' '}
+          (contando os domingos trabalhados no final do mês anterior):
+        </p>
+
+        <div className="max-h-56 overflow-y-auto space-y-2 bg-slate-950 border border-slate-800 rounded-xl p-3">
+          {groupedByEmp.map((group) => {
+            const worst = group.items[group.items.length - 1];
+            return (
+              <div
+                key={group.empId}
+                className="border-b border-slate-800/70 last:border-b-0 pb-2 last:pb-0 space-y-1"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-white">{group.empName}</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950/70 text-rose-300 border border-rose-500/40">
+                    {worst.streakCount}º domingo seguido
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  Sequência:{' '}
+                  <span className="text-amber-200 font-medium">
+                    {worst.streakLabels.join(' → ')}
+                  </span>
+                  {worst.priorLabels.length > 0 && (
+                    <span className="text-slate-500">
+                      {' '}(inclui {worst.priorLabels.join(' e ')} do mês anterior)
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="bg-amber-950/20 border border-amber-500/30 rounded-lg p-2.5 text-[11px] text-amber-200/90">
+          O repouso semanal remunerado deve coincidir com o domingo ao menos 1 vez a cada {maxConsecutiveSundays + 1} semanas. Como deseja prosseguir?
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-slate-800">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-2 rounded-lg text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 font-medium transition-colors"
+          >
+            Cancelar
+          </button>
+
+          {onSkipConflicts && (
+            <button
+              type="button"
+              onClick={onSkipConflicts}
+              className="px-3.5 py-2 rounded-lg font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition-colors"
+              title="Mantém esses domingos como DSR e aplica todos os demais dias selecionados"
+            >
+              Pular Domingos Irregulares
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onForceApply}
+            className="px-3.5 py-2 rounded-lg font-semibold bg-amber-600 hover:bg-amber-500 text-white shadow transition-colors"
+          >
+            Aplicar Mesmo Assim (Ciente)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ==============================================================================
 // --- [BLOCO: SELETOR MULTI-COLABORADOR COM BUSCA E FILTRO POR CARGO] ---
@@ -223,6 +437,7 @@ function MultiEmployeeDropdown({ employees = [], selectedIds = [], onChange }) {
             ) : (
               filteredEmployees.map((emp) => {
                 const isSelected = selectedIds.includes(emp.id);
+                const priorSunCount = emp.prior_sunday_streak?.count || 0;
                 return (
                   <button
                     key={emp.id}
@@ -235,7 +450,17 @@ function MultiEmployeeDropdown({ employees = [], selectedIds = [], onChange }) {
                     }`}
                   >
                     <div className="min-w-0 flex-1 truncate">
-                      <div className="truncate">{emp.name}</div>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">{emp.name}</span>
+                        {priorSunCount > 0 && (
+                          <span
+                            className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950/70 text-amber-300 border border-amber-500/30 shrink-0"
+                            title={`Trabalhou ${priorSunCount} domingo(s) seguido(s) no fim do mês anterior (${emp.prior_sunday_streak.dates.join(', ')})`}
+                          >
+                            {priorSunCount} dom. ant.
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-slate-400 truncate">
                         {emp.role || 'Geral'}
                         {emp.contract?.summary ? ` • ${emp.contract.summary}` : ''}
@@ -288,6 +513,7 @@ export default function RHJornadaBatchPanel({
   selectedMonth,
   scheduleId,
   workDays = {},
+  maxConsecutiveSundays = 2,
   token,
   apiBase,
   onClose,
@@ -321,7 +547,6 @@ export default function RHJornadaBatchPanel({
 
   // Estados do Ajuste Personalizado em Lote
   const [customStatus, setCustomStatus] = useState('TRABALHO');
-  // Submodo de horário quando customStatus === 'TRABALHO': 'FIXED' (Horário Fixo) | 'OFFSET' (Variação sobre o Contrato)
   const [workTimeMode, setWorkTimeMode] = useState('FIXED');
 
   // Horário fixo
@@ -335,12 +560,15 @@ export default function RHJornadaBatchPanel({
 
   // Variação sobre o contrato (em minutos)
   const [startOffsetMin, setStartOffsetMin] = useState(0);
-  const [endOffsetMin, setEndOffsetMin] = useState(60); // Ex: +1h extra na saída por padrão
+  const [endOffsetMin, setEndOffsetMin] = useState(60);
   const [skipRestOnOffset, setSkipRestOnOffset] = useState(true);
 
   // Metadados adicionais do lançamento
   const [isLateRecord, setIsLateRecord] = useState(false);
   const [batchNotes, setBatchNotes] = useState('');
+
+  // Estado para confirmação preventiva de domingos consecutivos (R07)
+  const [pendingBatchAction, setPendingBatchAction] = useState(null); // { entries, skippedManualCount, skippedRestCount, conflicts }
 
   const fixedWorkedMinutes = useMemo(() => {
     return computeWorkedMinutes({
@@ -406,14 +634,56 @@ export default function RHJornadaBatchPanel({
   // --- [BLOCO: EXECUÇÃO DO LOTE (CONTRATO OU AJUSTE PERSONALIZADO)] ---
   // ==============================================================================
 
+  const submitCustomEntries = async (entries, skippedManualCount, skippedRestCount, skippedSundayCount = 0) => {
+    if (entries.length === 0) {
+      alert('Nenhum dia restou para aplicação após pular os domingos irregulares.');
+      return;
+    }
+    try {
+      setSubmitting(true);
+      const res = await fetch(`${apiBase}/api/rh/schedules/work-days`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          schedule_id: scheduleId,
+          entries
+        })
+      });
+
+      const resData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(resData.detail || 'Erro ao aplicar ajuste em lote');
+      }
+
+      if (resData.new_violations?.length && onViolationsToast) {
+        onViolationsToast(resData.new_violations);
+      }
+
+      const msgParts = [`Ajuste em lote aplicado (${entries.length} lançamento${entries.length === 1 ? '' : 's'})!`];
+      if (skippedSundayCount > 0) msgParts.push(`${skippedSundayCount} domingo(s) irregular(es) pulado(s).`);
+      if (skippedManualCount > 0) msgParts.push(`${skippedManualCount} manual(is) preservado(s).`);
+      if (skippedRestCount > 0) msgParts.push(`${skippedRestCount} descanso(s) ignorado(s).`);
+
+      if (onSuccess) {
+        await onSuccess(msgParts.join(' '));
+      }
+    } catch (err) {
+      alert('Falha ao aplicar preenchimento em lote: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleExecuteBatch = async () => {
     if (selectedEmployeeIds.length === 0 || fillSelectedDays.length === 0) return;
 
-    try {
-      setSubmitting(true);
-
-      // 1. MODO SEMANA-PADRÃO DO CONTRATO
-      if (fillMode === 'CONTRACT') {
+    // 1. MODO SEMANA-PADRÃO DO CONTRATO
+    if (fillMode === 'CONTRACT') {
+      try {
+        setSubmitting(true);
         const isAllEmp = selectedEmployeeIds.length === employees.length;
         const payload = {
           schedule_id: scheduleId,
@@ -448,124 +718,132 @@ export default function RHJornadaBatchPanel({
         } else if (onSuccess) {
           await onSuccess(resData.message || 'Contrato aplicado em lote com sucesso!');
         }
-        return;
+      } catch (err) {
+        alert('Falha ao aplicar preenchimento em lote: ' + err.message);
+      } finally {
+        setSubmitting(false);
       }
-
-      // 2. MODO AJUSTE PERSONALIZADO EM LOTE
-      const entries = [];
-      let skippedManualCount = 0;
-      let skippedRestCount = 0;
-
-      selectedEmployeeIds.forEach((empId) => {
-        fillSelectedDays.forEach((day) => {
-          const current = workDays[empId]?.[day];
-          if (current?.is_manual && !fillOverwriteManual) {
-            skippedManualCount += 1;
-            return;
-          }
-
-          let start_time = null;
-          let lunch_start = null;
-          let lunch_end = null;
-          let end_time = null;
-          let worked_minutes = 0;
-
-          if (customStatus === 'TRABALHO') {
-            if (workTimeMode === 'FIXED') {
-              start_time = fixedTimes.start_time || '07:00';
-              lunch_start = noLunch ? null : (fixedTimes.lunch_start || '12:00');
-              lunch_end = noLunch ? null : (fixedTimes.lunch_end || '13:00');
-              end_time = fixedTimes.end_time || '16:00';
-              worked_minutes = computeWorkedMinutes({ start_time, lunch_start, lunch_end, end_time });
-            } else {
-              // Variação sobre o contrato individual do colaborador no dia
-              const isHol = Boolean(holidays[day]);
-              const baseContract = contractTimes(current?.contract_day);
-              if ((isHol || !baseContract) && skipRestOnOffset) {
-                skippedRestCount += 1;
-                return;
-              }
-              const base = baseContract || {
-                start_time: '07:00',
-                lunch_start: '12:00',
-                lunch_end: '13:00',
-                end_time: '16:00'
-              };
-              start_time = shiftClockTime(base.start_time, startOffsetMin, '07:00');
-              lunch_start = base.lunch_start || null;
-              lunch_end = base.lunch_end || null;
-              end_time = shiftClockTime(base.end_time, endOffsetMin, '16:00');
-              worked_minutes = computeWorkedMinutes({ start_time, lunch_start, lunch_end, end_time });
-            }
-          }
-
-          const entry = {
-            employee_id: empId,
-            day,
-            status: customStatus,
-            start_time,
-            lunch_start,
-            lunch_end,
-            end_time,
-            worked_minutes,
-            is_manual: true,
-            is_late_record: customStatus === 'TRABALHO' ? Boolean(isLateRecord) : false
-          };
-
-          if (batchNotes.trim()) {
-            entry.notes = batchNotes.trim();
-          }
-
-          entries.push(entry);
-        });
-      });
-
-      if (entries.length === 0) {
-        if (skippedManualCount > 0) {
-          alert(
-            `Nenhum dia foi atualizado porque os ${skippedManualCount} lançamento(s) selecionados já possuem edição manual.\n\nMarque "Sobrescrever edições manuais" para atualizar mesmo assim.`
-          );
-        } else if (skippedRestCount > 0) {
-          alert(
-            'Nenhum dia útil de contrato encontrado nas datas selecionadas (todos os dias selecionados são descanso/feriado ou sem contrato vigente).'
-          );
-        }
-        return;
-      }
-
-      const res = await fetch(`${apiBase}/api/rh/schedules/work-days`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          schedule_id: scheduleId,
-          entries
-        })
-      });
-
-      const resData = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(resData.detail || 'Erro ao aplicar ajuste em lote');
-      }
-
-      if (resData.new_violations?.length && onViolationsToast) {
-        onViolationsToast(resData.new_violations);
-      }
-
-      const msgParts = [`Ajuste em lote aplicado (${entries.length} lançamento${entries.length === 1 ? '' : 's'})!`];
-      if (skippedManualCount > 0) msgParts.push(`${skippedManualCount} manual(is) preservado(s).`);
-      if (skippedRestCount > 0) msgParts.push(`${skippedRestCount} descanso(s) ignorado(s).`);
-
-      if (onSuccess) {
-        await onSuccess(msgParts.join(' '));
-      }
-    } catch (err) {
-      alert('Falha ao aplicar preenchimento em lote: ' + err.message);
-    } finally {
-      setSubmitting(false);
+      return;
     }
+
+    // 2. MODO AJUSTE PERSONALIZADO EM LOTE
+    const entries = [];
+    let skippedManualCount = 0;
+    let skippedRestCount = 0;
+
+    selectedEmployeeIds.forEach((empId) => {
+      fillSelectedDays.forEach((day) => {
+        const current = workDays[empId]?.[day];
+        if (current?.is_manual && !fillOverwriteManual) {
+          skippedManualCount += 1;
+          return;
+        }
+
+        let start_time = null;
+        let lunch_start = null;
+        let lunch_end = null;
+        let end_time = null;
+        let worked_minutes = 0;
+
+        if (customStatus === 'TRABALHO') {
+          if (workTimeMode === 'FIXED') {
+            start_time = fixedTimes.start_time || '07:00';
+            lunch_start = noLunch ? null : (fixedTimes.lunch_start || '12:00');
+            lunch_end = noLunch ? null : (fixedTimes.lunch_end || '13:00');
+            end_time = fixedTimes.end_time || '16:00';
+            worked_minutes = computeWorkedMinutes({ start_time, lunch_start, lunch_end, end_time });
+          } else {
+            const isHol = Boolean(holidays[day]);
+            const baseContract = contractTimes(current?.contract_day);
+            if ((isHol || !baseContract) && skipRestOnOffset) {
+              skippedRestCount += 1;
+              return;
+            }
+            const base = baseContract || {
+              start_time: '07:00',
+              lunch_start: '12:00',
+              lunch_end: '13:00',
+              end_time: '16:00'
+            };
+            start_time = shiftClockTime(base.start_time, startOffsetMin, '07:00');
+            lunch_start = base.lunch_start || null;
+            lunch_end = base.lunch_end || null;
+            end_time = shiftClockTime(base.end_time, endOffsetMin, '16:00');
+            worked_minutes = computeWorkedMinutes({ start_time, lunch_start, lunch_end, end_time });
+          }
+        }
+
+        const entry = {
+          employee_id: empId,
+          day,
+          status: customStatus,
+          start_time,
+          lunch_start,
+          lunch_end,
+          end_time,
+          worked_minutes,
+          is_manual: true,
+          is_late_record: customStatus === 'TRABALHO' ? Boolean(isLateRecord) : false
+        };
+
+        if (batchNotes.trim()) {
+          entry.notes = batchNotes.trim();
+        }
+
+        entries.push(entry);
+      });
+    });
+
+    if (entries.length === 0) {
+      if (skippedManualCount > 0) {
+        alert(
+          `Nenhum dia foi atualizado porque os ${skippedManualCount} lançamento(s) selecionados já possuem edição manual.\n\nMarque "Sobrescrever edições manuais" para atualizar mesmo assim.`
+        );
+      } else if (skippedRestCount > 0) {
+        alert(
+          'Nenhum dia útil de contrato encontrado nas datas selecionadas (todos os dias selecionados são descanso/feriado ou sem contrato vigente).'
+        );
+      }
+      return;
+    }
+
+    // Verifica preventivamente se há conflitos de domingos consecutivos (R07)
+    if (customStatus === 'TRABALHO') {
+      const allConflicts = [];
+      const empById = new Map(employees.map((e) => [e.id, e]));
+      const proposedByEmp = {};
+      entries.forEach((item) => {
+        if (!proposedByEmp[item.employee_id]) proposedByEmp[item.employee_id] = {};
+        proposedByEmp[item.employee_id][item.day] = item.status;
+      });
+
+      Object.entries(proposedByEmp).forEach(([empIdStr, proposedMap]) => {
+        const empId = parseInt(empIdStr, 10);
+        const emp = empById.get(empId);
+        if (!emp) return;
+        const empConflicts = evaluateEmployeeSundayConflicts({
+          emp,
+          sundays,
+          selectedMonth,
+          currentEmpDays: workDays[empId] || {},
+          proposedByDay: proposedMap,
+          maxConsecutiveSundays
+        });
+        allConflicts.push(...empConflicts);
+      });
+
+      if (allConflicts.length > 0) {
+        setPendingBatchAction({
+          entries,
+          skippedManualCount,
+          skippedRestCount,
+          conflicts: allConflicts
+        });
+        return;
+      }
+    }
+
+    await submitCustomEntries(entries, skippedManualCount, skippedRestCount);
   };
 
   return (
@@ -854,7 +1132,6 @@ export default function RHJornadaBatchPanel({
                   </p>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-                    {/* Variação na Entrada */}
                     <div className="bg-slate-900 border border-slate-800 rounded-lg p-2.5 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-slate-300 font-medium">Variação na Entrada</span>
@@ -884,7 +1161,6 @@ export default function RHJornadaBatchPanel({
                       </div>
                     </div>
 
-                    {/* Variação na Saída (Hora Extra / Sair mais cedo) */}
                     <div className="bg-slate-900 border border-slate-800 rounded-lg p-2.5 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-slate-300 font-medium">Variação na Saída (HE / Banco)</span>
@@ -914,7 +1190,6 @@ export default function RHJornadaBatchPanel({
                       </div>
                     </div>
 
-                    {/* Proteção de DSR/Folgas do Contrato */}
                     <div className="bg-slate-900 border border-slate-800 rounded-lg p-2.5">
                       <StyledCheckbox
                         checked={skipRestOnOffset}
@@ -988,7 +1263,32 @@ export default function RHJornadaBatchPanel({
               : 'Aplicar Ajuste em Lote'}
         </button>
       </div>
+
+      {/* Modal de Confirmação Preventiva de Domingos Consecutivos (R07) no Lote */}
+      {pendingBatchAction && (
+        <SundayConflictModal
+          conflicts={pendingBatchAction.conflicts}
+          maxConsecutiveSundays={maxConsecutiveSundays}
+          onCancel={() => setPendingBatchAction(null)}
+          onSkipConflicts={async () => {
+            const { entries, skippedManualCount, skippedRestCount, conflicts } = pendingBatchAction;
+            const skipSet = new Set();
+            conflicts.forEach((c) => {
+              // Pula o domingo do mês atual que causou o estouro
+              skipSet.add(`${c.empId}:${c.day}`);
+            });
+            const filtered = entries.filter((e) => !skipSet.has(`${e.employee_id}:${e.day}`));
+            const skippedSun = entries.length - filtered.length;
+            setPendingBatchAction(null);
+            await submitCustomEntries(filtered, skippedManualCount, skippedRestCount, skippedSun);
+          }}
+          onForceApply={async () => {
+            const { entries, skippedManualCount, skippedRestCount } = pendingBatchAction;
+            setPendingBatchAction(null);
+            await submitCustomEntries(entries, skippedManualCount, skippedRestCount, 0);
+          }}
+        />
+      )}
     </div>
   );
 }
-
