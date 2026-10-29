@@ -10,6 +10,20 @@ export const UFS = [
 
 const opts = (list) => list.map((v) => ({ value: v, label: v }));
 
+// Motivos do desligamento (mesmas chaves de TERMINATION_REASONS no backend)
+export const TERMINATION_REASON_LABELS = {
+  PEDIDO: 'Pedido de demissão',
+  SEM_JUSTA_CAUSA: 'Dispensa sem justa causa',
+  JUSTA_CAUSA: 'Dispensa por justa causa',
+  FIM_EXPERIENCIA: 'Término do contrato de experiência',
+  FIM_PRAZO: 'Término do contrato por prazo determinado',
+  ACORDO: 'Acordo (art. 484-A)',
+  FALECIMENTO: 'Falecimento'
+};
+
+export const TERMINATION_REASON_OPTIONS = Object.entries(TERMINATION_REASON_LABELS)
+  .map(([value, label]) => ({ value, label }));
+
 // --- Máscaras ---------------------------------------------------------------------
 const digits = (v, max) => String(v || '').replace(/\D/g, '').slice(0, max);
 

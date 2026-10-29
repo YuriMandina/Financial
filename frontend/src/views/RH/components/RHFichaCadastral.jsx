@@ -1,6 +1,6 @@
 import React from 'react';
 import { Printer, X, FileText } from 'lucide-react';
-import { PROFILE_SECTIONS, SECTION_BY_KEY, formatDateBR } from './employeeProfileSchema';
+import { PROFILE_SECTIONS, SECTION_BY_KEY, formatDateBR, TERMINATION_REASON_LABELS } from './employeeProfileSchema';
 
 const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -101,6 +101,14 @@ export default function RHFichaCadastral({ employee, roleName, organizationName,
     { label: 'Cargo', value: roleName, span: 2 },
     { label: 'Salário (cargo)', value: brl(employee.base_salary), span: 1 },
     { label: 'Data de Admissão', value: formatDateBR(employee.admission_date), span: 1 },
+    ...(employee.termination_date
+      ? [{
+        label: 'Desligamento',
+        value: [formatDateBR(employee.termination_date), TERMINATION_REASON_LABELS[employee.termination_reason]]
+          .filter(Boolean).join(' — '),
+        span: 2
+      }]
+      : []),
     { label: 'Matrícula', value: contrato.matricula, span: 1 },
     { label: 'Tipo de Contrato', value: contrato.tipo_contrato, span: 1 },
     { label: 'Fim da Experiência', value: formatDateBR(contrato.experiencia_fim), span: 1 },
