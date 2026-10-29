@@ -6,41 +6,15 @@ import {
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 import StyledCheckbox from '../../../components/common/StyledCheckbox';
-import CalendarCheckboxDropdown from '../../../components/common/CalendarCheckboxDropdown';
-
-const STATUS_OPTIONS = [
-  { key: 'TRABALHO', label: 'Trabalho', short: 'TRAB', bg: 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30' },
-  { key: 'DSR', label: 'DSR (Domingo)', short: 'DSR', bg: 'bg-red-950/30 text-red-400 border-red-500/40 hover:bg-red-950/50' },
-  { key: 'FOLGA', label: 'Folga Semanal', short: 'FOLGA', bg: 'bg-slate-800/40 text-slate-400 border-slate-700/50 hover:bg-slate-800/70' },
-  { key: 'FERIADO', label: 'Feriado', short: 'FER', bg: 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30' },
-  { key: 'FERIAS', label: 'Férias', short: 'FE', bg: 'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30' },
-  { key: 'FOLGA_BH', label: 'Folga Banco Horas', short: 'BH', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30' },
-  { key: 'FALTA', label: 'Falta Injustificada', short: 'FALTA', bg: 'bg-rose-900/40 text-rose-300 border-rose-600/50 hover:bg-rose-900/60' },
-  { key: 'ATESTADO', label: 'Atestado Médico', short: 'ATEST', bg: 'bg-cyan-600/20 text-cyan-300 border-cyan-500/40 hover:bg-cyan-600/30' }
-];
+import RHJornadaBatchPanel, {
+  STATUS_OPTIONS,
+  toMinutes,
+  computeWorkedMinutes,
+  formatWorked,
+  contractTimes
+} from './RHJornadaBatchPanel';
 
 const UNDO_LIMIT = 50;
-
-const toMinutes = (t) => {
-  if (!t) return null;
-  const [h, m] = t.split(':').map((v) => parseInt(v, 10));
-  return Number.isNaN(h) || Number.isNaN(m) ? null : h * 60 + m;
-};
-
-const spanMinutes = (from, to) => (to < from ? to + 1440 - from : to - from);
-
-// Horas líquidas do dia; mesma regra de compute_raw_minutes no backend
-const computeWorkedMinutes = ({ start_time, lunch_start, lunch_end, end_time }) => {
-  const start = toMinutes(start_time);
-  const end = toMinutes(end_time);
-  if (start === null || end === null) return 0;
-  const lStart = toMinutes(lunch_start);
-  const lEnd = toMinutes(lunch_end);
-  const lunch = lStart !== null && lEnd !== null ? spanMinutes(lStart, lEnd) : 0;
-  return Math.max(0, spanMinutes(start, end) - lunch);
-};
-
-const formatWorked = (mins) => `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}`;
 
 // Hora compacta para a célula: "07:00" → "7", "07:30" → "7:30"
 const compactTime = (t) => {
@@ -58,11 +32,6 @@ const shortHours = (mins) => {
   const m = abs % 60;
   return `${h}h${m ? String(m).padStart(2, '0') : ''}`;
 };
-
-// Horários do contrato no dia (contract_day vem da API); null quando o dia é descanso ou sem contrato
-const contractTimes = (cd) => (cd && !cd.rest && cd.start_time
-  ? { start_time: cd.start_time, lunch_start: cd.lunch_start || null, lunch_end: cd.lunch_end || null, end_time: cd.end_time }
-  : null);
 
 const LATE_DECISIONS = [
   { key: 'ACEITAR_COMPENSACAO', label: 'Aceitar compensação' },
@@ -132,28 +101,11 @@ export default function RHJornadaGrid({
   const dragRef = React.useRef(null);
   const selectionAnchorRef = React.useRef(null);
 
-  // Parâmetros do Painel de Preenchimento em Lote
-  const [fillTargetEmployees, setFillTargetEmployees] = useState('ALL'); // 'ALL' ou empId
-  const [fillDayFrom, setFillDayFrom] = useState(1);
-  const [fillDayTo, setFillDayTo] = useState(daysList.length || 31);
-  const [fillWeekdays, setFillWeekdays] = useState([0, 1, 2, 3, 4, 5]); // Seg a Sáb por padrão
-  const [fillSelectedDays, setFillSelectedDays] = useState(daysList.length ? daysList : Array.from({ length: 31 }, (_, i) => i + 1));
-  const [fillOverwriteManual, setFillOverwriteManual] = useState(false);
-  const [fillClearUnselected, setFillClearUnselected] = useState(false);
-  const [filling, setFilling] = useState(false);
-
   // Estados do Modal de Limpar / Resetar Escala
   const [clearModalOpen, setClearModalOpen] = useState(false);
   const [clearEmployeeId, setClearEmployeeId] = useState('ALL');
   const [clearMode, setClearMode] = useState('CLEAR_OFF'); // 'CLEAR_OFF' ou 'RESET_DEFAULT'
   const [clearing, setClearing] = useState(false);
-
-  // Sincroniza fillSelectedDays caso daysList mude
-  React.useEffect(() => {
-    if (daysList.length > 0) {
-      setFillSelectedDays(daysList);
-    }
-  }, [daysList]);
 
   // Resumo do mês vem do backend (ledger): horas extras e débitos só mudam após salvar
   const summaryMap = useMemo(() => {
@@ -577,60 +529,6 @@ export default function RHJornadaGrid({
   };
 
   // ==============================================================================
-  // --- [PREENCHIMENTO INTELIGENTE EM LOTE] ---
-  // ==============================================================================
-
-  const handleExecuteFill = async () => {
-    try {
-      setFilling(true);
-      const hasSpecificDays = fillSelectedDays && fillSelectedDays.length > 0;
-      const payload = {
-        schedule_id: scheduleId,
-        employee_ids: fillTargetEmployees === 'ALL' ? null : [parseInt(fillTargetEmployees, 10)],
-        status: 'TRABALHO',
-        day_from: parseInt(fillDayFrom, 10) || 1,
-        day_to: parseInt(fillDayTo, 10) || daysList.length,
-        weekdays: hasSpecificDays ? null : fillWeekdays,
-        selected_days: fillSelectedDays,
-        overwrite_manual: fillOverwriteManual,
-        clear_unselected: fillClearUnselected
-      };
-
-      const res = await fetch(`${apiBase}/api/rh/schedules/fill`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const resData = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(resData.detail || 'Erro ao preencher escala');
-      }
-
-      if (resData.skipped_manual_count > 0 && resData.updated_count === 0) {
-        alert(
-          `Nenhuma alteração foi realizada porque ${resData.skipped_manual_count} dia(s) já possuem edições manuais registradas.\n\nPara forçar a aplicação neste período, marque a opção "Sobrescrever edições manuais".`
-        );
-      } else {
-        setFillDrawerOpen(false);
-        setSaveMsg(resData.message || 'Contrato aplicado com sucesso!');
-        setTimeout(() => setSaveMsg(''), 6000);
-      }
-
-      setDirty(false);
-      setUndoStack([]);
-      if (onRefresh) await onRefresh();
-    } catch (err) {
-      alert('Falha ao aplicar o contrato em lote: ' + err.message);
-    } finally {
-      setFilling(false);
-    }
-  };
-
-  // ==============================================================================
   // --- [LIMPAR OU RESETAR ESCALA] ---
   // ==============================================================================
 
@@ -691,7 +589,7 @@ export default function RHJornadaGrid({
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 transition-colors"
           >
             <Sliders size={14} />
-            {fillDrawerOpen ? 'Fechar Painel' : 'Aplicar Contrato em Lote'}
+            {fillDrawerOpen ? 'Fechar Painel' : 'Preenchimento em Lote'}
           </button>
 
           <button
@@ -734,95 +632,30 @@ export default function RHJornadaGrid({
         </div>
       </div>
 
-      {/* Gaveta Dobrável: Painel de Aplicação de Turnos com Escopo */}
+      {/* Gaveta Dobrável: Painel Unificado de Preenchimento e Ajuste em Lote */}
       {fillDrawerOpen && (
-        <div className="bg-slate-950 border border-indigo-500/30 rounded-xl p-4 space-y-4 shadow-lg animate-in fade-in duration-200">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
-              <Sparkles size={16} />
-              Preenchimento pela Semana-Padrão do Contrato
-            </div>
-            <button
-              onClick={() => setFillDrawerOpen(false)}
-              className="text-slate-400 hover:text-white p-1 rounded"
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          <p className="text-[11px] text-slate-400">
-            Cada dia recebe exatamente o horário do contrato vigente na data (DSR, folgas e feriados incluídos).
-            O preenchimento em lote nunca gera hora extra; variações são feitas manualmente.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div>
-              <label className="block text-slate-400 mb-1">Colaborador(es)</label>
-              <SelectDropdown
-                value={fillTargetEmployees}
-                onChange={(val) => setFillTargetEmployees(val)}
-                searchable={employees.length > 5}
-                placeholder="Selecione o colaborador"
-                options={[
-                  { value: 'ALL', label: `Toda a Equipe (${employees.length})` },
-                  ...employees.map((e) => ({
-                    value: e.id,
-                    label: e.name,
-                    subtitle: e.role || 'Geral'
-                  }))
-                ]}
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 mb-1">Datas para Aplicação</label>
-              <CalendarCheckboxDropdown
-                year={selectedYear}
-                month={selectedMonth}
-                selectedDays={fillSelectedDays}
-                onChange={(days) => setFillSelectedDays(days)}
-                sundays={sundays}
-                holidays={holidays}
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 mb-1">Opções de Aplicação</label>
-              <div className="mt-2 space-y-2">
-                <StyledCheckbox
-                  checked={fillOverwriteManual}
-                  onChange={(checked) => setFillOverwriteManual(checked)}
-                  label="Sobrescrever edições manuais"
-                  description="Reaplica o contrato também em dias editados"
-                />
-                <StyledCheckbox
-                  checked={fillClearUnselected}
-                  onChange={(checked) => setFillClearUnselected(checked)}
-                  label="Substituir escala inteira"
-                  description="Define dias não selecionados como folga semanal (sem debitar BH)"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Barra de Ações Inferior */}
-          <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-slate-800/60 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400">Total a preencher:</span>
-              <span className="font-bold text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2.5 py-0.5 rounded-full">
-                {fillSelectedDays.length} {fillSelectedDays.length === 1 ? 'dia' : 'dias'}
-              </span>
-            </div>
-
-            <button
-              onClick={handleExecuteFill}
-              disabled={filling || fillSelectedDays.length === 0}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {filling ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {filling ? 'Aplicando...' : 'Aplicar na Escala'}
-            </button>
-          </div>
-        </div>
+        <RHJornadaBatchPanel
+          employees={employees}
+          daysList={daysList}
+          sundays={sundays}
+          holidays={holidays}
+          selectedYear={selectedYear}
+          selectedMonth={selectedMonth}
+          scheduleId={scheduleId}
+          workDays={localWorkDays}
+          token={token}
+          apiBase={apiBase}
+          onClose={() => setFillDrawerOpen(false)}
+          onViolationsToast={(violations) => setToast(violations)}
+          onSuccess={async (message) => {
+            setFillDrawerOpen(false);
+            setDirty(false);
+            setUndoStack([]);
+            setSaveMsg(message);
+            setTimeout(() => setSaveMsg(''), 6000);
+            if (onRefresh) await onRefresh();
+          }}
+        />
       )}
 
       {/* Barra de Ações da Seleção Múltipla */}
