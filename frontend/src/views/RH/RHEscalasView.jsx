@@ -79,6 +79,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   const [workDays, setWorkDays] = useState({});
   const [benefitAdjustments, setBenefitAdjustments] = useState([]);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+  const [selectedTeam, setSelectedTeam] = useState('ALL'); // 'ALL' ou nome da equipe
   const [selectedPrintEmpIds, setSelectedPrintEmpIds] = useState(null); // null = todos visíveis; Set/Array de IDs caso filtrado
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
   const filterPopoverRef = useRef(null);
@@ -89,6 +90,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   const [employeeFormData, setEmployeeFormData] = useState({
     name: '',
     role_id: '',
+    team: '',
     default_daily_transport_tickets: 2,
     daily_meal_cost: 25.00,
     base_salary: '0,00',
@@ -241,6 +243,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       const payload = {
         name: employeeFormData.name,
         role_id: employeeFormData.role_id ? parseInt(employeeFormData.role_id, 10) : null,
+        team: (employeeFormData.team || '').trim() || null,
         default_daily_transport_tickets: Number.isNaN(parseInt(employeeFormData.default_daily_transport_tickets, 10)) ? 2 : parseInt(employeeFormData.default_daily_transport_tickets, 10),
         daily_meal_cost: parseFloat(String(employeeFormData.daily_meal_cost).replace(',', '.')) || 25.00,
         dependents: parseInt(employeeFormData.dependents, 10) || 0,
@@ -394,11 +397,26 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   const roles = scheduleData?.roles || [];
   const ticketUnitPrice = scheduleData?.settings?.transport_ticket_unit_price || 4.70;
 
-  // Lista de colaboradores filtrados para a visualização/impressão do mural
+  // Equipes disponíveis cadastradas
+  const availableTeams = useMemo(() => {
+    const set = new Set();
+    employees.forEach((e) => {
+      if (e.team && String(e.team).trim()) set.add(String(e.team).trim());
+    });
+    return Array.from(set).sort();
+  }, [employees]);
+
+  // Colaboradores ativos no escopo da equipe selecionada (ou todos se 'ALL')
+  const scopedEmployees = useMemo(() => {
+    if (selectedTeam === 'ALL') return employees;
+    return employees.filter((e) => (e.team || '').trim() === selectedTeam);
+  }, [employees, selectedTeam]);
+
+  // Lista de colaboradores para o mural: escopo da equipe + filtro pontual de impressão se houver
   const activePrintEmployees = useMemo(() => {
-    if (!selectedPrintEmpIds) return employees;
-    return employees.filter((e) => selectedPrintEmpIds.includes(e.id));
-  }, [employees, selectedPrintEmpIds]);
+    if (!selectedPrintEmpIds) return scopedEmployees;
+    return scopedEmployees.filter((e) => selectedPrintEmpIds.includes(e.id));
+  }, [scopedEmployees, selectedPrintEmpIds]);
 
   const handlePrint = () => {
     window.print();
@@ -494,11 +512,11 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
     const pad = (n) => String(n).padStart(2, '0');
     const mm = pad(selectedMonth);
 
-    const isAllSelected = !selectedPrintEmpIds || selectedPrintEmpIds.length === employees.length;
-    const selectedCount = selectedPrintEmpIds ? selectedPrintEmpIds.length : employees.length;
+    const isAllSelected = !selectedPrintEmpIds || selectedPrintEmpIds.length === scopedEmployees.length;
+    const selectedCount = selectedPrintEmpIds ? selectedPrintEmpIds.length : scopedEmployees.length;
 
     const toggleEmpPrint = (id) => {
-      const currentSelected = selectedPrintEmpIds ? [...selectedPrintEmpIds] : employees.map((e) => e.id);
+      const currentSelected = selectedPrintEmpIds ? [...selectedPrintEmpIds] : scopedEmployees.map((e) => e.id);
       if (currentSelected.includes(id)) {
         setSelectedPrintEmpIds(currentSelected.filter((item) => item !== id));
       } else {
@@ -506,7 +524,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       }
     };
 
-    const selectAllPrint = () => setSelectedPrintEmpIds(employees.map((e) => e.id));
+    const selectAllPrint = () => setSelectedPrintEmpIds(scopedEmployees.map((e) => e.id));
     const clearAllPrint = () => setSelectedPrintEmpIds([]);
 
     // Grade do mês já resolvida + lista de horários especiais e folgas por colaborador
@@ -579,9 +597,19 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
               <h3 className="text-base font-semibold text-white flex items-center gap-2 print:text-black print:text-xl">
                 <Clock className="text-indigo-400 print:hidden" size={20} />
                 Mural de Horários — {MONTH_LABELS[selectedMonth - 1]} / {selectedYear}
+                {selectedTeam !== 'ALL' && (
+                  <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 print:border-black print:text-black">
+                    Equipe: {selectedTeam || 'Sem equipe'}
+                  </span>
+                )}
               </h3>
               <p className="text-xs text-slate-400 print:text-slate-700">
-                Programação diária de entrada, almoço e saída de todos os colaboradores.
+                Programação diária de entrada, almoço e saída {selectedTeam !== 'ALL' ? `da equipe ${selectedTeam}` : 'de todos os colaboradores'}.
+                {selectedTeam !== 'ALL' && (
+                  <span className="font-semibold text-indigo-400 print:text-black ml-1">
+                    [Equipe {selectedTeam}]
+                  </span>
+                )}
                 {!isAllSelected && (
                   <span className="ml-2 font-medium text-amber-400 print:hidden">
                     • Exibindo {selectedCount} de {employees.length} colaboradores
@@ -637,7 +665,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                     </div>
 
                     <div className="max-h-60 overflow-y-auto space-y-1 pr-1">
-                      {employees.map((emp) => {
+                      {scopedEmployees.map((emp) => {
                         const checked = !selectedPrintEmpIds || selectedPrintEmpIds.includes(emp.id);
                         return (
                           <label
@@ -1018,6 +1046,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
               setEmployeeFormData({
                 name: '',
                 role_id: roles[0]?.id || '',
+                team: selectedTeam !== 'ALL' ? selectedTeam : '',
                 default_daily_transport_tickets: 2,
                 daily_meal_cost: '25,00',
                 base_salary: '0,00',
@@ -1046,6 +1075,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           <thead>
             <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
               <th className="py-3 px-4">Nome</th>
+              <th className="py-3 px-4">Equipe / Unidade</th>
               <th className="py-3 px-4">Cargo</th>
               <th className="py-3 px-4">Contrato de Jornada</th>
               <th className="py-3 px-4 text-right">Salário</th>
@@ -1057,14 +1087,14 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">
-            {employees.length === 0 ? (
+            {scopedEmployees.length === 0 ? (
               <tr>
-                <td colSpan={9} className="py-8 text-center text-slate-500">
-                  Nenhum colaborador cadastrado. Clique no botão acima para adicionar.
+                <td colSpan={10} className="py-8 text-center text-slate-500">
+                  {employees.length === 0 ? 'Nenhum colaborador cadastrado. Clique no botão acima para adicionar.' : 'Nenhum colaborador encontrado para a equipe selecionada.'}
                 </td>
               </tr>
             ) : (
-              employees.map((emp) => {
+              scopedEmployees.map((emp) => {
                 return (
                   <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3 px-4 font-semibold text-slate-200">
@@ -1077,6 +1107,15 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                           </span>
                         ) : null;
                       })()}
+                    </td>
+                    <td className="py-3 px-4">
+                      {emp.team ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
+                          {emp.team}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-500 italic">Não definida</span>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-slate-300">
                       <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-medium text-[11px]">
@@ -1120,6 +1159,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                           setEmployeeFormData({
                             name: emp.name,
                             role_id: emp.role_id || '',
+                            team: emp.team || '',
                             default_daily_transport_tickets: emp.default_daily_transport_tickets ?? 2,
                             daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2).replace('.', ','),
                             base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
@@ -1332,6 +1372,46 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           <div className="text-xs text-slate-400">
             Escala programada antecipadamente para cálculo de benefícios
           </div>
+
+          {/* Seletor Global de Equipe (Departamento Pessoal) */}
+          <div className="flex items-center gap-2 pl-4 border-l border-slate-800">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Users size={13} className="text-indigo-400" />
+              Equipe:
+            </span>
+            <div className="min-w-[170px]">
+              <SelectDropdown
+                size="sm"
+                value={selectedTeam}
+                onChange={(val) => {
+                  setSelectedTeam(val);
+                  setSelectedPrintEmpIds(null); // Reseta filtros pontuais de impressão ao trocar de equipe
+                }}
+                options={[
+                  { value: 'ALL', label: 'Todas as equipes (Consolidado)', subtitle: `${employees.length} colaborador(es)` },
+                  ...availableTeams.map((t) => {
+                    const count = employees.filter((e) => (e.team || '').trim() === t).length;
+                    return { value: t, label: t, subtitle: `${count} colaborador(es)` };
+                  }),
+                  ...(employees.some((e) => !(e.team || '').trim()) && availableTeams.length > 0 ? [{
+                    value: '',
+                    label: 'Sem equipe atribuída',
+                    subtitle: `${employees.filter((e) => !(e.team || '').trim()).length} colaborador(es)`
+                  }] : [])
+                ]}
+              />
+            </div>
+            {selectedTeam !== 'ALL' && (
+              <button
+                type="button"
+                onClick={() => setSelectedTeam('ALL')}
+                className="text-[10px] text-slate-400 hover:text-white px-1.5 py-1 rounded bg-slate-800 hover:bg-slate-700 transition-colors"
+                title="Ver todas as equipes juntas"
+              >
+                Limpar filtro
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Ações de Gravação e Impressão */}
@@ -1513,7 +1593,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           absenceDsrMode={scheduleData?.settings?.absence_dsr_mode || 'ONE'}
           maxConsecutiveSundays={scheduleData?.settings?.max_consecutive_sundays ?? 2}
           priorSundayDates={scheduleData?.prior_sunday_dates || []}
-          employees={employees}
+          employees={scopedEmployees}
           workDays={workDays}
           daysList={daysList}
           sundays={sundays}
@@ -1530,7 +1610,10 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       {activeTab === 'transporte' && (
         <RHBeneficiosGrid
           type="VT"
-          employees={employees}
+          employees={scopedEmployees}
+          allEmployees={employees}
+          selectedTeam={selectedTeam}
+          company={scheduleData?.settings?.company || {}}
           workDays={workDays}
           benefitAdjustments={benefitAdjustments}
           daysList={daysList}
@@ -1549,7 +1632,10 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       {activeTab === 'alimentacao' && (
         <RHBeneficiosGrid
           type="VA"
-          employees={employees}
+          employees={scopedEmployees}
+          allEmployees={employees}
+          selectedTeam={selectedTeam}
+          company={scheduleData?.settings?.company || {}}
           workDays={workDays}
           benefitAdjustments={benefitAdjustments}
           daysList={daysList}
@@ -1567,7 +1653,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       {activeTab === 'folha_ponto' && (
         <RHJornadasTab
           loading={loading}
-          employees={employees}
+          employees={scopedEmployees}
           selectedYear={selectedYear}
           selectedMonth={selectedMonth}
           numDays={scheduleData?.num_days || 31}
@@ -1581,6 +1667,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
             setEmployeeFormData({
               name: emp.name,
               role_id: emp.role_id || '',
+              team: emp.team || '',
               default_daily_transport_tickets: emp.default_daily_transport_tickets ?? 2,
               daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2),
               base_salary: Number(emp.base_salary || 0).toFixed(2).replace('.', ','),
@@ -1623,7 +1710,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           selectedMonth={selectedMonth}
           scheduleId={scheduleData?.schedule_id}
           focusFingerprint={auditFocus}
-          employees={employees}
+          employees={scopedEmployees}
           onChanged={fetchSchedule}
         />
       )}
@@ -1778,8 +1865,26 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-1">
+                  <label className="block text-slate-400 mb-1">Equipe / Unidade</label>
+                  <input
+                    type="text"
+                    list="rh-available-teams-list"
+                    value={employeeFormData.team || ''}
+                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, team: e.target.value })}
+                    placeholder="Ex: Atacado, Varejo..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                  <datalist id="rh-available-teams-list">
+                    {availableTeams.map((t) => (
+                      <option key={t} value={t} />
+                    ))}
+                  </datalist>
+                  <span className="text-[10px] text-slate-500">Centro de custo / rateio</span>
+                </div>
+
+                <div className="col-span-1">
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-slate-400">Cargo</label>
                     <button
