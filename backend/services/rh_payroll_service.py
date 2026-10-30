@@ -316,6 +316,8 @@ def bank_entry_to_dict(e: models.RHBankHoursEntry) -> Dict[str, Any]:
         "kind": e.kind,
         "minutes": int(e.minutes or 0),
         "pay_mode": e.pay_mode,
+        "origin_year": getattr(e, "origin_year", None),
+        "origin_month": getattr(e, "origin_month", None),
         "note": e.note,
         "created_at": e.created_at.isoformat() if e.created_at else None,
     }
@@ -387,7 +389,9 @@ def compute_bank_aging_map(
             scale_neg = sum(-m['minutes'] for m in mvs if m.get('in_bank') and m['minutes'] < 0)
 
             ents = entries_map.get((s.id, emp.id), [])
-            cred = sum(e.minutes for e in ents if e.kind == 'CREDIT')
+            # Separar creditos com competencia de origem explicita daqueles do mes corrente
+            cred_current = sum(e.minutes for e in ents if e.kind == 'CREDIT' and not (e.origin_year and e.origin_month))
+            cred_with_origin = [e for e in ents if e.kind == 'CREDIT' and (e.origin_year and e.origin_month)]
             deb = sum(e.minutes for e in ents if e.kind == 'DEBIT')
             paid = sum(e.minutes for e in ents if e.kind == 'PAYMENT')
 
@@ -405,7 +409,7 @@ def compute_bank_aging_map(
                     first['remaining_minutes'] -= consumed
                     consumed = 0
 
-            added = scale_pos + cred
+            added = scale_pos + cred_current
             if consumed > 0:
                 added -= consumed
 
@@ -423,6 +427,25 @@ def compute_bank_aging_map(
                     'origin_minutes': added,
                     'remaining_minutes': added
                 }]
+
+            # Injetar creditos com competencia de origem explicita (ex: horas passadas de controle interno)
+            for c_entry in cred_with_origin:
+                c_min = int(c_entry.minutes or 0)
+                if c_min > 0:
+                    # Encontra se ja existe um balde com aquela competencia
+                    match_bucket = next((b for b in buckets if b['year'] == c_entry.origin_year and b['month'] == c_entry.origin_month), None)
+                    if match_bucket:
+                        match_bucket['origin_minutes'] += c_min
+                        match_bucket['remaining_minutes'] += c_min
+                    else:
+                        buckets.append({
+                            'year': c_entry.origin_year,
+                            'month': c_entry.origin_month,
+                            'origin_minutes': c_min,
+                            'remaining_minutes': c_min
+                        })
+            # Mantem os baldes ordenados cronologicamente para a regra FIFO funcionar
+            buckets.sort(key=lambda b: (b['year'] * 12 + b['month']))
 
         aging_buckets = []
         expired_min = 0

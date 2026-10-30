@@ -407,6 +407,8 @@ class RHBankHoursEntry(Base):
     kind = Column(String, nullable=False) # PAYMENT, CREDIT ou DEBIT
     minutes = Column(Integer, nullable=False) # Sempre positivo; o tipo define o sinal
     pay_mode = Column(String, nullable=True) # PAYMENT: PAY (com acréscimo) ou PAY_NORMAL
+    origin_year = Column(Integer, nullable=True) # Competência de origem para controle de aging/CCT
+    origin_month = Column(Integer, nullable=True) # Competência de origem para controle de aging/CCT
     note = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

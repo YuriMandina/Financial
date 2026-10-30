@@ -88,6 +88,8 @@ class BankHoursEntryCreate(BaseModel):
     kind: str  # PAYMENT, CREDIT ou DEBIT
     minutes: int
     pay_mode: Optional[str] = None  # PAYMENT: PAY ou PAY_NORMAL
+    origin_year: Optional[int] = None
+    origin_month: Optional[int] = None
     note: Optional[str] = None
 
 class RestWorkDecisionUpdate(BaseModel):
@@ -529,7 +531,7 @@ def create_bank_hours_entry(
     if payload.kind == "PAYMENT" and payload.pay_mode not in ("PAY", "PAY_NORMAL"):
         raise HTTPException(status_code=400, detail="Informe se o pagamento é com acréscimo ou valor normal")
     if payload.kind in ("CREDIT", "DEBIT") and not (payload.note or "").strip():
-        raise HTTPException(status_code=400, detail="Informe o motivo do ajuste")
+        payload.note = "Ajuste de controle interno"
 
     emp = db.query(models.RHEmployee).filter(
         models.RHEmployee.id == payload.employee_id,
@@ -554,6 +556,8 @@ def create_bank_hours_entry(
     db.add(models.RHBankHoursEntry(
         schedule_id=schedule.id, employee_id=emp.id, kind=payload.kind, minutes=payload.minutes,
         pay_mode=payload.pay_mode if payload.kind == "PAYMENT" else None,
+        origin_year=payload.origin_year,
+        origin_month=payload.origin_month,
         note=(payload.note or "").strip() or None
     ))
     db.commit()
