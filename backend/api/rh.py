@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timedelta, timezone
@@ -134,10 +135,19 @@ class RHContractUpdate(BaseModel):
     change_reason: Optional[str] = None
     notes: Optional[str] = None
 
+class RHTeamCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class RHTeamUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
 class RHEmployeeCreate(BaseModel):
     name: str
     role_id: Optional[int] = None
     role: Optional[str] = None
+    team_id: Optional[int] = None
     team: Optional[str] = None
     default_daily_transport_tickets: int = 2
     daily_transport_cost: float = 9.40
@@ -154,6 +164,7 @@ class RHEmployeeUpdate(BaseModel):
     name: Optional[str] = None
     role_id: Optional[int] = None
     role: Optional[str] = None
+    team_id: Optional[int] = None
     team: Optional[str] = None
     default_daily_transport_tickets: Optional[int] = None
     daily_transport_cost: Optional[float] = None
@@ -730,6 +741,157 @@ def update_rh_settings(
     return settings
 
 # ==============================================================================
+# --- [BLOCO: GESTÃO DE EQUIPES / UNIDADES] ---
+# ==============================================================================
+
+@router.get("/teams")
+def list_teams(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Lista todas as equipes/unidades cadastradas com contagem de colaboradores vinculados."""
+    teams = db.query(models.RHTeam).filter(
+        models.RHTeam.organization_id == current_user.organization_id
+    ).order_by(models.RHTeam.name.asc()).all()
+
+    # Contagem de colaboradores ativos por team_id
+    counts = dict(
+        db.query(models.RHEmployee.team_id, func.count(models.RHEmployee.id))
+        .filter(
+            models.RHEmployee.organization_id == current_user.organization_id,
+            models.RHEmployee.active == True,
+            models.RHEmployee.team_id.isnot(None)
+        )
+        .group_by(models.RHEmployee.team_id)
+        .all()
+    )
+
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "members_count": counts.get(t.id, 0),
+            "created_at": t.created_at.isoformat() if t.created_at else None
+        }
+        for t in teams
+    ]
+
+
+@router.post("/teams")
+def create_team(
+    payload: RHTeamCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    name_clean = payload.name.strip()
+    if not name_clean:
+        raise HTTPException(status_code=400, detail="O nome da equipe é obrigatório")
+
+    existing = db.query(models.RHTeam).filter(
+        models.RHTeam.organization_id == current_user.organization_id,
+        func.lower(models.RHTeam.name) == name_clean.lower()
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Já existe uma equipe cadastrada com o nome '{name_clean}'")
+
+    team = models.RHTeam(
+        organization_id=current_user.organization_id,
+        name=name_clean,
+        description=(payload.description or "").strip() or None
+    )
+    db.add(team)
+    db.commit()
+    db.refresh(team)
+    return {
+        "id": team.id,
+        "name": team.name,
+        "description": team.description,
+        "members_count": 0,
+        "created_at": team.created_at.isoformat() if team.created_at else None
+    }
+
+
+@router.put("/teams/{team_id}")
+def update_team(
+    team_id: int,
+    payload: RHTeamUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    team = db.query(models.RHTeam).filter(
+        models.RHTeam.id == team_id,
+        models.RHTeam.organization_id == current_user.organization_id
+    ).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Equipe não encontrada")
+
+    if payload.name is not None:
+        name_clean = payload.name.strip()
+        if not name_clean:
+            raise HTTPException(status_code=400, detail="O nome da equipe não pode ficar vazio")
+        # Verificar duplicidade se mudou de nome
+        if name_clean.lower() != team.name.lower():
+            dup = db.query(models.RHTeam).filter(
+                models.RHTeam.organization_id == current_user.organization_id,
+                models.RHTeam.id != team_id,
+                func.lower(models.RHTeam.name) == name_clean.lower()
+            ).first()
+            if dup:
+                raise HTTPException(status_code=400, detail=f"Já existe outra equipe com o nome '{name_clean}'")
+            team.name = name_clean
+            # Sincroniza em cascata o texto denormalizado nos colaboradores vinculados
+            db.query(models.RHEmployee).filter(
+                models.RHEmployee.organization_id == current_user.organization_id,
+                models.RHEmployee.team_id == team_id
+            ).update({"team": name_clean}, synchronize_session=False)
+
+    if payload.description is not None:
+        team.description = payload.description.strip() or None
+
+    db.commit()
+    db.refresh(team)
+
+    count = db.query(models.RHEmployee).filter(
+        models.RHEmployee.organization_id == current_user.organization_id,
+        models.RHEmployee.team_id == team.id,
+        models.RHEmployee.active == True
+    ).count()
+
+    return {
+        "id": team.id,
+        "name": team.name,
+        "description": team.description,
+        "members_count": count,
+        "created_at": team.created_at.isoformat() if team.created_at else None
+    }
+
+
+@router.delete("/teams/{team_id}")
+def delete_team(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    team = db.query(models.RHTeam).filter(
+        models.RHTeam.id == team_id,
+        models.RHTeam.organization_id == current_user.organization_id
+    ).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Equipe não encontrada")
+
+    # Desvincula colaboradores antes de remover a equipe
+    db.query(models.RHEmployee).filter(
+        models.RHEmployee.organization_id == current_user.organization_id,
+        models.RHEmployee.team_id == team_id
+    ).update({"team_id": None, "team": None}, synchronize_session=False)
+
+    db.delete(team)
+    db.commit()
+    return {"message": "Equipe excluída com sucesso", "deleted_id": team_id}
+
+
+# ==============================================================================
 # --- [BLOCO: GESTÃO DE COLABORADORES] ---
 # ==============================================================================
 
@@ -747,12 +909,16 @@ def list_employees(
         role_label = emp.role
         if emp.role_obj:
             role_label = emp.role_obj.name
+        team_name = emp.team
+        if emp.team_obj:
+            team_name = emp.team_obj.name
         result.append({
             "id": emp.id,
             "name": emp.name,
             "role_id": emp.role_id,
             "role": role_label,
-            "team": emp.team,
+            "team_id": emp.team_id,
+            "team": team_name,
             "default_daily_transport_tickets": (emp.default_daily_transport_tickets if emp.default_daily_transport_tickets is not None else 2),
             "daily_transport_cost": emp.daily_transport_cost,
             "daily_meal_cost": emp.daily_meal_cost,
@@ -822,12 +988,34 @@ def create_employee(
         if r:
             role_text = r.name
 
+    resolved_team_id = payload.team_id
+    resolved_team_name = (payload.team or "").strip() or None
+
+    if resolved_team_id:
+        t_obj = db.query(models.RHTeam).filter(
+            models.RHTeam.id == resolved_team_id,
+            models.RHTeam.organization_id == current_user.organization_id
+        ).first()
+        if t_obj:
+            resolved_team_name = t_obj.name
+        else:
+            resolved_team_id = None
+    elif resolved_team_name:
+        t_obj = db.query(models.RHTeam).filter(
+            models.RHTeam.organization_id == current_user.organization_id,
+            func.lower(models.RHTeam.name) == resolved_team_name.lower()
+        ).first()
+        if t_obj:
+            resolved_team_id = t_obj.id
+            resolved_team_name = t_obj.name
+
     emp = models.RHEmployee(
         organization_id=current_user.organization_id,
         name=payload.name.strip(),
         role_id=payload.role_id,
         role=role_text,
-        team=(payload.team or "").strip() or None,
+        team_id=resolved_team_id,
+        team=resolved_team_name,
         default_daily_transport_tickets=payload.default_daily_transport_tickets if payload.default_daily_transport_tickets is not None else 2,
         daily_transport_cost=payload.daily_transport_cost,
         daily_meal_cost=payload.daily_meal_cost,
@@ -869,8 +1057,34 @@ def update_employee(
             emp.role = r.name
     elif payload.role is not None:
         emp.role = payload.role.strip()
-    if "team" in payload.model_fields_set:
-        emp.team = (payload.team or "").strip() or None
+
+    if "team_id" in payload.model_fields_set:
+        if payload.team_id:
+            t_obj = db.query(models.RHTeam).filter(
+                models.RHTeam.id == payload.team_id,
+                models.RHTeam.organization_id == current_user.organization_id
+            ).first()
+            if t_obj:
+                emp.team_id = t_obj.id
+                emp.team = t_obj.name
+            else:
+                emp.team_id = None
+                emp.team = None
+        else:
+            emp.team_id = None
+            emp.team = None
+    elif "team" in payload.model_fields_set:
+        clean_team = (payload.team or "").strip() or None
+        emp.team = clean_team
+        if clean_team:
+            t_obj = db.query(models.RHTeam).filter(
+                models.RHTeam.organization_id == current_user.organization_id,
+                func.lower(models.RHTeam.name) == clean_team.lower()
+            ).first()
+            emp.team_id = t_obj.id if t_obj else None
+        else:
+            emp.team_id = None
+
     if payload.default_daily_transport_tickets is not None:
         emp.default_daily_transport_tickets = payload.default_daily_transport_tickets
     if payload.daily_meal_cost is not None:
@@ -882,6 +1096,38 @@ def update_employee(
     if "termination_date" in payload.model_fields_set or "termination_reason" in payload.model_fields_set:
         if "termination_date" in payload.model_fields_set:
             emp.termination_date = payload.termination_date
+            if emp.termination_date:
+                # Expurgar dias de trabalho em escalas futuras à data de desligamento
+                future_sched_ids = [
+                    s.id for s in db.query(models.RHMonthlySchedule).filter(
+                        models.RHMonthlySchedule.organization_id == current_user.organization_id,
+                        (models.RHMonthlySchedule.year > emp.termination_date.year) |
+                        ((models.RHMonthlySchedule.year == emp.termination_date.year) & (models.RHMonthlySchedule.month > emp.termination_date.month))
+                    ).all()
+                ]
+                if future_sched_ids:
+                    db.query(models.RHWorkDay).filter(
+                        models.RHWorkDay.employee_id == emp.id,
+                        models.RHWorkDay.schedule_id.in_(future_sched_ids)
+                    ).delete(synchronize_session=False)
+                    db.query(models.RHBenefitAdjustment).filter(
+                        models.RHBenefitAdjustment.employee_id == emp.id,
+                        models.RHBenefitAdjustment.schedule_id.in_(future_sched_ids)
+                    ).delete(synchronize_session=False)
+
+                # Na escala do próprio mês do desligamento, remover dias de trabalho posteriores à data
+                curr_sched = db.query(models.RHMonthlySchedule).filter(
+                    models.RHMonthlySchedule.organization_id == current_user.organization_id,
+                    models.RHMonthlySchedule.year == emp.termination_date.year,
+                    models.RHMonthlySchedule.month == emp.termination_date.month
+                ).first()
+                if curr_sched:
+                    db.query(models.RHWorkDay).filter(
+                        models.RHWorkDay.employee_id == emp.id,
+                        models.RHWorkDay.schedule_id == curr_sched.id,
+                        models.RHWorkDay.day > emp.termination_date.day
+                    ).delete(synchronize_session=False)
+
         emp.termination_reason = _termination_reason(
             emp.termination_date,
             payload.termination_reason if "termination_reason" in payload.model_fields_set else emp.termination_reason
@@ -1106,14 +1352,30 @@ def get_monthly_schedule(
         effective_holidays = get_effective_holidays_map(db, current_user.organization_id, year, month)
         holidays_by_day = {int(d_str.split("-")[2]): name for d_str, name in effective_holidays.items()}
 
-        employees = db.query(models.RHEmployee).filter(
+        month_start_date = date(year, month, 1)
+        month_end_date = date(year, month, num_days)
+
+        # Colaboradores da escala do mês:
+        # Ativos OU que foram desligados durante o próprio mês (para apuração e informe da folha do mês).
+        # Colaboradores com desligamento anterior ao mês são rigorosamente excluídos.
+        raw_employees = db.query(models.RHEmployee).filter(
             models.RHEmployee.organization_id == current_user.organization_id,
-            models.RHEmployee.active == True
+            (models.RHEmployee.active == True) | (models.RHEmployee.termination_date >= month_start_date)
         ).order_by(models.RHEmployee.name.asc()).all()
+
+        employees = [
+            e for e in raw_employees
+            if (not e.admission_date or e.admission_date <= month_end_date)
+            and (not e.termination_date or e.termination_date >= month_start_date)
+        ]
 
         roles = db.query(models.RHRole).filter(
             models.RHRole.organization_id == current_user.organization_id
         ).order_by(models.RHRole.name.asc()).all()
+
+        teams_db = db.query(models.RHTeam).filter(
+            models.RHTeam.organization_id == current_user.organization_id
+        ).order_by(models.RHTeam.name.asc()).all()
 
         # Buscar dias unificados da tabela RHWorkDay
         work_days_db = db.query(models.RHWorkDay).filter(
@@ -1186,6 +1448,32 @@ def get_monthly_schedule(
                     is_late_record = False
 
                 day_date = date(year, month, day)
+                # Dias posteriores ao desligamento no próprio mês: zera benefício e não marca trabalho
+                if emp.termination_date and day_date > emp.termination_date:
+                    status = "FOLGA"
+                    ben = {
+                        "vt_calc": 0, "vt_final": 0, "vt_is_overridden": False,
+                        "va_calc": False, "va_final": False, "va_is_overridden": False,
+                        "benefit_note": "Colaborador desligado"
+                    }
+                    worked_min = 0
+                    start_time = lunch_start = lunch_end = end_time = None
+                    is_manual = False
+                    vt_override = va_override = benefit_note = late_decision = None
+                    is_late_record = False
+                elif emp.admission_date and day_date < emp.admission_date:
+                    status = "FOLGA"
+                    ben = {
+                        "vt_calc": 0, "vt_final": 0, "vt_is_overridden": False,
+                        "va_calc": False, "va_final": False, "va_is_overridden": False,
+                        "benefit_note": "Pré-admissão"
+                    }
+                    worked_min = 0
+                    start_time = lunch_start = lunch_end = end_time = None
+                    is_manual = False
+                    vt_override = va_override = benefit_note = late_decision = None
+                    is_late_record = False
+
                 cd = contract_day_on(emp.contracts, day_date)
                 contract_day = None
                 if cd is not None:
@@ -1309,6 +1597,7 @@ def get_monthly_schedule(
                            if current_user.organization_id else {}
             },
             "roles": [_role_to_dict(db, r) for r in roles],
+            "teams": [{"id": t.id, "name": t.name, "description": t.description} for t in teams_db],
             "regime": regime_to_dict(regime_on(load_regimes(db), date(year, month, 1))),
             "employees": [
                 {
@@ -1316,7 +1605,8 @@ def get_monthly_schedule(
                     "name": emp.name,
                     "role_id": emp.role_id,
                     "role": emp.role_obj.name if emp.role_obj else emp.role or "Geral",
-                    "team": emp.team,
+                    "team_id": emp.team_id,
+                    "team": emp.team_obj.name if emp.team_obj else emp.team,
                     "default_daily_transport_tickets": (emp.default_daily_transport_tickets if emp.default_daily_transport_tickets is not None else 2),
                     "daily_meal_cost": emp.daily_meal_cost,
                     "weekly_contract_hours": emp.weekly_contract_hours or 44.0,

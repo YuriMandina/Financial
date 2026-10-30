@@ -165,14 +165,20 @@ def _load_schedule(db: Session, organization_id: int, schedule_id: int) -> model
     return schedule
 
 
-def _load_employees(db: Session, organization_id: int, employee_ids: Optional[List[int]]) -> List[models.RHEmployee]:
+def _load_employees(db: Session, organization_id: int, employee_ids: Optional[List[int]],
+                    schedule: Optional[models.RHMonthlySchedule] = None) -> List[models.RHEmployee]:
     query = db.query(models.RHEmployee).filter(
         models.RHEmployee.organization_id == organization_id,
         models.RHEmployee.active == True
     )
     if employee_ids:
         query = query.filter(models.RHEmployee.id.in_(employee_ids))
-    return query.all()
+    emps = query.all()
+    if schedule:
+        month_start = date(schedule.year, schedule.month, 1)
+        # Excluir colaboradores desligados antes do início do mês da escala
+        emps = [e for e in emps if not e.termination_date or e.termination_date >= month_start]
+    return emps
 
 
 # ==============================================================================
@@ -221,7 +227,7 @@ def apply_contract_fill(
     adjusted: List[Dict[str, Any]] = []
     unresolved: Dict[str, List[str]] = {}
 
-    for emp in _load_employees(db, organization_id, employee_ids):
+    for emp in _load_employees(db, organization_id, employee_ids, schedule):
         contracts = list(emp.contracts)
         existing = {
             r.day: r for r in db.query(models.RHWorkDay).filter(
@@ -242,6 +248,10 @@ def apply_contract_fill(
                 skipped_manual_count += 1
                 continue
             d = date(schedule.year, schedule.month, day)
+            if emp.termination_date and d > emp.termination_date:
+                continue
+            if emp.admission_date and d < emp.admission_date:
+                continue
             if status == "TRABALHO":
                 planned = contract_day_status(contracts, d, day in holiday_days)
                 if planned is None:
