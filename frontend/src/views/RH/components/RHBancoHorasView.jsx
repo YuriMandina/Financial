@@ -76,8 +76,8 @@ const CCT_AGING_STATUS = {
 
 const ENTRY_LABELS = {
   PAYMENT: 'Pagamento em folha',
-  CREDIT: 'Crédito manual',
-  DEBIT: 'Débito manual'
+  CREDIT: 'Crédito no banco',
+  DEBIT: 'Débito / Compensação'
 };
 
 /**
@@ -176,19 +176,59 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
     }
   };
 
-  const openEntry = (emp, kind = 'PAYMENT') => setEntryModal({
+  const openEntry = (emp, kind = 'CREDIT') => setEntryModal({
     employee: emp,
-    data: { kind, hours: '', minutes: '', pay_mode: 'PAY', note: '' }
+    data: {
+      kind,
+      mode: 'HOURS', // 'HOURS' ou 'TARGET' (definir saldo final)
+      hours: '',
+      minutes: '',
+      targetHours: '',
+      targetMinutes: '',
+      targetNegative: false,
+      origin_year: selectedYear,
+      origin_month: selectedMonth,
+      specifyOrigin: false,
+      pay_mode: 'PAY',
+      note: ''
+    }
   });
 
   const handleSaveEntry = async (e) => {
     e.preventDefault();
     const { employee, data } = entryModal;
-    const total = (parseInt(data.hours, 10) || 0) * 60 + (parseInt(data.minutes, 10) || 0);
-    if (total <= 0) {
-      alert('Informe a quantidade de horas.');
-      return;
+    let finalKind = data.kind;
+    let totalMinutes = 0;
+    let finalNote = data.note ? data.note.trim() : '';
+
+    if (data.mode === 'TARGET') {
+      const currentBalance = Number(employee.bank.balance_minutes || 0);
+      const targetAbs = (parseInt(data.targetHours, 10) || 0) * 60 + (parseInt(data.targetMinutes, 10) || 0);
+      const targetTotal = data.targetNegative ? -targetAbs : targetAbs;
+      const diff = targetTotal - currentBalance;
+
+      if (diff === 0) {
+        alert('O saldo atual já é igual ao saldo informado.');
+        return;
+      }
+
+      if (diff > 0) {
+        finalKind = 'CREDIT';
+        totalMinutes = diff;
+        if (!finalNote) finalNote = `Ajuste para saldo de ${fmtHours(targetTotal)}`;
+      } else {
+        finalKind = 'DEBIT';
+        totalMinutes = Math.abs(diff);
+        if (!finalNote) finalNote = `Ajuste para saldo de ${fmtHours(targetTotal)}`;
+      }
+    } else {
+      totalMinutes = (parseInt(data.hours, 10) || 0) * 60 + (parseInt(data.minutes, 10) || 0);
+      if (totalMinutes <= 0) {
+        alert('Informe a quantidade de horas.');
+        return;
+      }
     }
+
     try {
       setSaving(true);
       await request('/api/rh/payroll/bank-hours/entries', {
@@ -197,16 +237,18 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
           year: selectedYear,
           month: selectedMonth,
           employee_id: employee.employee_id,
-          kind: data.kind,
-          minutes: total,
-          pay_mode: data.kind === 'PAYMENT' ? data.pay_mode : null,
-          note: data.note || null
+          kind: finalKind,
+          minutes: totalMinutes,
+          pay_mode: finalKind === 'PAYMENT' ? data.pay_mode : null,
+          origin_year: (finalKind === 'CREDIT' && data.specifyOrigin) ? Number(data.origin_year) : null,
+          origin_month: (finalKind === 'CREDIT' && data.specifyOrigin) ? Number(data.origin_month) : null,
+          note: finalNote || null
         })
       });
       setEntryModal(null);
       setExpanded((prev) => ({ ...prev, [employee.employee_id]: true }));
       await load();
-      flash('Lançamento registrado no banco de horas.');
+      flash('Lançamento registrado com sucesso.');
     } catch (err) {
       alert(err.message);
     } finally {
@@ -309,13 +351,19 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
               outside
             );
           })}
-          {b.entries.map((en) => line(
-            `en-${en.id}`,
-            ENTRY_LABELS[en.kind],
-            en.kind === 'PAYMENT'
-              ? `${en.pay_mode === 'PAY' ? 'Com acréscimo' : 'Valor normal'}${en.note ? ` • ${en.note}` : ''}`
-              : en.note || '',
-            en.kind === 'CREDIT' ? en.minutes : -en.minutes,
+          {b.entries.map((en) => {
+            let detail = en.note || '';
+            if (en.kind === 'PAYMENT') {
+              detail = `${en.pay_mode === 'PAY' ? 'Com acréscimo' : 'Valor normal'}${en.note ? ` • ${en.note}` : ''}`;
+            } else if (en.origin_year && en.origin_month) {
+              const origStr = `Origem: ${MONTH_NAMES[en.origin_month - 1]}/${en.origin_year}`;
+              detail = detail ? `${origStr} • ${detail}` : origStr;
+            }
+            return line(
+              `en-${en.id}`,
+              ENTRY_LABELS[en.kind],
+              detail,
+              en.kind === 'CREDIT' ? en.minutes : -en.minutes,
             <button
               type="button"
               onClick={() => handleDeleteEntry(en)}
@@ -324,7 +372,8 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
             >
               <Trash2 size={12} />
             </button>
-          ))}
+          );
+        })}
           {b.paid_minutes > b.entries.filter((en) => en.kind === 'PAYMENT').reduce((acc, en) => acc + en.minutes, 0) && line(
             'auto-pay',
             'Pagamento automático em folha',
@@ -476,14 +525,26 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
     const { employee, data } = entryModal;
     const set = (patch) => setEntryModal({ ...entryModal, data: { ...data, ...patch } });
     const inputCls = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500';
-    const available = employee.bank.balance_minutes;
+    const available = Number(employee.bank.balance_minutes || 0);
+
+    const pastMonths = [];
+    for (let i = 0; i < 6; i++) {
+      let m = selectedMonth - i;
+      let y = selectedYear;
+      while (m <= 0) {
+        m += 12;
+        y -= 1;
+      }
+      pastMonths.push({ year: y, month: m, label: `${MONTH_NAMES[m - 1]}/${y}` });
+    }
+
     return (
       <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
         <form onSubmit={handleSaveEntry} className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 shadow-2xl space-y-4 text-xs">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div>
-              <h4 className="font-bold text-white text-sm">Lançamento no Banco de Horas</h4>
-              <p className="text-indigo-300">{employee.employee_name} • {MONTH_NAMES[selectedMonth - 1]}/{selectedYear}</p>
+              <h4 className="font-bold text-white text-sm">Controle do Banco de Horas</h4>
+              <p className="text-indigo-300 font-medium">{employee.employee_name} • {MONTH_NAMES[selectedMonth - 1]}/{selectedYear}</p>
             </div>
             <button type="button" onClick={() => setEntryModal(null)} className="text-slate-400 hover:text-white p-1">
               <X size={16} />
@@ -491,65 +552,187 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
           </div>
 
           <div className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 flex items-center justify-between">
-            <span className="text-slate-400">Saldo disponível</span>
-            <span className={`font-bold ${balanceTone(available)}`}>{fmtHours(available)}</span>
+            <span className="text-slate-400">Saldo atual do colaborador:</span>
+            <span className={`font-bold text-sm ${balanceTone(available)}`}>{fmtHours(available)}</span>
           </div>
 
-          <div>
-            <label className="block text-slate-400 mb-1">Tipo de lançamento</label>
-            <SelectDropdown
-              value={data.kind}
-              onChange={(val) => set({ kind: val })}
-              options={[
-                { value: 'PAYMENT', label: 'Pagar horas na folha', subtitle: 'Consome o saldo e vira hora extra na folha' },
-                { value: 'DEBIT', label: 'Débito manual', subtitle: 'Consome o saldo (ex: compensação combinada)' },
-                { value: 'CREDIT', label: 'Crédito manual', subtitle: 'Soma ao saldo (ex: saldo de implantação)' }
-              ]}
-            />
+          {/* Abas de Operação */}
+          <div className="grid grid-cols-4 gap-1 p-1 bg-slate-950 border border-slate-800 rounded-lg">
+            <button
+              type="button"
+              onClick={() => set({ kind: 'CREDIT', mode: 'HOURS' })}
+              className={`py-1.5 text-center font-semibold rounded-md transition-all ${
+                data.mode === 'HOURS' && data.kind === 'CREDIT' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              + Crédito
+            </button>
+            <button
+              type="button"
+              onClick={() => set({ kind: 'DEBIT', mode: 'HOURS' })}
+              className={`py-1.5 text-center font-semibold rounded-md transition-all ${
+                data.mode === 'HOURS' && data.kind === 'DEBIT' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              − Débito
+            </button>
+            <button
+              type="button"
+              onClick={() => set({ mode: 'TARGET' })}
+              className={`py-1.5 text-center font-semibold rounded-md transition-all ${
+                data.mode === 'TARGET' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Fixar Saldo
+            </button>
+            <button
+              type="button"
+              onClick={() => set({ kind: 'PAYMENT', mode: 'HOURS' })}
+              className={`py-1.5 text-center font-semibold rounded-md transition-all ${
+                data.mode === 'HOURS' && data.kind === 'PAYMENT' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Folha
+            </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-slate-400 mb-1">Horas</label>
-              <input type="number" min="0" value={data.hours} onChange={(e) => set({ hours: e.target.value })} className={inputCls} placeholder="0" />
+          {/* Modo 1: Lançar Horas de Crédito / Débito / Pagamento */}
+          {data.mode === 'HOURS' ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Horas</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={data.hours}
+                    onChange={(e) => set({ hours: e.target.value })}
+                    className={inputCls}
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Minutos</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={data.minutes}
+                    onChange={(e) => set({ minutes: e.target.value })}
+                    className={inputCls}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              {/* Opção de vincular crédito a competência de origem para alimentar Aging CCT */}
+              {data.kind === 'CREDIT' && (
+                <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={data.specifyOrigin}
+                      onChange={(e) => set({ specifyOrigin: e.target.checked })}
+                      className="rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-0"
+                    />
+                    <span className="font-medium">Definir competência de origem das horas</span>
+                  </label>
+                  {data.specifyOrigin && (
+                    <div>
+                      <span className="block text-[11px] text-slate-400 mb-1">
+                        Selecione o mês em que as horas foram geradas (para cálculo de vencimento da CCT):
+                      </span>
+                      <SelectDropdown
+                        size="sm"
+                        value={`${data.origin_year}-${data.origin_month}`}
+                        onChange={(val) => {
+                          const [y, m] = val.split('-').map(Number);
+                          set({ origin_year: y, origin_month: m });
+                        }}
+                        options={pastMonths.map((pm) => ({
+                          value: `${pm.year}-${pm.month}`,
+                          label: pm.label
+                        }))}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {data.kind === 'PAYMENT' && (
+                <div>
+                  <label className="block text-slate-400 mb-1">Forma de pagamento em folha</label>
+                  <SelectDropdown
+                    value={data.pay_mode}
+                    onChange={(val) => set({ pay_mode: val })}
+                    options={[
+                      { value: 'PAY', label: 'Com acréscimo', subtitle: '% definido nas Regras de RH' },
+                      { value: 'PAY_NORMAL', label: 'Valor normal', subtitle: 'Hora simples' }
+                    ]}
+                  />
+                </div>
+              )}
             </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Minutos</label>
-              <input type="number" min="0" max="59" value={data.minutes} onChange={(e) => set({ minutes: e.target.value })} className={inputCls} placeholder="0" />
-            </div>
-          </div>
-
-          {data.kind === 'PAYMENT' && (
-            <div>
-              <label className="block text-slate-400 mb-1">Forma de pagamento</label>
-              <SelectDropdown
-                value={data.pay_mode}
-                onChange={(val) => set({ pay_mode: val })}
-                options={[
-                  { value: 'PAY', label: 'Com acréscimo', subtitle: '% definido nas Regras de RH' },
-                  { value: 'PAY_NORMAL', label: 'Valor normal', subtitle: 'Hora simples' }
-                ]}
-              />
+          ) : (
+            /* Modo 2: Fixar Saldo Desejado */
+            <div className="space-y-3">
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 text-[11px] text-amber-300">
+                O sistema calculará automaticamente o ajuste necessário para que o saldo deste mês fique exatamente no valor informado.
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Horas alvo</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={data.targetHours}
+                    onChange={(e) => set({ targetHours: e.target.value })}
+                    className={inputCls}
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Minutos alvo</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={data.targetMinutes}
+                    onChange={(e) => set({ targetMinutes: e.target.value })}
+                    className={inputCls}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={data.targetNegative}
+                  onChange={(e) => set({ targetNegative: e.target.checked })}
+                  className="rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0"
+                />
+                <span className="font-medium text-rose-300">Saldo devedor (negativo)</span>
+              </label>
             </div>
           )}
 
           <div>
-            <label className="block text-slate-400 mb-1">
-              {data.kind === 'PAYMENT' ? 'Observação (opcional)' : 'Motivo'}
-            </label>
+            <label className="block text-slate-400 mb-1">Descrição / Observação (opcional)</label>
             <input
               value={data.note}
-              required={data.kind !== 'PAYMENT'}
               onChange={(e) => set({ note: e.target.value })}
-              placeholder={data.kind === 'CREDIT' ? 'Ex: Saldo anterior à implantação' : 'Ex: Compensação combinada com o colaborador'}
+              placeholder={
+                data.mode === 'TARGET'
+                  ? 'Ex: Saldo inicial acordado'
+                  : data.kind === 'CREDIT'
+                  ? 'Ex: Saldo de implantação'
+                  : data.kind === 'DEBIT'
+                  ? 'Ex: Compensação combinada'
+                  : 'Ex: Pagamento folha'
+              }
               className={inputCls}
             />
           </div>
-
-          <p className="text-[11px] text-slate-500">
-            Para compensar aos poucos (ex: sair mais cedo durante a semana), ajuste o horário na Grade de Jornada:
-            a diferença sai do banco automaticamente, dia a dia.
-          </p>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
             <button type="button" onClick={() => setEntryModal(null)} className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-800">
@@ -561,7 +744,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
             >
               {saving && <RefreshCw size={13} className="animate-spin" />}
-              Registrar Lançamento
+              Salvar Ajuste
             </button>
           </div>
         </form>
