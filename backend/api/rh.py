@@ -138,6 +138,7 @@ class RHEmployeeCreate(BaseModel):
     name: str
     role_id: Optional[int] = None
     role: Optional[str] = None
+    team: Optional[str] = None
     default_daily_transport_tickets: int = 2
     daily_transport_cost: float = 9.40
     daily_meal_cost: float = 25.00
@@ -153,6 +154,7 @@ class RHEmployeeUpdate(BaseModel):
     name: Optional[str] = None
     role_id: Optional[int] = None
     role: Optional[str] = None
+    team: Optional[str] = None
     default_daily_transport_tickets: Optional[int] = None
     daily_transport_cost: Optional[float] = None
     daily_meal_cost: Optional[float] = None
@@ -750,6 +752,7 @@ def list_employees(
             "name": emp.name,
             "role_id": emp.role_id,
             "role": role_label,
+            "team": emp.team,
             "default_daily_transport_tickets": (emp.default_daily_transport_tickets if emp.default_daily_transport_tickets is not None else 2),
             "daily_transport_cost": emp.daily_transport_cost,
             "daily_meal_cost": emp.daily_meal_cost,
@@ -824,6 +827,7 @@ def create_employee(
         name=payload.name.strip(),
         role_id=payload.role_id,
         role=role_text,
+        team=(payload.team or "").strip() or None,
         default_daily_transport_tickets=payload.default_daily_transport_tickets if payload.default_daily_transport_tickets is not None else 2,
         daily_transport_cost=payload.daily_transport_cost,
         daily_meal_cost=payload.daily_meal_cost,
@@ -865,6 +869,8 @@ def update_employee(
             emp.role = r.name
     elif payload.role is not None:
         emp.role = payload.role.strip()
+    if "team" in payload.model_fields_set:
+        emp.team = (payload.team or "").strip() or None
     if payload.default_daily_transport_tickets is not None:
         emp.default_daily_transport_tickets = payload.default_daily_transport_tickets
     if payload.daily_meal_cost is not None:
@@ -1310,6 +1316,7 @@ def get_monthly_schedule(
                     "name": emp.name,
                     "role_id": emp.role_id,
                     "role": emp.role_obj.name if emp.role_obj else emp.role or "Geral",
+                    "team": emp.team,
                     "default_daily_transport_tickets": (emp.default_daily_transport_tickets if emp.default_daily_transport_tickets is not None else 2),
                     "daily_meal_cost": emp.daily_meal_cost,
                     "weekly_contract_hours": emp.weekly_contract_hours or 44.0,

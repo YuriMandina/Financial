@@ -296,6 +296,7 @@ class RHEmployee(Base):
     name = Column(String, nullable=False)
     role_id = Column(Integer, ForeignKey("rh_roles.id"), nullable=True)
     role = Column(String, nullable=True) # Texto de fallback para retrocompatibilidade
+    team = Column(String, nullable=True) # Equipe / Unidade de negócio / Centro de custo (ex: Atacado, Varejo)
     default_daily_transport_tickets = Column(Integer, default=2) # Quantidade padrão de passagens/dia (ex: 2 ou 4)
     daily_transport_cost = Column(Float, default=9.40) # Mantido para compatibilidade
     daily_meal_cost = Column(Float, default=25.00) # Valor individual de 1 refeição/dia
