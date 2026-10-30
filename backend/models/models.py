@@ -288,6 +288,24 @@ class RHEmployeeContract(Base):
     standard_schedule = relationship("RHStandardSchedule")
 
 
+class RHTeam(Base):
+    """Equipe / Unidade de Negócio / Centro de Custo no Departamento Pessoal."""
+    __tablename__ = "rh_teams"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'name', name='uq_rh_teams_org_name'),
+    )
+
+    organization = relationship("Organization")
+    employees = relationship("RHEmployee", back_populates="team_obj")
+
+
 class RHEmployee(Base):
     __tablename__ = "rh_employees"
 
@@ -296,6 +314,7 @@ class RHEmployee(Base):
     name = Column(String, nullable=False)
     role_id = Column(Integer, ForeignKey("rh_roles.id"), nullable=True)
     role = Column(String, nullable=True) # Texto de fallback para retrocompatibilidade
+    team_id = Column(Integer, ForeignKey("rh_teams.id", ondelete="SET NULL"), nullable=True, index=True)
     team = Column(String, nullable=True) # Equipe / Unidade de negócio / Centro de custo (ex: Atacado, Varejo)
     default_daily_transport_tickets = Column(Integer, default=2) # Quantidade padrão de passagens/dia (ex: 2 ou 4)
     daily_transport_cost = Column(Float, default=9.40) # Mantido para compatibilidade
@@ -317,6 +336,7 @@ class RHEmployee(Base):
 
     organization = relationship("Organization")
     role_obj = relationship("RHRole")
+    team_obj = relationship("RHTeam", back_populates="employees")
     contracts = relationship(
         "RHEmployeeContract", back_populates="employee", cascade="all, delete-orphan",
         order_by="RHEmployeeContract.valid_from"
