@@ -121,12 +121,26 @@ export default function RHBeneficiosGrid({
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
   ];
 
+  // Colaboradores elegíveis para o relatório impresso:
+  // Se for Vale Transporte (VT), não exibe quem optou por não receber (default_daily_transport_tickets === 0 e sem lançamentos no mês)
+  const printEmployees = useMemo(() => {
+    if (!isVT) return employees;
+    return employees.filter((emp) => {
+      const summary = summaryMap[emp.id] || {};
+      const finalQty = summary.total_vt_tickets_final || 0;
+      const optedOut = emp.default_daily_transport_tickets === 0;
+      // Se optou por não receber e não tem nenhuma passagem concedida no mês, exclui da lista
+      if (optedOut && finalQty === 0) return false;
+      return true;
+    });
+  }, [employees, isVT, summaryMap]);
+
   const printTotals = useMemo(() => {
     let totalQty = 0;
     let totalValue = 0;
     let countEmployees = 0;
 
-    employees.forEach((emp) => {
+    printEmployees.forEach((emp) => {
       const summary = summaryMap[emp.id] || {};
       const finalQty = isVT ? (summary.total_vt_tickets_final || 0) : (summary.total_va_count_final || 0);
       const totalAmount = isVT ? (summary.total_vt_amount || 0) : (summary.total_va_amount || 0);
@@ -138,7 +152,7 @@ export default function RHBeneficiosGrid({
     });
 
     return { totalQty, totalValue, countEmployees };
-  }, [employees, summaryMap, isVT]);
+  }, [printEmployees, summaryMap, isVT]);
 
   // Filtra ajustes avulsos pelo tipo atual
   const filteredAdjustments = useMemo(() => {
@@ -682,7 +696,7 @@ export default function RHBeneficiosGrid({
           @media print {
             @page {
               size: A4 landscape;
-              margin: 4mm 6mm;
+              margin: 1mm 2mm;
             }
             body {
               background: white !important;
@@ -697,13 +711,14 @@ export default function RHBeneficiosGrid({
             }
             .benefit-landscape-table th, .benefit-landscape-table td {
               border: 1px solid #475569 !important;
-              padding: 1.5px 2px !important;
-              font-size: 7pt !important;
+              padding: 1px 1.5px !important;
+              font-size: 6.8pt !important;
               line-height: 1 !important;
-              height: 19px !important;
+              height: 22px !important;
+              max-height: 22px !important;
               vertical-align: middle !important;
               white-space: nowrap !important;
-              word-break: normal !important;
+              word-break: keep-all !important;
               overflow: hidden !important;
               text-overflow: ellipsis !important;
             }
@@ -793,9 +808,24 @@ export default function RHBeneficiosGrid({
 
         {/* Renderização dos Colaboradores Agrupados por Equipe em Cards */}
         {(() => {
-          // Agrupamento ordenado por Equipe
+          // Abreviação de sobrenomes intermediários com inicial e ponto
+          const formatShortName = (fullName) => {
+            if (!fullName) return '';
+            const parts = fullName.trim().split(/\s+/);
+            if (parts.length <= 2) return fullName;
+            const firstName = parts[0];
+            const lastName = parts[parts.length - 1];
+            const middles = parts.slice(1, -1).map((m) => {
+              const lower = m.toLowerCase();
+              if (['de', 'da', 'do', 'das', 'dos', 'e'].includes(lower)) return lower;
+              return `${m.charAt(0).toUpperCase()}.`;
+            });
+            return `${firstName} ${middles.join(' ')} ${lastName}`;
+          };
+
+          // Agrupamento ordenado por Equipe (apenas colaboradores elegíveis)
           const groupsMap = {};
-          employees.forEach((emp) => {
+          printEmployees.forEach((emp) => {
             const teamKey = (emp.team || '').trim() || 'Sem Equipe Atribuída';
             if (!groupsMap[teamKey]) groupsMap[teamKey] = [];
             groupsMap[teamKey].push(emp);
@@ -839,18 +869,18 @@ export default function RHBeneficiosGrid({
                     <table className="benefit-landscape-table">
                       <thead>
                         <tr className="bg-gray-200 text-black uppercase font-bold text-[6.5pt]">
-                          <th style={{ width: '22px' }} className="text-center" rowSpan={2}>Nº</th>
-                          <th style={{ width: '130px' }} className="text-left px-1" rowSpan={2}>Colaborador</th>
-                          <th style={{ width: '90px' }} className="text-left px-1" rowSpan={2}>Cargo</th>
+                          <th style={{ width: '18px' }} className="text-center" rowSpan={2}>Nº</th>
+                          <th style={{ width: '92px' }} className="text-left px-1" rowSpan={2}>
+                            <div className="leading-tight">COLABORADOR</div>
+                            <div className="text-[5pt] font-semibold text-gray-600 lowercase tracking-normal">cargo</div>
+                          </th>
                           <th colSpan={daysList.length} className="text-center bg-gray-300 py-0.5">
                             Dias do Mês de {monthNames[selectedMonth - 1]}/{selectedYear} ({isVT ? 'Passagens por Dia' : 'Refeição Diária'})
                           </th>
-                          <th style={{ width: '28px' }} className="text-center" rowSpan={2} title="Dias Trabalhados">Dias</th>
-                          <th style={{ width: '28px' }} className="text-center" rowSpan={2} title="Quantidade Calculada">Calc.</th>
-                          <th style={{ width: '24px' }} className="text-center" rowSpan={2} title="Ajustes Avulsos">Aj.</th>
-                          <th style={{ width: '32px' }} className="text-center font-extrabold bg-gray-300" rowSpan={2} title="Total Final">Total</th>
-                          <th style={{ width: '68px' }} className="text-right px-1 font-extrabold" rowSpan={2}>Valor (R$)</th>
-                          <th style={{ width: '42px' }} className="text-center" rowSpan={2}>Visto</th>
+                          <th style={{ width: '30px' }} className="text-center" rowSpan={2} title="Quantidade Calculada">CALC</th>
+                          <th style={{ width: '32px' }} className="text-center" rowSpan={2} title="Ajustes Avulsos">AJUS</th>
+                          <th style={{ width: '33px' }} className="text-center font-extrabold bg-gray-300" rowSpan={2} title="Total Final">TOTAL</th>
+                          <th style={{ width: '42px' }} className="text-right pr-1 font-extrabold" rowSpan={2}>VALOR</th>
                         </tr>
                         <tr className="bg-gray-100 text-black font-semibold text-[6pt]">
                           {daysList.map((day) => {
@@ -884,9 +914,15 @@ export default function RHBeneficiosGrid({
 
                           return (
                             <tr key={emp.id}>
-                              <td className="text-center text-gray-700 font-mono">{globalRowIndex}</td>
-                              <td className="font-bold text-black px-1">{emp.name}</td>
-                              <td className="text-gray-800 px-1">{emp.role || 'Geral'}</td>
+                              <td className="text-center text-gray-700 font-mono text-[6.5pt]">{globalRowIndex}</td>
+                              <td className="px-1 text-left" style={{ lineHeight: '1.1' }}>
+                                <div className="font-bold text-black text-[7pt] truncate" title={emp.name}>
+                                  {formatShortName(emp.name)}
+                                </div>
+                                <div className="text-[5.5pt] text-gray-500 font-medium truncate" title={emp.role || 'Geral'}>
+                                  {emp.role || 'Geral'}
+                                </div>
+                              </td>
 
                               {/* Células Diárias do Mês */}
                               {daysList.map((day) => {
@@ -907,7 +943,7 @@ export default function RHBeneficiosGrid({
                                   } else if (!isWorked) {
                                     cellContent = dayData.status === 'FOLGA_BH' ? 'BH' : (dayData.status === 'FERIAS' ? 'FE' : '-');
                                     if (dayData.status === 'FOLGA_BH' || dayData.status === 'FERIAS') {
-                                      cellClass = 'text-center font-semibold text-gray-600 text-[5.5pt]';
+                                      cellClass = 'text-center font-black text-gray-700 text-[4pt] leading-none tracking-tighter whitespace-nowrap';
                                     }
                                   }
                                 } else {
@@ -918,7 +954,7 @@ export default function RHBeneficiosGrid({
                                   } else if (!isWorked) {
                                     cellContent = dayData.status === 'FOLGA_BH' ? 'BH' : (dayData.status === 'FERIAS' ? 'FE' : '-');
                                     if (dayData.status === 'FOLGA_BH' || dayData.status === 'FERIAS') {
-                                      cellClass = 'text-center font-semibold text-gray-600 text-[5.5pt]';
+                                      cellClass = 'text-center font-black text-gray-700 text-[4pt] leading-none tracking-tighter whitespace-nowrap';
                                     }
                                   }
                                 }
@@ -933,16 +969,14 @@ export default function RHBeneficiosGrid({
                                 );
                               })}
 
-                              <td className="text-center font-semibold text-gray-800 font-mono">{workDaysCount}</td>
-                              <td className="text-center text-gray-700 font-mono">{calcQty}</td>
-                              <td className="text-center font-semibold text-gray-800 font-mono">
+                              <td className="text-center text-gray-700 font-mono text-[6.5pt] px-0.5">{calcQty}</td>
+                              <td className="text-center font-semibold text-gray-800 font-mono text-[6.5pt] px-0.5">
                                 {adjQty > 0 ? `+${adjQty}` : adjQty < 0 ? String(adjQty) : '-'}
                               </td>
-                              <td className="text-center font-extrabold text-black bg-gray-100 font-mono">{finalQty}</td>
-                              <td className="text-right px-1 font-extrabold text-black font-mono">
-                                {Number(totalAmount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              <td className="text-center font-black text-black bg-gray-100 font-mono text-[7pt] px-0.5">{finalQty}</td>
+                              <td className="text-right pr-1 font-black text-black font-mono text-[6.8pt]">
+                                {Number(totalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
-                              <td className="border-b border-gray-400"></td>
                             </tr>
                           );
                         })}
