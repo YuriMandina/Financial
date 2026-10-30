@@ -696,7 +696,7 @@ export default function RHBeneficiosGrid({
           @media print {
             @page {
               size: A4 landscape;
-              margin: 1mm 2mm;
+              margin: 5mm 2mm;
             }
             body {
               background: white !important;
@@ -999,7 +999,7 @@ export default function RHBeneficiosGrid({
         })()}
 
         {/* Termo de Aprovação da Diretoria e Conferência */}
-        <div className="border border-black p-2 rounded text-[7.5pt] break-inside-avoid mt-3">
+        <div className="border border-black p-2 rounded text-[7.5pt] break-inside-avoid mt-3 print:mt-4">
           <div className="font-bold uppercase text-[8pt] mb-1 text-black border-b border-gray-300 pb-0.5">
             Despacho e Autorização Financeira
           </div>
