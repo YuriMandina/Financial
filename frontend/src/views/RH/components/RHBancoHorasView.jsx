@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock, Plus, X, Trash2, ChevronDown, ChevronRight, RefreshCw, Wallet,
-  TrendingUp, TrendingDown, Users, AlertCircle, CalendarCheck, Undo2
+  TrendingUp, TrendingDown, Users, AlertCircle, CalendarCheck, Undo2, ShieldAlert, Hourglass, Calendar
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 
@@ -44,6 +44,34 @@ const REST_STATUS = {
 const fmtDay = (iso) => {
   const [y, m, d] = iso.split('-').map(Number);
   return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')} (${WEEKDAY_SHORT[new Date(y, m - 1, d).getDay()]})`;
+};
+
+
+const CCT_AGING_STATUS = {
+  CURRENT: {
+    label: 'Mês atual',
+    badgeCls: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30',
+    dotCls: 'bg-indigo-400',
+    desc: 'Acumulado no mês corrente'
+  },
+  FOLGA_PROXIMO: {
+    label: 'Mês 1 • Conceder folgas',
+    badgeCls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+    dotCls: 'bg-emerald-400',
+    desc: 'Prazo prioritário da empresa para folgas'
+  },
+  WARNING: {
+    label: 'Mês 2 • Alerta agendamento',
+    badgeCls: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+    dotCls: 'bg-amber-400',
+    desc: 'Sem folga há 2 meses, agendar compensação'
+  },
+  EXPIRED: {
+    label: 'Mês 3+ • Venceu CCT (Pagar)',
+    badgeCls: 'bg-rose-500/10 text-rose-300 border-rose-500/30 animate-pulse',
+    dotCls: 'bg-rose-400',
+    desc: 'Atingiu o limite de 3 meses da CCT; deve ser quitado na folha'
+  }
 };
 
 const ENTRY_LABELS = {
@@ -101,13 +129,17 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
   const employees = payroll?.employees || [];
 
   const kpis = useMemo(() => {
-    const k = { positive: 0, negative: 0, paid: 0, withBalance: 0 };
+    const k = { positive: 0, negative: 0, paid: 0, withBalance: 0, folgaProximo: 0, warning: 0, expired: 0 };
     employees.forEach((e) => {
       const b = e.bank.balance_minutes;
       if (b > 0) k.positive += b;
       if (b < 0) k.negative += b;
       if (b !== 0) k.withBalance += 1;
       k.paid += e.bank.paid_minutes;
+      const ag = e.bank.aging || {};
+      k.folgaProximo += Number(ag.folga_proximo_minutes || 0);
+      k.warning += Number(ag.warning_minutes || 0);
+      k.expired += Number(ag.expired_minutes || 0);
     });
     return k;
   }, [employees]);
@@ -209,6 +241,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
 
   const renderStatement = (emp) => {
     const b = emp.bank;
+    const ag = b.aging || { buckets: [] };
     const line = (key, label, detail, minutes, extra = null, muted = false) => (
       <tr key={key} className="border-t border-slate-800/50">
         <td className={`py-1.5 pl-3 ${muted ? 'text-slate-500' : 'text-slate-300'}`}>{label}</td>
@@ -219,7 +252,40 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
     );
 
     return (
-      <table className="w-full text-[11px]">
+      <div className="space-y-3">
+        {ag.buckets.length > 0 && (
+          <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Hourglass size={12} className="text-amber-400" />
+                Rastreamento CCT (Aging 3 Meses) • Origem das Horas do Saldo
+              </span>
+              {ag.expired_minutes > 0 && (
+                <button
+                  type="button"
+                  onClick={() => openEntry(emp, 'PAYMENT')}
+                  className="text-[10px] px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 flex items-center gap-1 font-semibold"
+                >
+                  <Wallet size={11} /> Pagar {fmtHours(ag.expired_minutes, false)} vencidas na folha
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {ag.buckets.map((bk, i) => {
+                const conf = CCT_AGING_STATUS[bk.status] || CCT_AGING_STATUS.CURRENT;
+                return (
+                  <div key={i} className={`flex items-center gap-2 px-2.5 py-1 rounded-md border text-[11px] ${conf.badgeCls}`} title={conf.desc}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${conf.dotCls}`} />
+                    <span className="font-semibold">{MONTH_NAMES[bk.month - 1]}/{bk.year}:</span>
+                    <span>{fmtHours(bk.remaining_minutes, false)}</span>
+                    <span className="text-[10px] opacity-75 font-medium">({conf.label})</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <table className="w-full text-[11px]">
         <thead>
           <tr className="text-slate-500 uppercase tracking-wider text-[9px]">
             <th className="py-1 pl-3 text-left">Movimento</th>
@@ -277,6 +343,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
           </tr>
         </tbody>
       </table>
+      </div>
     );
   };
 
@@ -534,6 +601,28 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
         {kpi('Colaboradores com saldo', String(kpis.withBalance), Users, 'text-slate-200')}
       </div>
 
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2 text-slate-300">
+          <Hourglass size={15} className="text-amber-400" />
+          <span className="font-semibold text-white">Rastreamento CCT (Prazo Limite de 3 Meses):</span>
+          <span className="text-slate-400 text-[11px]">Controle FIFO para concessão de folgas e liquidação de horas</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] bg-emerald-500/10 text-emerald-300 border-emerald-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>Mês 1 (Folgas a conceder): <strong>{fmtHours(kpis.folgaProximo, false)}</strong></span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] bg-amber-500/10 text-amber-300 border-amber-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            <span>Mês 2 (Alerta de folga): <strong>{fmtHours(kpis.warning, false)}</strong></span>
+          </span>
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] ${kpis.expired > 0 ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 font-bold animate-pulse' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${kpis.expired > 0 ? 'bg-rose-400' : 'bg-slate-500'}`} />
+            <span>Mês 3+ (Venceu CCT / Pagar): <strong>{fmtHours(kpis.expired, false)}</strong></span>
+          </span>
+        </div>
+      </div>
+
       {renderRestWork()}
 
       {employees.length === 0 ? (
@@ -553,7 +642,8 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
                   <th className="py-2.5 px-3 text-right">Ajustes</th>
                   <th className="py-2.5 px-3 text-right">Pagas</th>
                   <th className="py-2.5 px-3 text-right">Saldo Atual</th>
-                  <th className="py-2.5 px-3 text-left min-w-[200px]">Destino do saldo no mês</th>
+                  <th className="py-2.5 px-3 text-left min-w-[200px]">Vencimento CCT / Aging</th>
+                  <th className="py-2.5 px-3 text-left min-w-[180px]">Destino do saldo no mês</th>
                   <th className="py-2.5 px-3" />
                 </tr>
               </thead>
@@ -582,6 +672,28 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
                         <td className="py-2.5 px-3 text-right text-emerald-300">{b.paid_minutes ? fmtHours(b.paid_minutes, false) : '-'}</td>
                         <td className={`py-2.5 px-3 text-right font-bold ${balanceTone(b.balance_minutes)}`}>{fmtHours(b.balance_minutes)}</td>
                         <td className="py-2.5 px-3">
+                          {b.balance_minutes <= 0 ? (
+                            <span className="text-[10px] text-slate-500">Sem horas a compensar</span>
+                          ) : (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {(b.aging?.buckets || []).map((bk, i) => {
+                                const conf = CCT_AGING_STATUS[bk.status] || CCT_AGING_STATUS.CURRENT;
+                                return (
+                                  <span
+                                    key={i}
+                                    title={`${MONTH_NAMES[bk.month - 1]}/${bk.year}: ${fmtHours(bk.remaining_minutes, false)} (${conf.desc})`}
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium ${conf.badgeCls}`}
+                                  >
+                                    <span className={`w-1 h-1 rounded-full ${conf.dotCls}`} />
+                                    <span>{String(bk.month).padStart(2, '0')}/{String(bk.year).slice(2)}:</span>
+                                    <strong className="font-semibold">{fmtHours(bk.remaining_minutes, false)}</strong>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3">
                           <SelectDropdown
                             size="sm"
                             value={b.policy || ''}
@@ -603,7 +715,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
                       </tr>
                       {isOpen && (
                         <tr className="bg-slate-950/50">
-                          <td colSpan={8} className="px-4 py-3">{renderStatement(emp)}</td>
+                          <td colSpan={9} className="px-4 py-3">{renderStatement(emp)}</td>
                         </tr>
                       )}
                     </React.Fragment>
