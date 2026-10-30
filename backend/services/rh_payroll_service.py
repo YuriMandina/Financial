@@ -321,13 +321,162 @@ def bank_entry_to_dict(e: models.RHBankHoursEntry) -> Dict[str, Any]:
     }
 
 
+
+
+# ==============================================================================
+# --- [BLOCO: RASTREAMENTO DE AGING E CCT DO BANCO DE HORAS] ---
+# ==============================================================================
+
+def compute_bank_aging_map(
+    db: Session,
+    organization_id: int,
+    target_schedule: models.RHMonthlySchedule,
+    employees: List[models.RHEmployee],
+    settings: Optional[models.RHSettings] = None
+) -> Dict[int, Dict[str, Any]]:
+    """
+    Calcula a idade (aging) das horas extras no banco de horas com controle FIFO e regra da CCT:
+    - O banco de horas tem prazo fatal de quitacao de 3 meses conforme a CCT.
+    - O fluxo operacional habitual acumula em um mes e compensa (folgas) no mes seguinte.
+    - FIFO: folgas na escala, saidas antecipadas, debitos e pagamentos abatem sempre o saldo mais antigo primeiro.
+    - Classificacao por idade dos baldes positivos remanescentes:
+        * status='CURRENT' (0 meses): acumulado no proprio mes em apuracao.
+        * status='FOLGA_PROXIMO' (1 mes): acumulado no mes anterior, periodo padrao para conceder folgas.
+        * status='WARNING' (2 meses): acumulado ha 2 meses, necessita de agendamento de folga.
+        * status='EXPIRED' (3+ meses): atingiu o limite da CCT, deve ser pago na folha de pagamento.
+    """
+    emp_ids = [e.id for e in employees]
+    if not emp_ids:
+        return {}
+
+    all_scheds = db.query(models.RHMonthlySchedule).filter(
+        models.RHMonthlySchedule.organization_id == organization_id,
+        (models.RHMonthlySchedule.year * 12 + models.RHMonthlySchedule.month) <= (target_schedule.year * 12 + target_schedule.month)
+    ).order_by(models.RHMonthlySchedule.year.asc(), models.RHMonthlySchedule.month.asc()).all()
+
+    sched_ids = [s.id for s in all_scheds]
+    sched_map = {s.id: s for s in all_scheds}
+
+    all_entries = db.query(models.RHBankHoursEntry).filter(
+        models.RHBankHoursEntry.schedule_id.in_(sched_ids),
+        models.RHBankHoursEntry.employee_id.in_(emp_ids)
+    ).all()
+    entries_map: Dict[Tuple[int, int], List[models.RHBankHoursEntry]] = {}
+    for e in all_entries:
+        entries_map.setdefault((e.schedule_id, e.employee_id), []).append(e)
+
+    all_bank_rows = db.query(models.RHBankHours).filter(
+        models.RHBankHours.schedule_id.in_(sched_ids),
+        models.RHBankHours.employee_id.in_(emp_ids)
+    ).all()
+    bank_rows_map = {(r.schedule_id, r.employee_id): r for r in all_bank_rows}
+
+    ledgers_by_sched = {}
+    for s in all_scheds:
+        ledgers_by_sched[s.id] = load_month_ledgers(db, organization_id, s, employees, settings)
+
+    target_idx = target_schedule.year * 12 + target_schedule.month
+    result: Dict[int, Dict[str, Any]] = {}
+
+    for emp in employees:
+        buckets: List[Dict[str, Any]] = []
+        for s in all_scheds:
+            emp_ledger = ledgers_by_sched[s.id].get(emp.id, {})
+            mvs = daily_bank_movements(emp_ledger)
+            scale_pos = sum(m['minutes'] for m in mvs if m.get('in_bank') and m['minutes'] > 0)
+            scale_neg = sum(-m['minutes'] for m in mvs if m.get('in_bank') and m['minutes'] < 0)
+
+            ents = entries_map.get((s.id, emp.id), [])
+            cred = sum(e.minutes for e in ents if e.kind == 'CREDIT')
+            deb = sum(e.minutes for e in ents if e.kind == 'DEBIT')
+            paid = sum(e.minutes for e in ents if e.kind == 'PAYMENT')
+
+            r = bank_rows_map.get((s.id, emp.id))
+            auto_paid = max(0, (r.paid_minutes or 0) - paid) if r else 0
+            total_paid = paid + auto_paid
+
+            consumed = scale_neg + deb + total_paid
+            while consumed > 0 and buckets:
+                first = buckets[0]
+                if first['remaining_minutes'] <= consumed:
+                    consumed -= first['remaining_minutes']
+                    buckets.pop(0)
+                else:
+                    first['remaining_minutes'] -= consumed
+                    consumed = 0
+
+            added = scale_pos + cred
+            if consumed > 0:
+                added -= consumed
+
+            if added > 0:
+                buckets.append({
+                    'year': s.year,
+                    'month': s.month,
+                    'origin_minutes': added,
+                    'remaining_minutes': added
+                })
+            elif added < 0:
+                buckets = [{
+                    'year': s.year,
+                    'month': s.month,
+                    'origin_minutes': added,
+                    'remaining_minutes': added
+                }]
+
+        aging_buckets = []
+        expired_min = 0
+        warning_min = 0
+        folga_min = 0
+        current_min = 0
+
+        for b in buckets:
+            rem = b['remaining_minutes']
+            if rem <= 0:
+                continue
+            age = target_idx - (b['year'] * 12 + b['month'])
+            if age >= 3:
+                st = 'EXPIRED'
+                expired_min += rem
+            elif age == 2:
+                st = 'WARNING'
+                warning_min += rem
+            elif age == 1:
+                st = 'FOLGA_PROXIMO'
+                folga_min += rem
+            else:
+                st = 'CURRENT'
+                current_min += rem
+
+            aging_buckets.append({
+                'year': b['year'],
+                'month': b['month'],
+                'origin_minutes': b['origin_minutes'],
+                'remaining_minutes': rem,
+                'age_months': age,
+                'status': st
+            })
+
+        result[emp.id] = {
+            'buckets': aging_buckets,
+            'expired_minutes': expired_min,
+            'warning_minutes': warning_min,
+            'folga_proximo_minutes': folga_min,
+            'current_minutes': current_min,
+            'total_positive_minutes': sum(b['remaining_minutes'] for b in aging_buckets)
+        }
+
+    return result
+
+
 def bank_to_dict(
     row: Optional[models.RHBankHours],
     emp: models.RHEmployee,
     default_policy: str,
     entries: Optional[List[models.RHBankHoursEntry]] = None,
     movements: Optional[List[Dict[str, Any]]] = None,
-    rest_work: Optional[List[Dict[str, Any]]] = None
+    rest_work: Optional[List[Dict[str, Any]]] = None,
+    aging: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     override = row.policy if row else None
     return {
@@ -343,6 +492,14 @@ def bank_to_dict(
         "movements": movements or [],
         "rest_work": rest_work or [],
         "rest_work_pending": sum(1 for r in (rest_work or []) if r["status"] == "PENDENTE"),
+        "aging": aging or {
+            "buckets": [],
+            "expired_minutes": 0,
+            "warning_minutes": 0,
+            "folga_proximo_minutes": 0,
+            "current_minutes": 0,
+            "total_positive_minutes": 0
+        },
     }
 
 
@@ -691,6 +848,8 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
     for e in entries:
         by_emp.setdefault(e.employee_id, []).append(e)
 
+    aging_by_emp = compute_bank_aging_map(db, organization_id, schedule, employees, settings)
+
     grand = {"receitas": 0.0, "despesas": 0.0, "liquido": 0.0, "fgts": 0.0, "beneficios": 0.0}
     month_end = date(schedule.year, schedule.month, get_month_calendar_info(schedule.year, schedule.month)["num_days"])
     rows = []
@@ -727,7 +886,8 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "bank": bank_to_dict(
                 bank_rows.get(emp.id), emp, default_policy,
                 bank_entries_by_emp.get(emp.id), daily_bank_movements(ledgers.get(emp.id, {})),
-                rest_work_items(ledgers.get(emp.id, {}))
+                rest_work_items(ledgers.get(emp.id, {})),
+                aging=aging_by_emp.get(emp.id)
             ),
         })
 
