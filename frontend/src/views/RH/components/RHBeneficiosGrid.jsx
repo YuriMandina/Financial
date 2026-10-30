@@ -675,182 +675,323 @@ export default function RHBeneficiosGrid({
 
       </div>
       {/* ============================================================================== */}
-      {/* --- [BLOCO: RELATÓRIO EXECUTIVO DE RECARGA PARA A DIRETORIA (PRINT ONLY)] --- */}
+      {/* --- [BLOCO: RELATÓRIO EXECUTIVO DE RECARGA PARA A DIRETORIA (PRINT PAISAGEM POR EQUIPE)] --- */}
       {/* ============================================================================== */}
       <div className="hidden print:block print:w-full print:text-black print:bg-white print:p-0">
         <style>{`
           @media print {
             @page {
-              size: A4 portrait;
-              margin: 8mm 10mm;
+              size: A4 landscape;
+              margin: 4mm 6mm;
             }
             body {
               background: white !important;
               color: black !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
-            .benefit-print-table th, .benefit-print-table td {
-              border: 1px solid #334155 !important;
-              padding: 4px 6px !important;
-              font-size: 8pt !important;
+            .benefit-landscape-table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+              table-layout: fixed !important;
             }
-            .benefit-print-table tbody tr:nth-child(even) {
+            .benefit-landscape-table th, .benefit-landscape-table td {
+              border: 1px solid #475569 !important;
+              padding: 1.5px 2px !important;
+              font-size: 7pt !important;
+              line-height: 1 !important;
+              height: 19px !important;
+              vertical-align: middle !important;
+              white-space: nowrap !important;
+              word-break: normal !important;
+              overflow: hidden !important;
+              text-overflow: ellipsis !important;
+            }
+            .benefit-landscape-table th {
+              font-weight: 700 !important;
+            }
+            .benefit-landscape-table tbody tr:nth-child(even) {
               background-color: #f8fafc !important;
+            }
+            .day-sun-holiday {
+              background-color: #fee2e2 !important;
+              color: #991b1b !important;
+            }
+            .team-card {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              margin-bottom: 8px !important;
             }
           }
         `}</style>
 
         {/* Cabeçalho da Empresa */}
-        <div className="border-b-2 border-black pb-3 mb-3">
+        <div className="border-b-2 border-black pb-1.5 mb-2">
           <div className="flex justify-between items-start">
             <div>
-              <h1 className="text-base font-bold uppercase tracking-tight text-black">
+              <h1 className="text-sm font-bold uppercase tracking-tight text-black">
                 {company.razao_social || 'EMPRESA'}
               </h1>
               {company.nome_fantasia && (
-                <div className="text-xs text-gray-700 font-medium">Nome Fantasia: {company.nome_fantasia}</div>
+                <div className="text-[10px] text-gray-700 font-medium">Nome Fantasia: {company.nome_fantasia}</div>
               )}
-              <div className="text-[10px] text-gray-600 mt-0.5">
+              <div className="text-[8.5px] text-gray-600">
                 {company.cnpj && <span>CNPJ: {company.cnpj}</span>}
                 {company.cidade && <span> • {company.cidade}/{company.uf}</span>}
               </div>
             </div>
             <div className="text-right">
-              <span className="inline-block px-2 py-1 text-[11px] font-bold uppercase border border-black rounded bg-gray-100">
-                PEDIDO DE RECARGA — {type}
+              <span className="inline-block px-2 py-0.5 text-[9.5px] font-extrabold uppercase border border-black rounded bg-gray-100">
+                MAPA MENSAL & PEDIDO DE RECARGA — {type}
               </span>
-              <div className="text-[10px] text-gray-600 mt-1">
+              <div className="text-[9.5px] text-gray-700 mt-0.5">
                 Competência: <strong>{monthNames[selectedMonth - 1]}/{selectedYear}</strong>
               </div>
-              <div className="text-[9px] text-gray-500">
+              <div className="text-[8px] text-gray-500">
                 Emissão: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </div>
             </div>
           </div>
 
-          <div className="mt-2 pt-2 border-t border-gray-300 flex items-center justify-between text-xs">
+          <div className="mt-1 pt-1 border-t border-gray-300 flex items-center justify-between text-[8.5pt]">
             <div>
-              <span className="font-semibold text-gray-800">Finalidade: </span>
-              <span>Anexo de Conferência e Autorização de Pagamento de Boleto de Recarga</span>
+              <span className="font-bold text-gray-800">Finalidade: </span>
+              <span>Conferência da Escala e Autorização de Pagamento do Boleto de Recarga</span>
             </div>
             <div>
-              <span className="font-semibold text-gray-800">Equipe / Centro de Custo: </span>
+              <span className="font-bold text-gray-800">Visualização: </span>
               <span className="font-bold underline uppercase">
-                {selectedTeam === 'ALL' ? 'Geral (Todas as Equipes)' : selectedTeam || 'Sem Equipe'}
+                {selectedTeam === 'ALL' ? 'Geral (Agrupado por Equipe)' : `Equipe: ${selectedTeam}`}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Quadro de Resumo para a Diretoria */}
-        <div className="grid grid-cols-4 gap-2 mb-3 text-xs">
-          <div className="border border-black p-2 rounded bg-gray-50">
-            <div className="text-[10px] uppercase font-bold text-gray-600">Beneficiários</div>
-            <div className="text-sm font-bold text-black mt-0.5">{printTotals.countEmployees} colaborador(es)</div>
+        {/* Quadro de Resumo Executivo para a Diretoria */}
+        <div className="grid grid-cols-4 gap-2 mb-2 text-xs">
+          <div className="border border-black p-1.5 rounded bg-gray-50">
+            <div className="text-[8.5px] uppercase font-bold text-gray-600">Beneficiários</div>
+            <div className="text-xs font-bold text-black">{printTotals.countEmployees} colaborador(es)</div>
           </div>
-          <div className="border border-black p-2 rounded bg-gray-50">
-            <div className="text-[10px] uppercase font-bold text-gray-600">Total de {isVT ? 'Passagens' : 'Refeições'}</div>
-            <div className="text-sm font-bold text-black mt-0.5">{printTotals.totalQty} {isVT ? 'vales' : 'unid'}</div>
+          <div className="border border-black p-1.5 rounded bg-gray-50">
+            <div className="text-[8.5px] uppercase font-bold text-gray-600">Total de {isVT ? 'Passagens' : 'Refeições'}</div>
+            <div className="text-xs font-bold text-black">{printTotals.totalQty} {isVT ? 'vales' : 'unid'}</div>
           </div>
-          <div className="border border-black p-2 rounded bg-gray-50">
-            <div className="text-[10px] uppercase font-bold text-gray-600">{isVT ? 'Tarifa Unitária' : 'Custo Médio/Ref'}</div>
-            <div className="text-sm font-bold text-black mt-0.5">
+          <div className="border border-black p-1.5 rounded bg-gray-50">
+            <div className="text-[8.5px] uppercase font-bold text-gray-600">{isVT ? 'Tarifa Unitária' : 'Custo Médio/Ref'}</div>
+            <div className="text-xs font-bold text-black">
               {isVT ? `R$ ${ticketUnitPrice.toFixed(2)}` : 'Conforme contrato'}
             </div>
           </div>
-          <div className="border-2 border-black p-2 rounded bg-gray-100">
-            <div className="text-[10px] uppercase font-bold text-black">Valor Total da Fatura</div>
-            <div className="text-sm font-extrabold text-black mt-0.5">
+          <div className="border-2 border-black p-1.5 rounded bg-gray-100">
+            <div className="text-[8.5px] uppercase font-bold text-black">Valor Total da Fatura</div>
+            <div className="text-xs font-extrabold text-black">
               {Number(printTotals.totalValue).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
             </div>
           </div>
         </div>
 
-        {/* Tabela Analítica por Colaborador */}
-        <table className="w-full text-left border-collapse benefit-print-table mb-4">
-          <thead>
-            <tr className="bg-gray-200 text-black uppercase text-[8pt] font-bold">
-              <th className="w-8 text-center">Nº</th>
-              <th>Colaborador</th>
-              <th>Cargo</th>
-              <th>Equipe</th>
-              <th className="text-center w-16">Dias Trab.</th>
-              <th className="text-center w-16">Qtd Calc.</th>
-              <th className="text-center w-14">Ajustes</th>
-              <th className="text-center w-16">Qtd Final</th>
-              <th className="text-right w-24">Valor (R$)</th>
-              <th className="w-32 text-center">Visto / Conferência</th>
-            </tr>
-          </thead>
-          <tbody>
-            {employees.map((emp, idx) => {
-              const summary = summaryMap[emp.id] || {};
-              const workDaysCount = summary.work_days_count || 0;
-              const calcQty = isVT ? (summary.total_vt_tickets_calc || 0) : (summary.total_va_count_calc || 0);
-              const finalQty = isVT ? (summary.total_vt_tickets_final || 0) : (summary.total_va_count_final || 0);
-              const adjQty = finalQty - calcQty;
-              const totalAmount = isVT ? (summary.total_vt_amount || 0) : (summary.total_va_amount || 0);
+        {/* Renderização dos Colaboradores Agrupados por Equipe em Cards */}
+        {(() => {
+          // Agrupamento ordenado por Equipe
+          const groupsMap = {};
+          employees.forEach((emp) => {
+            const teamKey = (emp.team || '').trim() || 'Sem Equipe Atribuída';
+            if (!groupsMap[teamKey]) groupsMap[teamKey] = [];
+            groupsMap[teamKey].push(emp);
+          });
+          const teamKeys = Object.keys(groupsMap).sort((a, b) => {
+            if (a === 'Sem Equipe Atribuída') return 1;
+            if (b === 'Sem Equipe Atribuída') return -1;
+            return a.localeCompare(b);
+          });
 
-              return (
-                <tr key={emp.id}>
-                  <td className="text-center font-medium text-gray-700">{idx + 1}</td>
-                  <td className="font-bold text-black">{emp.name}</td>
-                  <td className="text-gray-800">{emp.role || 'Geral'}</td>
-                  <td className="text-gray-800 font-medium">{emp.team || '-'}</td>
-                  <td className="text-center font-semibold">{workDaysCount}</td>
-                  <td className="text-center text-gray-700">{calcQty}</td>
-                  <td className="text-center font-semibold text-gray-800">
-                    {adjQty > 0 ? `+${adjQty}` : adjQty < 0 ? String(adjQty) : '-'}
-                  </td>
-                  <td className="text-center font-bold text-black">{finalQty}</td>
-                  <td className="text-right font-bold text-black">
-                    {Number(totalAmount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </td>
-                  <td className="border-b border-gray-400"></td>
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr className="bg-gray-200 text-black font-extrabold uppercase text-[8.5pt]">
-              <td colSpan={7} className="text-right pr-2">Totalizador do Pedido de Recarga:</td>
-              <td className="text-center font-bold">{printTotals.totalQty}</td>
-              <td className="text-right font-extrabold">
-                {Number(printTotals.totalValue).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
+          let globalRowIndex = 0;
+
+          return (
+            <div className="space-y-3">
+              {teamKeys.map((teamName) => {
+                const teamEmps = groupsMap[teamName];
+                let teamQty = 0;
+                let teamVal = 0;
+                teamEmps.forEach((emp) => {
+                  const s = summaryMap[emp.id] || {};
+                  teamQty += isVT ? (s.total_vt_tickets_final || 0) : (s.total_va_count_final || 0);
+                  teamVal += isVT ? (s.total_vt_amount || 0) : (s.total_va_amount || 0);
+                });
+
+                return (
+                  <div key={teamName} className="team-card border border-black rounded overflow-hidden">
+                    {/* Header do Card da Equipe */}
+                    <div className="bg-slate-800 text-white px-2.5 py-1 flex items-center justify-between text-[8pt] font-bold">
+                      <div className="flex items-center gap-2">
+                        <span className="uppercase tracking-wider">EQUIPE / UNIDADE: {teamName}</span>
+                        <span className="text-[7pt] font-normal text-slate-300">
+                          ({teamEmps.length} colaborador{teamEmps.length > 1 ? 'es' : ''})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-[7.5pt]">
+                        <span>Subtotal: <strong>{teamQty} {isVT ? 'vales' : 'unid'}</strong></span>
+                        <span>Fatura: <strong>{Number(teamVal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
+                      </div>
+                    </div>
+
+                    <table className="benefit-landscape-table">
+                      <thead>
+                        <tr className="bg-gray-200 text-black uppercase font-bold text-[6.5pt]">
+                          <th style={{ width: '22px' }} className="text-center" rowSpan={2}>Nº</th>
+                          <th style={{ width: '130px' }} className="text-left px-1" rowSpan={2}>Colaborador</th>
+                          <th style={{ width: '90px' }} className="text-left px-1" rowSpan={2}>Cargo</th>
+                          <th colSpan={daysList.length} className="text-center bg-gray-300 py-0.5">
+                            Dias do Mês de {monthNames[selectedMonth - 1]}/{selectedYear} ({isVT ? 'Passagens por Dia' : 'Refeição Diária'})
+                          </th>
+                          <th style={{ width: '28px' }} className="text-center" rowSpan={2} title="Dias Trabalhados">Dias</th>
+                          <th style={{ width: '28px' }} className="text-center" rowSpan={2} title="Quantidade Calculada">Calc.</th>
+                          <th style={{ width: '24px' }} className="text-center" rowSpan={2} title="Ajustes Avulsos">Aj.</th>
+                          <th style={{ width: '32px' }} className="text-center font-extrabold bg-gray-300" rowSpan={2} title="Total Final">Total</th>
+                          <th style={{ width: '68px' }} className="text-right px-1 font-extrabold" rowSpan={2}>Valor (R$)</th>
+                          <th style={{ width: '42px' }} className="text-center" rowSpan={2}>Visto</th>
+                        </tr>
+                        <tr className="bg-gray-100 text-black font-semibold text-[6pt]">
+                          {daysList.map((day) => {
+                            const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
+                            const isSun = weekday === 0;
+                            const isHol = !!holidays[day];
+                            const weekdayLetter = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'][weekday];
+                            return (
+                              <th
+                                key={day}
+                                className={`text-center ${isSun || isHol ? 'day-sun-holiday font-bold' : ''}`}
+                                style={{ width: `${(100 - 35) / daysList.length}%` }}
+                                title={isHol ? `${day} - ${holidays[day]}` : `${day} (${weekdayLetter})`}
+                              >
+                                <div>{weekdayLetter}</div>
+                                <div className="text-[6.5pt] font-mono">{day}</div>
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {teamEmps.map((emp) => {
+                          globalRowIndex += 1;
+                          const summary = summaryMap[emp.id] || {};
+                          const workDaysCount = summary.work_days_count || 0;
+                          const calcQty = isVT ? (summary.total_vt_tickets_calc || 0) : (summary.total_va_count_calc || 0);
+                          const finalQty = isVT ? (summary.total_vt_tickets_final || 0) : (summary.total_va_count_final || 0);
+                          const adjQty = finalQty - calcQty;
+                          const totalAmount = isVT ? (summary.total_vt_amount || 0) : (summary.total_va_amount || 0);
+
+                          return (
+                            <tr key={emp.id}>
+                              <td className="text-center text-gray-700 font-mono">{globalRowIndex}</td>
+                              <td className="font-bold text-black px-1">{emp.name}</td>
+                              <td className="text-gray-800 px-1">{emp.role || 'Geral'}</td>
+
+                              {/* Células Diárias do Mês */}
+                              {daysList.map((day) => {
+                                const weekday = new Date(selectedYear, selectedMonth - 1, day).getDay();
+                                const isSun = weekday === 0;
+                                const isHol = !!holidays[day];
+                                const dayData = workDays[emp.id]?.[day] || {};
+                                const isWorked = dayData.status === 'TRABALHO';
+
+                                let cellContent = '-';
+                                let cellClass = 'text-center text-gray-400 font-mono text-[6.5pt]';
+
+                                if (isVT) {
+                                  const vtQty = dayData.vt_final;
+                                  if (vtQty && vtQty > 0) {
+                                    cellContent = vtQty;
+                                    cellClass = 'text-center font-bold text-black font-mono text-[7pt]';
+                                  } else if (!isWorked) {
+                                    cellContent = dayData.status === 'FOLGA_BH' ? 'BH' : (dayData.status === 'FERIAS' ? 'FE' : '-');
+                                    if (dayData.status === 'FOLGA_BH' || dayData.status === 'FERIAS') {
+                                      cellClass = 'text-center font-semibold text-gray-600 text-[5.5pt]';
+                                    }
+                                  }
+                                } else {
+                                  const vaConceded = dayData.va_final;
+                                  if (vaConceded) {
+                                    cellContent = '1';
+                                    cellClass = 'text-center font-bold text-emerald-800 font-mono text-[7pt]';
+                                  } else if (!isWorked) {
+                                    cellContent = dayData.status === 'FOLGA_BH' ? 'BH' : (dayData.status === 'FERIAS' ? 'FE' : '-');
+                                    if (dayData.status === 'FOLGA_BH' || dayData.status === 'FERIAS') {
+                                      cellClass = 'text-center font-semibold text-gray-600 text-[5.5pt]';
+                                    }
+                                  }
+                                }
+
+                                return (
+                                  <td
+                                    key={day}
+                                    className={`${cellClass} ${isSun || isHol ? 'day-sun-holiday' : ''}`}
+                                  >
+                                    {cellContent}
+                                  </td>
+                                );
+                              })}
+
+                              <td className="text-center font-semibold text-gray-800 font-mono">{workDaysCount}</td>
+                              <td className="text-center text-gray-700 font-mono">{calcQty}</td>
+                              <td className="text-center font-semibold text-gray-800 font-mono">
+                                {adjQty > 0 ? `+${adjQty}` : adjQty < 0 ? String(adjQty) : '-'}
+                              </td>
+                              <td className="text-center font-extrabold text-black bg-gray-100 font-mono">{finalQty}</td>
+                              <td className="text-right px-1 font-extrabold text-black font-mono">
+                                {Number(totalAmount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </td>
+                              <td className="border-b border-gray-400"></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
+
+              {/* Linha Resumo Geral da Fatura */}
+              <div className="flex justify-between items-center bg-gray-200 border-2 border-black p-2 rounded text-[8pt] font-extrabold">
+                <span className="uppercase">TOTAL GERAL DO PEDIDO DE RECARGA ({printTotals.countEmployees} COLABORADORES):</span>
+                <div className="flex items-center gap-6">
+                  <span>TOTAL DE {isVT ? 'PASSAGENS' : 'REFEIÇÕES'}: <strong className="text-[9pt] underline">{printTotals.totalQty} {isVT ? 'vales' : 'unidades'}</strong></span>
+                  <span>VALOR TOTAL DA FATURA: <strong className="text-[10pt] text-black underline">{Number(printTotals.totalValue).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Termo de Aprovação da Diretoria e Conferência */}
-        <div className="border border-black p-3 rounded mt-4 text-[9pt] break-inside-avoid">
-          <div className="font-bold uppercase text-[9pt] mb-2 text-black border-b border-gray-300 pb-1">
+        <div className="border border-black p-2 rounded text-[7.5pt] break-inside-avoid mt-3">
+          <div className="font-bold uppercase text-[8pt] mb-1 text-black border-b border-gray-300 pb-0.5">
             Despacho e Autorização Financeira
           </div>
-          <p className="text-gray-700 text-[8.5pt] mb-4">
-            Atestamos que os valores e quantidades de <strong>{typeLabel}</strong> constantes neste relatório foram apurados
-            com base na escala de trabalho vigente e ajustados conforme as necessidades operacionais da equipe.
+          <p className="text-gray-700 text-[7pt] mb-2 leading-relaxed">
+            Atestamos que os quantitativos e valores de <strong>{typeLabel}</strong> constantes neste relatório foram apurados
+            conforme a escala de trabalho do mês e distribuídos pelas equipes acima especificadas.
             Autorizamos o pagamento do boleto bancário de recarga no valor total de{' '}
             <strong>{Number(printTotals.totalValue).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>.
           </p>
 
-          <div className="grid grid-cols-2 gap-8 pt-4">
+          <div className="grid grid-cols-2 gap-12 pt-2">
             <div className="text-center">
               <div className="border-t border-black pt-1 font-semibold text-black">
                 Responsável pelo Departamento Pessoal / RH
               </div>
-              <div className="text-[8pt] text-gray-600">Elaboração e Conferência da Escala</div>
+              <div className="text-[7pt] text-gray-600">Elaboração e Conferência da Escala</div>
             </div>
             <div className="text-center">
               <div className="border-t border-black pt-1 font-semibold text-black">
                 Diretoria Executiva / Financeiro
               </div>
-              <div className="text-[8pt] text-gray-600">Autorização para Pagamento do Boleto</div>
+              <div className="text-[7pt] text-gray-600">Autorização para Pagamento do Boleto</div>
             </div>
           </div>
         </div>
       </div>
-
       {/* Modal de Criação de Ajuste Avulso no Mês (D7) */}
       {adjModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 backdrop-blur-xs">
