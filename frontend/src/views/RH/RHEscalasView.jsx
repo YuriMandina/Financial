@@ -90,6 +90,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   const [employeeFormData, setEmployeeFormData] = useState({
     name: '',
     role_id: '',
+    team_id: '',
     team: '',
     default_daily_transport_tickets: 2,
     daily_meal_cost: 25.00,
@@ -102,6 +103,13 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
     profile: {},
     active: true
   });
+
+  // Modal de Gerenciamento de Equipes (CRUD)
+  const [teamsModalOpen, setTeamsModalOpen] = useState(false);
+  const [editingTeam, setEditingTeam] = useState(null);
+  const [teamFormData, setTeamFormData] = useState({ name: '', description: '' });
+  const [teamActionLoading, setTeamActionLoading] = useState(false);
+  const [teamActionError, setTeamActionError] = useState('');
 
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [salaryModalTarget, setSalaryModalTarget] = useState(null); // id do cargo ou 'ALL'
@@ -243,6 +251,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       const payload = {
         name: employeeFormData.name,
         role_id: employeeFormData.role_id ? parseInt(employeeFormData.role_id, 10) : null,
+        team_id: employeeFormData.team_id ? parseInt(employeeFormData.team_id, 10) : null,
         team: (employeeFormData.team || '').trim() || null,
         default_daily_transport_tickets: Number.isNaN(parseInt(employeeFormData.default_daily_transport_tickets, 10)) ? 2 : parseInt(employeeFormData.default_daily_transport_tickets, 10),
         daily_meal_cost: parseFloat(String(employeeFormData.daily_meal_cost).replace(',', '.')) || 25.00,
@@ -293,6 +302,97 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
     } catch (err) {
       console.error(err);
       alert('Erro ao excluir colaborador.');
+    }
+  };
+
+  // ==============================================================================
+  // --- [BLOCO: GERENCIAMENTO DE EQUIPES / UNIDADES (CRUD)] ---
+  // ==============================================================================
+
+  const handleOpenTeamsModal = () => {
+    setEditingTeam(null);
+    setTeamFormData({ name: '', description: '' });
+    setTeamActionError('');
+    setTeamsModalOpen(true);
+  };
+
+  const handleSaveTeam = async (e) => {
+    e.preventDefault();
+    const cleanName = (teamFormData.name || '').trim();
+    if (!cleanName) {
+      setTeamActionError('Informe o nome da equipe.');
+      return;
+    }
+    setTeamActionLoading(true);
+    setTeamActionError('');
+    try {
+      const url = editingTeam
+        ? `${API_BASE}/api/rh/teams/${editingTeam.id}`
+        : `${API_BASE}/api/rh/teams`;
+      const method = editingTeam ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: cleanName,
+          description: (teamFormData.description || '').trim() || null
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Erro ao salvar equipe');
+      }
+
+      await fetchSchedule();
+      setEditingTeam(null);
+      setTeamFormData({ name: '', description: '' });
+      setSaveSuccessMsg(`Equipe ${editingTeam ? 'atualizada' : 'cadastrada'} com sucesso!`);
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+    } catch (err) {
+      console.error(err);
+      setTeamActionError(err.message || 'Erro ao processar requisição');
+    } finally {
+      setTeamActionLoading(false);
+    }
+  };
+
+  const handleDeleteTeam = async (teamItem) => {
+    const msg = (teamItem.members_count || 0) > 0
+      ? `A equipe "${teamItem.name}" possui ${teamItem.members_count} colaborador(es) vinculado(s). Ao excluí-la, eles ficarão sem equipe atribuída. Deseja continuar?`
+      : `Deseja realmente excluir a equipe "${teamItem.name}"?`;
+    if (!window.confirm(msg)) return;
+
+    setTeamActionLoading(true);
+    setTeamActionError('');
+    try {
+      const res = await fetch(`${API_BASE}/api/rh/teams/${teamItem.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Erro ao excluir equipe');
+      }
+      if (selectedTeam === teamItem.name) {
+        setSelectedTeam('ALL');
+      }
+      await fetchSchedule();
+      if (editingTeam?.id === teamItem.id) {
+        setEditingTeam(null);
+        setTeamFormData({ name: '', description: '' });
+      }
+      setSaveSuccessMsg('Equipe excluída com sucesso!');
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+    } catch (err) {
+      console.error(err);
+      setTeamActionError(err.message || 'Erro ao excluir equipe');
+    } finally {
+      setTeamActionLoading(false);
     }
   };
 
@@ -395,16 +495,20 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   const holidays = scheduleData?.holidays || {};
   const summaries = scheduleData?.summaries || [];
   const roles = scheduleData?.roles || [];
+  const teamsList = scheduleData?.teams || [];
   const ticketUnitPrice = scheduleData?.settings?.transport_ticket_unit_price || 4.70;
 
-  // Equipes disponíveis cadastradas
+  // Equipes disponíveis cadastradas (unifica lista oficial de rh_teams e equipes em colaboradores)
   const availableTeams = useMemo(() => {
     const set = new Set();
+    teamsList.forEach((t) => {
+      if (t.name && String(t.name).trim()) set.add(String(t.name).trim());
+    });
     employees.forEach((e) => {
       if (e.team && String(e.team).trim()) set.add(String(e.team).trim());
     });
     return Array.from(set).sort();
-  }, [employees]);
+  }, [teamsList, employees]);
 
   // Colaboradores ativos no escopo da equipe selecionada (ou todos se 'ALL')
   const scopedEmployees = useMemo(() => {
@@ -1019,6 +1123,13 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
+            onClick={handleOpenTeamsModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 transition-colors"
+          >
+            <Users size={14} />
+            Gerenciar Equipes
+          </button>
+          <button
             onClick={() => setRoleModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
           >
@@ -1043,9 +1154,11 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           <button
             onClick={() => {
               setEditingEmployee(null);
+              const defaultTeamObj = teamsList.find((t) => t.name === selectedTeam);
               setEmployeeFormData({
                 name: '',
                 role_id: roles[0]?.id || '',
+                team_id: defaultTeamObj ? defaultTeamObj.id : '',
                 team: selectedTeam !== 'ALL' ? selectedTeam : '',
                 default_daily_transport_tickets: 2,
                 daily_meal_cost: '25,00',
@@ -1159,6 +1272,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                           setEmployeeFormData({
                             name: emp.name,
                             role_id: emp.role_id || '',
+                            team_id: emp.team_id || (teamsList.find((t) => t.name === emp.team)?.id) || '',
                             team: emp.team || '',
                             default_daily_transport_tickets: emp.default_daily_transport_tickets ?? 2,
                             daily_meal_cost: Number(emp.daily_meal_cost ?? 25.00).toFixed(2).replace('.', ','),
@@ -1401,6 +1515,15 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                 ]}
               />
             </div>
+            <button
+              type="button"
+              onClick={handleOpenTeamsModal}
+              className="flex items-center gap-1 text-[11px] font-medium text-slate-300 hover:text-white px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
+              title="Gerenciar Equipes / Centros de Custo (CRUD)"
+            >
+              <Settings2 size={13} className="text-indigo-400" />
+              Gerenciar
+            </button>
             {selectedTeam !== 'ALL' && (
               <button
                 type="button"
@@ -1867,20 +1990,41 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-1">
-                  <label className="block text-slate-400 mb-1">Equipe / Unidade</label>
-                  <input
-                    type="text"
-                    list="rh-available-teams-list"
-                    value={employeeFormData.team || ''}
-                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, team: e.target.value })}
-                    placeholder="Ex: Atacado, Varejo..."
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400">Equipe / Unidade</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTeam(null);
+                        setTeamFormData({ name: '', description: '' });
+                        setTeamActionError('');
+                        setTeamsModalOpen(true);
+                      }}
+                      className="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold"
+                    >
+                      + Nova Equipe
+                    </button>
+                  </div>
+                  <SelectDropdown
+                    value={employeeFormData.team_id || ''}
+                    onChange={(val) => {
+                      const selectedObj = teamsList.find((t) => String(t.id) === String(val));
+                      setEmployeeFormData({
+                        ...employeeFormData,
+                        team_id: val ? parseInt(val, 10) : '',
+                        team: selectedObj ? selectedObj.name : ''
+                      });
+                    }}
+                    placeholder="Selecione a equipe..."
+                    options={[
+                      { value: '', label: 'Sem equipe atribuída' },
+                      ...teamsList.map((t) => ({
+                        value: t.id,
+                        label: t.name,
+                        subtitle: t.description || undefined
+                      }))
+                    ]}
                   />
-                  <datalist id="rh-available-teams-list">
-                    {availableTeams.map((t) => (
-                      <option key={t} value={t} />
-                    ))}
-                  </datalist>
                   <span className="text-[10px] text-slate-500">Centro de custo / rateio</span>
                 </div>
 
@@ -2403,6 +2547,178 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Gerenciamento de Equipes / Centros de Custo (CRUD) */}
+      {teamsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-xl w-full p-6 shadow-xl space-y-5 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <Users size={18} className="text-indigo-400" />
+                <div>
+                  <h3 className="text-base font-bold text-white">Gerenciar Equipes / Unidades</h3>
+                  <p className="text-xs text-slate-400">Classificação organizacional para escalas, folha e relatórios</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTeamsModalOpen(false);
+                  setEditingTeam(null);
+                  setTeamFormData({ name: '', description: '' });
+                  setTeamActionError('');
+                }}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {teamActionError && (
+              <div className="p-3 rounded-lg bg-red-950/40 border border-red-500/40 text-red-200 text-xs">
+                {teamActionError}
+              </div>
+            )}
+
+            {/* Formulário de Criação / Edição de Equipe */}
+            <form onSubmit={handleSaveTeam} className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-200">
+                  {editingTeam ? `Editar Equipe: ${editingTeam.name}` : 'Cadastrar Nova Equipe'}
+                </span>
+                {editingTeam && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingTeam(null);
+                      setTeamFormData({ name: '', description: '' });
+                      setTeamActionError('');
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-white underline"
+                  >
+                    Cancelar edição
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">Nome da Equipe *</label>
+                  <input
+                    type="text"
+                    required
+                    value={teamFormData.name}
+                    onChange={(e) => setTeamFormData({ ...teamFormData, name: e.target.value })}
+                    placeholder="Ex: Atacado, Varejo, Logística..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">Descrição / Finalidade</label>
+                  <input
+                    type="text"
+                    value={teamFormData.description}
+                    onChange={(e) => setTeamFormData({ ...teamFormData, description: e.target.value })}
+                    placeholder="Opcional: Centro de custo, filial..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  disabled={teamActionLoading}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50"
+                >
+                  {teamActionLoading ? 'Salvando...' : (editingTeam ? 'Atualizar Equipe' : '+ Adicionar Equipe')}
+                </button>
+              </div>
+            </form>
+
+            {/* Listagem de Equipes Cadastradas */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-1">
+                Equipes Cadastradas ({teamsList.length})
+              </div>
+
+              {teamsList.length === 0 ? (
+                <div className="text-center py-6 text-slate-500 text-xs italic bg-slate-950/40 rounded-lg border border-slate-800">
+                  Nenhuma equipe cadastrada até o momento. Utilize o formulário acima para criar a primeira.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {teamsList.map((t) => {
+                    const memberCount = employees.filter((e) => (e.team || '').trim() === t.name).length;
+                    const isEditing = editingTeam?.id === t.id;
+                    return (
+                      <div
+                        key={t.id}
+                        className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                          isEditing
+                            ? 'bg-indigo-950/30 border-indigo-500/50'
+                            : 'bg-slate-950/40 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-white">{t.name}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                              {memberCount} membro(s)
+                            </span>
+                          </div>
+                          {t.description && (
+                            <p className="text-[11px] text-slate-400 mt-0.5">{t.description}</p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingTeam(t);
+                              setTeamFormData({ name: t.name, description: t.description || '' });
+                              setTeamActionError('');
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
+                            title="Editar Equipe"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={teamActionLoading}
+                            onClick={() => handleDeleteTeam({ ...t, members_count: memberCount })}
+                            className="p-1.5 text-slate-400 hover:text-red-400 rounded hover:bg-slate-800 transition-colors disabled:opacity-50"
+                            title="Excluir Equipe"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setTeamsModalOpen(false);
+                  setEditingTeam(null);
+                  setTeamFormData({ name: '', description: '' });
+                  setTeamActionError('');
+                }}
+                className="px-4 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
