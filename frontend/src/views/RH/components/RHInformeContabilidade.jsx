@@ -211,6 +211,14 @@ export default function RHInformeContabilidade({ token, apiBase, selectedYear, s
                 {copied === 'texto' ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
                 {copied === 'texto' ? 'Copiado' : 'Copiar texto'}
               </button>
+              <button
+                onClick={() => handleExport('xlsx')}
+                disabled={!!exporting}
+                className={`${btn} bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-600`}
+                title="Planilha com um bloco por colaborador, lançamentos separados e totais"
+              >
+                <FileSpreadsheet size={13} /> Excel
+              </button>
               <button onClick={() => handleExport('pdf')} disabled={!!exporting} className={btnGhost}>
                 <FileDown size={13} /> PDF
               </button>
@@ -341,6 +349,9 @@ export default function RHInformeContabilidade({ token, apiBase, selectedYear, s
                           <div className="flex gap-2">
                             <button onClick={() => copy(v.text, `v${v.version}`)} className={btnGhost}>
                               {copied === `v${v.version}` ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />} Copiar
+                            </button>
+                            <button onClick={() => handleExport('xlsx', v.version)} disabled={!!exporting} className={btnGhost}>
+                              <FileSpreadsheet size={13} /> Excel desta versão
                             </button>
                             <button onClick={() => handleExport('pdf', v.version)} disabled={!!exporting} className={btnGhost}>
                               <FileDown size={13} /> PDF desta versão

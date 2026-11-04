@@ -690,10 +690,15 @@ def calculate_payroll(
             he_rate_value = round(paid_by_mode["PAY"] / 60 * hourly_rate * factor_pay, 2)
             he_normal_value = round(paid_by_mode["PAY_NORMAL"] / 60 * hourly_rate, 2)
             he_value = he_rate_value + he_normal_value
+            pay_dates = [
+                {"date": d.isoformat(), "minutes": dl.extra_min}
+                for d, dl in sorted(ledgers[emp.id].items())
+                if dl.extra_min and d.month == schedule.month
+            ]
             add_auto(system_items["HE50"], he_rate_value,
-                     f"{_fmt_hours(paid_by_mode['PAY'])} a {overtime_rate:g}%", (paid_by_mode["PAY"], "MIN", None))
+                     f"{_fmt_hours(paid_by_mode['PAY'])} a {overtime_rate:g}%", (paid_by_mode["PAY"], "MIN", pay_dates))
             add_auto(system_items["HE_NORMAL"], he_normal_value,
-                     f"{_fmt_hours(paid_by_mode['PAY_NORMAL'])} normal", (paid_by_mode["PAY_NORMAL"], "MIN", None))
+                     f"{_fmt_hours(paid_by_mode['PAY_NORMAL'])} normal", (paid_by_mode["PAY_NORMAL"], "MIN", pay_dates))
 
         # DSR/feriado trabalhado sem folga compensatória que o administrativo decidiu pagar em dobro
         # (aba Banco de horas). Quitado no próprio mês, fora do banco comum (Lei 605/49 art. 9º; Súmula 146 TST)
@@ -701,8 +706,11 @@ def calculate_payroll(
         he_double_value = round(double_minutes / 60 * hourly_rate * 2, 2) if double_minutes > 0 else 0.0
         if he_double_value:
             days_double = int(summary.get("double_to_pay_days") or 0)
-            double_dates = [d.isoformat() for d, dl in sorted(ledgers[emp.id].items())
-                            if dl.double_to_pay_min and d.month == schedule.month]
+            double_dates = [
+                {"date": d.isoformat(), "minutes": dl.double_to_pay_min}
+                for d, dl in sorted(ledgers[emp.id].items())
+                if dl.double_to_pay_min and d.month == schedule.month
+            ]
             add_auto(system_items["HE100"], he_double_value,
                      f"{_fmt_hours(double_minutes)} a 100% ({days_double} dia(s))",
                      (double_minutes, "MIN", double_dates))

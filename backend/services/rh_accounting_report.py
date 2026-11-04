@@ -70,24 +70,51 @@ def _plural_days(n: int) -> str:
 
 def _item_label(item: models.RHPayrollItem, overtime_rate: float) -> str:
     labels = {
-        "HE50": f"HE {overtime_rate:g}%",
-        "HE100": "HE 100%",
+        "HE50": f"Horas extras {overtime_rate:g}%",
+        "HE100": "Horas extras 100%",
         "HE_NORMAL": "Horas normais pagas",
-        "HE_FIXO": "Valor fixo HE",
+        "HE_FIXO": "Valor fixo horas extras",
         "FALTAS": "Faltas",
     }
     return labels.get(item.system_key, item.name)
 
 
+def _fmt_dates_detail(dates_entry: Any) -> str:
+    if not dates_entry:
+        return ""
+    # Se for lista de dicts com {"date": ..., "minutes": ...}
+    if isinstance(dates_entry, list) and dates_entry and isinstance(dates_entry[0], dict):
+        parts = []
+        for d in dates_entry:
+            day_str = _fmt_day(d.get("date", ""))
+            min_val = d.get("minutes")
+            if min_val is not None:
+                parts.append(f"{day_str}: {_fmt_minutes(min_val)}")
+            else:
+                parts.append(day_str)
+        return ", ".join(parts)
+    elif isinstance(dates_entry, dict):
+        parts = []
+        for k in sorted(dates_entry.keys()):
+            day_str = _fmt_day(k)
+            parts.append(f"{day_str}: {_fmt_minutes(dates_entry[k])}")
+        return ", ".join(parts)
+    elif isinstance(dates_entry, list):
+        return ", ".join(_fmt_day(d) for d in dates_entry)
+    return str(dates_entry)
+
+
 def item_value_text(line: Dict[str, Any]) -> str:
-    """Parte do item depois do rótulo: '12h30 (05/10, 12/10)', '1 dia (14/10)' ou 'R$ 150,00 (motivo)'."""
+    """Parte do item depois do rótulo: '12h30 (05/10: 2h00, 12/10: 2h00)', '1 dia (14/10)' ou 'R$ 150,00 (motivo)'."""
     if line["mode"] == "QUANTIDADE" and line.get("quantity") is not None:
         qty = _fmt_minutes(line["quantity"]) if line["unit"] == "MIN" else _plural_days(int(line["quantity"]))
     else:
         qty = _fmt_money(line["amount"])
     extras = []
     if line.get("dates"):
-        extras.append(", ".join(_fmt_day(d) for d in line["dates"]))
+        formatted_dates = _fmt_dates_detail(line["dates"])
+        if formatted_dates:
+            extras.append(formatted_dates)
     if line.get("notes"):
         extras.append(line["notes"])
     return qty + (f" ({'; '.join(extras)})" if extras else "")
@@ -154,13 +181,34 @@ def build_content(db: Session, organization_id: int, schedule: models.RHMonthlyS
             line = lines.setdefault(item.id, {
                 "key": f"item:{item.id}", "item_id": item.id, "label": _item_label(item, overtime_rate),
                 "kind": item.kind, "code": item.code, "mode": item.report_mode or "VALOR",
-                "quantity": None, "unit": None, "amount": 0.0, "dates": [], "notes": None,
+                "quantity": None, "unit": None, "amount": 0.0, "dates": [], "notes": None, "entries": [],
+            })
+            # Lançamentos individuais (detalhe da planilha: Prêmio 1, Prêmio 2... e o total)
+            line["entries"].append({
+                "amount": round(e.amount or 0.0, 2), "quantity": e.quantity,
+                "unit": (e.quantity_unit or "MIN") if e.quantity is not None else None,
+                "notes": (e.notes or "").strip() or None,
             })
             line["amount"] = round(line["amount"] + (e.amount or 0.0), 2)
             if e.quantity is not None:
                 line["quantity"] = (line["quantity"] or 0) + e.quantity
                 line["unit"] = e.quantity_unit or "MIN"
-            line["dates"] = sorted(set(line["dates"]) | set(e.dates or []))
+            e_dates = e.dates or []
+            if isinstance(e_dates, list):
+                if e_dates and isinstance(e_dates[0], dict):
+                    # Lista de dicts {"date": ..., "minutes": ...}
+                    curr_map = {d["date"]: d["minutes"] for d in (line["dates"] if (line["dates"] and isinstance(line["dates"][0], dict)) else [])}
+                    for item_d in e_dates:
+                        curr_map[item_d["date"]] = (curr_map.get(item_d["date"]) or 0) + (item_d.get("minutes") or 0)
+                    line["dates"] = [{"date": k, "minutes": curr_map[k]} for k in sorted(curr_map.keys())]
+                else:
+                    curr_set = set(line["dates"]) if isinstance(line["dates"], list) and (not line["dates"] or not isinstance(line["dates"][0], dict)) else set()
+                    line["dates"] = sorted(curr_set | set(e_dates))
+            elif isinstance(e_dates, dict):
+                curr_dict = line["dates"] if isinstance(line["dates"], dict) else {}
+                for k, v in e_dates.items():
+                    curr_dict[k] = (curr_dict.get(k) or 0) + v
+                line["dates"] = curr_dict
             if e.notes:
                 line["notes"] = "; ".join(filter(None, [line["notes"], e.notes.strip()]))
         items = sorted(lines.values(), key=lambda l: (l["kind"] != "RECEITA", l["code"]))
@@ -168,13 +216,6 @@ def build_content(db: Session, organization_id: int, schedule: models.RHMonthlyS
             line.pop("code")
 
         events = []
-        if emp.admission_date and month_start <= emp.admission_date <= month_end:
-            iso = emp.admission_date.isoformat()
-            events.append({"key": f"ADMISSAO:{iso}", "type": "ADMISSAO", "start": iso, "end": iso})
-        if emp.termination_date and month_start <= emp.termination_date <= month_end:
-            iso = emp.termination_date.isoformat()
-            events.append({"key": f"DESLIGAMENTO:{iso}", "type": "DESLIGAMENTO", "start": iso, "end": iso,
-                           "reason": emp.termination_reason})
         work_days = days_by_emp.get(emp.id, {})
         for status in EVENT_STATUSES:
             for a, b in _leave_periods(work_days, status):
@@ -233,8 +274,6 @@ def render_text(content: Dict[str, Any], company: str, settings: Optional[models
                 out.append(f"  {label}: " + " | ".join(parts))
         if emp["events"]:
             out.append("  Eventos: " + " | ".join(event_text(ev) for ev in emp["events"]))
-    if without:
-        out += ["", "Sem variáveis no mês: " + ", ".join(without) + "."]
     out += _closing(settings)
     return "\n".join(out)
 
@@ -432,3 +471,120 @@ def content_to_pdf(content: Dict[str, Any], company: str, version: Optional[int]
     else:
         _paragraph(pdf, "Nenhum colaborador na folha do mês.")
     return bytes(pdf.output())
+
+# ==============================================================================
+# --- [BLOCO: PLANILHA EXCEL] ---
+# ==============================================================================
+
+
+def _qty_text(quantity: Optional[float], unit: Optional[str]) -> str:
+    if quantity is None:
+        return ""
+    return _fmt_minutes(quantity) if unit == "MIN" else _plural_days(int(quantity))
+
+
+def content_to_xlsx(content: Dict[str, Any], company: str, version: Optional[int] = None) -> bytes:
+    """Planilha com um bloco ("card") por colaborador: proventos, descontos e eventos separados,
+    cada lançamento numa linha (Prêmio 1, Prêmio 2...) e o total da rubrica quando houver mais de um."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"Folha {content['month']:02d}-{content['year']}"
+    ws.sheet_view.showGridLines = False
+    for col, width in {"A": 3, "B": 36, "C": 14, "D": 16, "E": 46}.items():
+        ws.column_dimensions[col].width = width
+
+    thin = Side(style="thin", color="BFBFBF")
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    money_fmt = '"R$" #,##0.00'
+
+    def solid(color):
+        return PatternFill("solid", start_color=color, end_color=color)
+
+    emp_fill, head_fill, total_fill = solid("1F3864"), solid("F2F2F2"), solid("FFF2CC")
+    sections = {"P": ("PROVENTOS", solid("E2EFDA"), "375623"),
+                "D": ("DESCONTOS", solid("FCE4D6"), "843C0C"),
+                "E": ("EVENTOS DO MÊS", solid("DDEBF7"), "1F4E78")}
+
+    def row(r, values, font=None, fill=None):
+        for i, v in enumerate(values):
+            c = ws.cell(row=r, column=2 + i, value=v)
+            c.border = box
+            c.alignment = Alignment(vertical="center", wrap_text=(i == 3),
+                                    horizontal="center" if i == 1 else None)
+            if font:
+                c.font = font
+            if fill:
+                c.fill = fill
+            if i == 2 and isinstance(v, (int, float)):
+                c.number_format = money_fmt
+
+    def band(r, text, fill, font):
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=5)
+        c = ws.cell(row=r, column=2, value=text)
+        c.font = font
+        c.alignment = Alignment(vertical="center", indent=1)
+        for col in range(2, 6):
+            ws.cell(row=r, column=col).fill = fill
+            ws.cell(row=r, column=col).border = box
+
+    version_label = f" - Versão {version}" if version else ""
+    ws["B1"] = f"{company} - Variáveis da folha de {_month_label(content)}{version_label}".strip(" -")
+    ws["B1"].font = Font(bold=True, size=14, color="1F3864")
+    ws["B2"] = f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')} · {len(content['employees'])} colaboradores"
+    ws["B2"].font = Font(italic=True, size=9, color="808080")
+    r = 4
+
+    for emp in content["employees"]:
+        mat = f"   ·   Matrícula {emp['matricula']}" if emp.get("matricula") else ""
+        band(r, f"{emp['name']}{mat}", emp_fill, Font(bold=True, size=12, color="FFFFFF"))
+        ws.row_dimensions[r].height = 22
+        r += 1
+        if not emp["items"] and not emp["events"]:
+            row(r, ["Sem variáveis no mês", "", "", ""], font=Font(italic=True, color="808080"))
+            r += 2
+            continue
+
+        for key, lines in (("P", [l for l in emp["items"] if l["kind"] == "RECEITA"]),
+                           ("D", [l for l in emp["items"] if l["kind"] != "RECEITA"])):
+            if not lines:
+                continue
+            title, fill, color = sections[key]
+            band(r, title, fill, Font(bold=True, color=color))
+            r += 1
+            row(r, ["Rubrica", "Quantidade", "Valor", "Observação"], font=Font(bold=True, size=9), fill=head_fill)
+            r += 1
+            for l in lines:
+                by_qty = l["mode"] == "QUANTIDADE" and l.get("quantity") is not None
+                entries = l.get("entries") or [{"amount": l["amount"], "quantity": l.get("quantity"),
+                                                "unit": l.get("unit"), "notes": l.get("notes")}]
+                multi = len(entries) > 1
+                for i, e in enumerate(entries, 1):
+                    label = f"{l['label']} {i}" if multi else l["label"]
+                    qty = _qty_text(e.get("quantity"), e.get("unit") or l.get("unit")) if by_qty else ""
+                    row(r, [label, qty, None if by_qty else e["amount"], e.get("notes") or ""])
+                    r += 1
+                if multi:
+                    qty = _qty_text(l.get("quantity"), l.get("unit")) if by_qty else ""
+                    row(r, [f"Total {l['label']}", qty, None if by_qty else l["amount"], ""],
+                        font=Font(bold=True), fill=total_fill)
+                    r += 1
+
+        if emp["events"]:
+            title, fill, color = sections["E"]
+            band(r, title, fill, Font(bold=True, color=color))
+            r += 1
+            for ev in emp["events"]:
+                band(r, event_text(ev), PatternFill(fill_type=None), Font())
+                r += 1
+        r += 1  # linha em branco entre colaboradores
+
+    ws.print_title_rows = "1:2"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

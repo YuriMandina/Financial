@@ -1179,6 +1179,8 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 <td className="py-2 px-3 text-slate-300">
                   {it.configurable
                     ? `${Number(it.default_value).toLocaleString('pt-BR')}% ${it.system_key === 'ADIANTAMENTO' ? 'do salário (meses marcados)' : 'por triênio'}`
+                    : it.configurable_incidence
+                    ? 'Valor no lançamento'
                     : it.system_key
                     ? <span className="text-slate-500">Automático</span>
                     : it.calc_type === 'PERCENT'

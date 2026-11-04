@@ -133,9 +133,9 @@ class TestAccountingReport(unittest.TestCase):
         self._set_days([4], "TRABALHO", 300)  # 5h no domingo 04/10, pago em dobro
         decide_rest_work(self.db, self.org_id, self.emp, date(2026, 10, 4), "PAGAR", None, None, None)
         self.db.commit()
-        line = next(l for l in self._emp_content(self._report())["items"] if l["label"] == "HE 100%")
-        self.assertEqual((line["quantity"], line["unit"], line["dates"]), (300, "MIN", ["2026-10-04"]))
-        self.assertEqual(accounting.item_value_text(line), "5h00 (04/10)")
+        line = next(l for l in self._emp_content(self._report())["items"] if l["label"] == "Horas extras 100%")
+        self.assertEqual((line["quantity"], line["unit"]), (300, "MIN"))
+        self.assertEqual(accounting.item_value_text(line), "5h00 (04/10: 5h00)")
 
     def test_overtime_paid_with_rate_uses_configured_percent(self):
         st = self.db.query(models.RHSettings).first()
@@ -143,13 +143,13 @@ class TestAccountingReport(unittest.TestCase):
         self.db.commit()
         self._work_month()
         self._set_days([1, 2], "TRABALHO", 600)  # +2h em cada dia
-        line = next(l for l in self._emp_content(self._report())["items"] if l["label"] == "HE 50%")
-        self.assertEqual(accounting.item_value_text(line), "4h00")
+        line = next(l for l in self._emp_content(self._report())["items"] if l["label"] == "Horas extras 50%")
+        self.assertEqual(accounting.item_value_text(line), "4h00 (01/10: 2h00, 02/10: 2h00)")
 
     def test_manual_override_keeps_informed_quantity(self):
         self._work_month()
         self._manual(self.items["HE50"], 90.0, quantity=240, unit="MIN")
-        line = next(l for l in self._emp_content(self._report())["items"] if l["label"] == "HE 50%")
+        line = next(l for l in self._emp_content(self._report())["items"] if l["label"] == "Horas extras 50%")
         self.assertEqual(accounting.item_value_text(line), "4h00")
 
     def test_item_unchecked_is_not_reported(self):
@@ -195,15 +195,16 @@ class TestAccountingReport(unittest.TestCase):
             "Atestado em 20/10 (1 dia)",
         ])
 
-    def test_admission_and_termination_in_month(self):
+    def test_admission_and_termination_not_in_events(self):
         self.emp.admission_date = date(2026, 10, 6)
         self.emp.termination_date = date(2026, 10, 20)
         self.emp.termination_reason = "SEM_JUSTA_CAUSA"
         self.emp.active = False  # desligado continua na folha do mês do desligamento
         self.db.commit()
         self._work_month()
-        texts = [accounting.event_text(e) for e in self._emp_content(self._report())["events"]]
-        self.assertEqual(texts, ["Admissão em 06/10/2026", "Desligamento em 20/10/2026 — dispensa sem justa causa"])
+        events = self._emp_content(self._report())["events"]
+        # Admissão e desligamento foram removidos do informe à contabilidade
+        self.assertEqual(events, [])
 
         nov = models.RHMonthlySchedule(organization_id=self.org_id, year=2026, month=11)
         self.db.add(nov)
@@ -223,7 +224,7 @@ class TestAccountingReport(unittest.TestCase):
         self.assertIn("Assunto: Variáveis da folha — Outubro/2026 — Açougue Teste", text)
         self.assertIn("JOÃO DA SILVA SANTOS (matr. 012)\n  Proventos: Prêmio — R$ 300,00\n"
                       "  Descontos: Faltas — 1 dia (14/10)", text)
-        self.assertIn("Sem variáveis no mês: ANA PEREIRA LIMA.", text)
+        self.assertNotIn("Sem variáveis no mês", text)
         self.assertTrue(text.endswith("\n\nAdministrativo"))
 
     # --- Situações, versões e retificação ---------------------------------------------

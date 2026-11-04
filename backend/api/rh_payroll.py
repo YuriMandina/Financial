@@ -742,7 +742,7 @@ def mark_accounting_report_sent(
 def export_accounting_report(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
-    format: str = Query("pdf", pattern="^(pdf|csv)$"),
+    format: str = Query("pdf", pattern="^(pdf|csv|xlsx)$"),
     version: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
@@ -760,5 +760,9 @@ def export_accounting_report(
         return Response(accounting.content_to_csv(content), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'})
     company = accounting._company_name(db.get(models.Organization, org_id))
+    if format == "xlsx":
+        return Response(accounting.content_to_xlsx(content, company, version),
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}.xlsx"'})
     return Response(accounting.content_to_pdf(content, company, version), media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'})
