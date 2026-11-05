@@ -133,6 +133,10 @@ def event_text(ev: Dict[str, Any]) -> str:
         text = f"{label} de {_fmt_day(ev['start'])} a {_fmt_day(ev['end'])} ({_plural_days(ev['days'])})"
     if ev["type"] == "ATESTADO" and ev["days"] > INSS_LEAVE_DAYS:
         text += f" — afastamento pelo INSS a partir do {INSS_LEAVE_DAYS + 1}º dia"
+    if ev.get("abono_days"):
+        text += f" — abono pecuniário de {_plural_days(ev['abono_days'])}"
+    if ev.get("advance_13th"):
+        text += " — com adiantamento do 13º"
     return text
 
 # ==============================================================================
@@ -169,6 +173,15 @@ def build_content(db: Session, organization_id: int, schedule: models.RHMonthlyS
     days_by_emp: Dict[int, Dict[int, models.RHWorkDay]] = {}
     for wd in db.query(models.RHWorkDay).filter(models.RHWorkDay.schedule_id == schedule.id).all():
         days_by_emp.setdefault(wd.employee_id, {})[wd.day] = wd
+    # Férias confirmadas que começam no mês: abono pecuniário e adiantamento do 13º vão no evento
+    vacations_by_start: Dict[Tuple[int, date], models.RHVacation] = {
+        (v.employee_id, v.start_date): v for v in db.query(models.RHVacation).filter(
+            models.RHVacation.organization_id == organization_id,
+            models.RHVacation.status == "CONFIRMADA",
+            models.RHVacation.start_date >= month_start,
+            models.RHVacation.start_date <= month_end,
+        ).all()
+    }
 
     employees = []
     for emp in payroll_employees(db, organization_id, schedule):
@@ -220,8 +233,15 @@ def build_content(db: Session, organization_id: int, schedule: models.RHMonthlyS
         for status in EVENT_STATUSES:
             for a, b in _leave_periods(work_days, status):
                 start = date(schedule.year, schedule.month, a).isoformat()
-                events.append({"key": f"{status}:{start}", "type": status, "start": start,
-                               "end": date(schedule.year, schedule.month, b).isoformat(), "days": b - a + 1})
+                event = {"key": f"{status}:{start}", "type": status, "start": start,
+                         "end": date(schedule.year, schedule.month, b).isoformat(), "days": b - a + 1}
+                vacation = vacations_by_start.get((emp.id, date(schedule.year, schedule.month, a))) if status == "FERIAS" else None
+                if vacation is not None:
+                    if vacation.abono_days:
+                        event["abono_days"] = int(vacation.abono_days)
+                    if vacation.advance_13th:
+                        event["advance_13th"] = True
+                events.append(event)
         events.sort(key=lambda ev: (ev["start"], ev["type"]))
 
         matricula = ((emp.profile or {}).get("contrato") or {}).get("matricula")

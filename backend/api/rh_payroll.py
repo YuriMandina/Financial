@@ -16,6 +16,7 @@ from services.rh_payroll_service import (
     entry_to_dict,
     CONFIGURABLE_PERCENT_ITEMS,
     CONFIGURABLE_INCIDENCE_ITEMS,
+    BANK_PAY_MODES,
     REPORT_MODES,
     OVERTIME_POLICIES,
     calculate_payroll_through,
@@ -87,7 +88,8 @@ class BankHoursEntryCreate(BaseModel):
     employee_id: int
     kind: str  # PAYMENT, CREDIT ou DEBIT
     minutes: int
-    pay_mode: Optional[str] = None  # PAYMENT: PAY ou PAY_NORMAL
+    pay_mode: Optional[str] = None  # PAYMENT: PAY (acréscimo das regras), PAY_DOUBLE (100%), PAY_NORMAL ou PREMIO
+    amount: Optional[float] = None  # PREMIO: valor em R$ acordado pelas horas
     origin_year: Optional[int] = None
     origin_month: Optional[int] = None
     note: Optional[str] = None
@@ -95,8 +97,9 @@ class BankHoursEntryCreate(BaseModel):
 class RestWorkDecisionUpdate(BaseModel):
     employee_id: int
     worked_date: date
-    decision: Optional[str] = None  # FOLGA | PAGAR | None (desfaz a decisão)
+    decision: Optional[str] = None  # FOLGA | PAGAR | PREMIO | None (desfaz a decisão)
     folga_date: Optional[date] = None
+    amount: Optional[float] = None  # PREMIO: valor em R$ acordado
     note: Optional[str] = None
 
 class PayrollMonth(BaseModel):
@@ -528,8 +531,10 @@ def create_bank_hours_entry(
         raise HTTPException(status_code=400, detail="Tipo de lançamento inválido")
     if payload.minutes <= 0:
         raise HTTPException(status_code=400, detail="Informe a quantidade de horas")
-    if payload.kind == "PAYMENT" and payload.pay_mode not in ("PAY", "PAY_NORMAL"):
-        raise HTTPException(status_code=400, detail="Informe se o pagamento é com acréscimo ou valor normal")
+    if payload.kind == "PAYMENT" and payload.pay_mode not in BANK_PAY_MODES:
+        raise HTTPException(status_code=400, detail="Informe a forma de pagamento das horas")
+    if payload.kind == "PAYMENT" and payload.pay_mode == "PREMIO" and not (payload.amount and payload.amount > 0):
+        raise HTTPException(status_code=400, detail="Informe o valor do prêmio")
     if payload.kind in ("CREDIT", "DEBIT") and not (payload.note or "").strip():
         payload.note = "Ajuste de controle interno"
 
@@ -556,6 +561,7 @@ def create_bank_hours_entry(
     db.add(models.RHBankHoursEntry(
         schedule_id=schedule.id, employee_id=emp.id, kind=payload.kind, minutes=payload.minutes,
         pay_mode=payload.pay_mode if payload.kind == "PAYMENT" else None,
+        amount=round(payload.amount, 2) if payload.kind == "PAYMENT" and payload.pay_mode == "PREMIO" else None,
         origin_year=payload.origin_year,
         origin_month=payload.origin_month,
         note=(payload.note or "").strip() or None
@@ -593,7 +599,7 @@ def set_rest_work_decision(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """Horas 100% (DSR/feriado sem folga): conceder folga de dia inteiro ou pagar em dobro no mês."""
+    """Horas 100% (DSR/feriado sem folga): conceder folga de dia inteiro, pagar em dobro ou como prêmio no mês."""
     org_id = current_user.organization_id
     emp = db.query(models.RHEmployee).filter(
         models.RHEmployee.id == payload.employee_id,
@@ -603,7 +609,7 @@ def set_rest_work_decision(
         raise HTTPException(status_code=404, detail="Colaborador não encontrado")
     try:
         decide_rest_work(db, org_id, emp, payload.worked_date, payload.decision, payload.folga_date,
-                         (payload.note or "").strip() or None, current_user.id)
+                         (payload.note or "").strip() or None, current_user.id, payload.amount)
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -633,7 +639,7 @@ def close_payroll(
     if pending:
         raise HTTPException(
             status_code=400,
-            detail=("Há DSR/feriado trabalhado sem decisão (folga ou pagamento em dobro), que deve ser quitado "
+            detail=("Há DSR/feriado trabalhado sem decisão (folga, pagamento em dobro ou prêmio), que deve ser quitado "
                     f"no próprio mês: {', '.join(pending)}. Decida na aba Banco de horas antes de fechar a folha.")
         )
     schedule.status = "CLOSED"

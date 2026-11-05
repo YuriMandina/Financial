@@ -5,7 +5,8 @@ de salário, horas extras, faltas, VT/VA e encargos (INSS, IRRF, FGTS).
 """
 
 from typing import Dict, List, Optional, Any
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal, ROUND_DOWN
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from models import models
@@ -20,12 +21,12 @@ from services.rh_salary_service import get_salary_history, salary_for_month, sal
 # Revisar a cada atualização anual (salário mínimo, INSS e IRRF).
 # ==============================================================================
 
-# INSS empregado (progressivo): (limite superior da faixa, alíquota)
+# INSS empregado (progressivo): (limite superior da faixa, alíquota, parcela a deduzir — referência da tabela)
 INSS_BRACKETS_2026 = [
-    (1621.00, 0.075),
-    (2902.84, 0.09),
-    (4354.27, 0.12),
-    (8475.55, 0.14),
+    (1621.00, "0.075", "0.00"),
+    (2902.84, "0.09", "24.32"),
+    (4354.27, "0.12", "111.40"),
+    (8475.55, "0.14", "198.49"),
 ]
 
 # IRRF mensal: (limite superior da faixa, alíquota, parcela a deduzir)
@@ -63,23 +64,47 @@ OVERTIME_POLICIES = {
 # ==============================================================================
 
 # system_key: (código, nome, tipo, incide_inss, incide_irrf, incide_fgts, afeta_liquido)
+# Códigos iguais aos da folha da contabilidade quando a rubrica existe lá (001, 037, 046, 402, 420, 999,
+# 399, 990, 604, 606, 610, 903); as demais mantêm a numeração própria do sistema.
 SYSTEM_ITEMS = {
     "SALARIO": ("001", "Salário Base", "RECEITA", True, True, True, True),
     "HE50": ("002", "Horas Extras", "RECEITA", True, True, True, True),
     "HE_NORMAL": ("008", "Horas Pagas sem Acréscimo", "RECEITA", True, True, True, True),
-    "HE100": ("006", "Horas Extras 100% (DSR/feriado)", "RECEITA", True, True, True, True),
+    "HE100": ("402", "Horas Extras 100% (DSR/feriado)", "RECEITA", True, True, True, True),
     "HE_FIXO": ("005", "Valor Fixo por Horas Extras (Banco)", "RECEITA", True, True, True, True),
-    "DSR_HE": ("003", "DSR sobre Horas Extras", "RECEITA", True, True, True, True),
-    "TRIENIO": ("004", "Triênio", "RECEITA", True, True, True, True),
-    "PREMIO": ("007", "Prêmio", "RECEITA", True, True, True, True),
-    "FALTAS": ("101", "Faltas", "DESPESA", True, True, True, True),
-    "DSR_FALTA": ("102", "DSR sobre Faltas", "DESPESA", True, True, True, True),
-    "VT": ("103", "Vale Transporte (6%)", "DESPESA", False, False, False, True),
-    "ADIANTAMENTO": ("104", "Adiantamento Salarial", "DESPESA", False, False, False, True),
-    "INSS": ("201", "INSS", "DESPESA", False, False, False, True),
+    "DSR_HE": ("420", "DSR sobre Horas Extras", "RECEITA", True, True, True, True),
+    "TRIENIO": ("046", "Triênio", "RECEITA", True, True, True, True),
+    # Prêmio não integra a base de INSS/FGTS (CLT art. 457 §2º; Lei 8.212 art. 28 §9º "z"); IRRF incide
+    "PREMIO": ("037", "Prêmio", "RECEITA", False, True, False, True),
+    "PREMIO_BH": ("009", "Prêmio por Horas (Banco de Horas)", "RECEITA", False, True, False, True),
+    "FALTAS": ("399", "Faltas", "DESPESA", True, True, True, True),
+    "DSR_FALTA": ("990", "DSR sobre Faltas", "DESPESA", True, True, True, True),
+    "VT": ("604", "Vale Transporte (6%)", "DESPESA", False, False, False, True),
+    "ADIANTAMENTO": ("606", "Adiantamento Salarial", "DESPESA", False, False, False, True),
+    # Arredondamento do líquido para o próximo real inteiro; devolvido no mês seguinte
+    "ARRED": ("999", "Arredondamento", "RECEITA", False, False, False, True),
+    "ARRED_ANT": ("610", "Arredondamento Mês Anterior", "DESPESA", False, False, False, True),
+    "INSS": ("903", "INSS", "DESPESA", False, False, False, True),
     "IRRF": ("202", "IRRF", "DESPESA", False, False, False, True),
     "VA": ("901", "Vale Alimentação (benefício)", "RECEITA", False, False, False, False),
     "FGTS": ("902", "FGTS 8% (encargo empresa)", "DESPESA", False, False, False, False),
+}
+
+# Rubricas de férias criadas por uma versão anterior (o recibo ficava dentro da folha): são removidas
+REMOVED_SYSTEM_KEYS = {
+    "FERIAS", "FERIAS_TRIENIO", "FERIAS_MEDIAS", "FERIAS_TERCO", "FERIAS_DOBRA", "FERIAS_DOBRA_TERCO",
+    "ABONO_FERIAS", "ABONO_FERIAS_TERCO", "ADIANT_13_FERIAS", "ARRED_FERIAS", "INSS_FERIAS", "IRRF_FERIAS",
+    "FERIAS_LIQUIDO",
+}
+
+# Linhas do recibo de férias que formam a base de INSS/FGTS da competência (férias gozadas + 1/3)
+VACATION_CONTRIBUTION_KEYS = ("FERIAS", "FERIAS_TRIENIO", "FERIAS_MEDIAS", "FERIAS_TERCO")
+
+# Códigos padrão anteriores: rubricas ainda com eles passam para o código da contabilidade.
+# Códigos alterados pelo usuário não são tocados.
+LEGACY_SYSTEM_CODES = {
+    "HE100": "006", "DSR_HE": "003", "TRIENIO": "004", "PREMIO": "007", "FALTAS": "101",
+    "DSR_FALTA": "102", "VT": "103", "ADIANTAMENTO": "104", "ARRED": "010", "ARRED_ANT": "105", "INSS": "201",
 }
 
 TAX_KEYS = {"INSS", "IRRF", "FGTS"}
@@ -88,7 +113,10 @@ TAX_KEYS = {"INSS", "IRRF", "FGTS"}
 CONFIGURABLE_PERCENT_ITEMS = {"TRIENIO": 4.0, "ADIANTAMENTO": 40.0}
 
 # Rubricas do sistema lançadas à mão, com incidências editáveis (prêmio: confirmar com a contabilidade)
-CONFIGURABLE_INCIDENCE_ITEMS = {"PREMIO"}
+CONFIGURABLE_INCIDENCE_ITEMS = {"PREMIO", "PREMIO_BH"}
+
+# Formas de pagamento das horas do banco (lançamento "Pagamento em folha")
+BANK_PAY_MODES = ("PAY", "PAY_DOUBLE", "PAY_NORMAL", "PREMIO")
 
 # Informe à contabilidade (v08 seção 20.3): system_key -> (informa, forma). Ausentes não são informados:
 # a contabilidade calcula ou já tem (salário, triênio, DSR, VT, VA, adiantamento e encargos).
@@ -99,6 +127,7 @@ ACCOUNTING_REPORT_DEFAULTS = {
     "HE_FIXO": (True, "VALOR"),
     "FALTAS": (True, "QUANTIDADE"),
     "PREMIO": (True, "VALOR"),
+    "PREMIO_BH": (True, "VALOR"),
 }
 REPORT_MODES = {"QUANTIDADE", "VALOR"}
 
@@ -114,6 +143,10 @@ def ensure_system_items(db: Session, organization_id: int) -> Dict[str, models.R
     created = False
     for key, (code, name, kind, inss, irrf, fgts, affects_net) in SYSTEM_ITEMS.items():
         if key in existing:
+            item = existing[key]
+            if LEGACY_SYSTEM_CODES.get(key) == item.code:
+                item.code = code
+                created = True
             continue
         report, mode = ACCOUNTING_REPORT_DEFAULTS.get(key, (False, "VALOR"))
         item = models.RHPayrollItem(
@@ -126,6 +159,25 @@ def ensure_system_items(db: Session, organization_id: int) -> Dict[str, models.R
         )
         db.add(item)
         existing[key] = item
+        created = True
+
+    # Rubricas de férias da versão anterior: lançamentos automáticos saem; a rubrica é excluída
+    # (ou desativada, se ainda tiver lançamento manual ou de folha fechada)
+    for key in REMOVED_SYSTEM_KEYS:
+        item = existing.pop(key, None)
+        if item is None or item.id is None:
+            continue
+        db.query(models.RHPayrollEntry).filter(
+            models.RHPayrollEntry.item_id == item.id,
+            models.RHPayrollEntry.source == "AUTO",
+            models.RHPayrollEntry.schedule_id.in_(
+                db.query(models.RHMonthlySchedule.id).filter(models.RHMonthlySchedule.status != "CLOSED")
+            )
+        ).delete(synchronize_session=False)
+        if db.query(models.RHPayrollEntry.id).filter(models.RHPayrollEntry.item_id == item.id).first():
+            item.active = False
+        else:
+            db.delete(item)
         created = True
 
     # Rubricas anteriores ao informe à contabilidade (colunas novas vazias): aplica os padrões uma vez
@@ -162,14 +214,23 @@ def payroll_employees(db: Session, organization_id: int, schedule: models.RHMont
 # ==============================================================================
 
 def calc_inss(base: float) -> float:
-    total = 0.0
-    lower = 0.0
-    for upper, rate in INSS_BRACKETS_2026:
-        if base <= lower:
+    """
+    INSS progressivo calculado faixa a faixa, truncando os centavos de cada faixa, como faz a
+    contabilidade (folha 10/2026: base 2.068,53 -> 161,84; base 3.370,68 -> 293,07).
+    """
+    if base <= 0:
+        return 0.0
+    b = Decimal(str(base))
+    total = Decimal("0")
+    lower = Decimal("0")
+    for upper, rate, _deduction in INSS_BRACKETS_2026:
+        if b <= lower:
             break
-        total += (min(base, upper) - lower) * rate
-        lower = upper
-    return round(total, 2)
+        top = Decimal(str(upper))
+        slice_tax = (min(b, top) - lower) * Decimal(rate)
+        total += slice_tax.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        lower = top
+    return float(total)
 
 
 def calc_irrf(gross_taxable: float, inss: float, dependents: int) -> float:
@@ -282,18 +343,39 @@ def daily_bank_movements(ledger: Dict[date, Any]) -> List[Dict[str, Any]]:
     return movements
 
 
-def rest_work_items(ledger: Dict[date, Any]) -> List[Dict[str, Any]]:
+def rest_premio_amounts(db: Session, employee_ids: List[int], start: date, end: date) -> Dict[int, Dict[date, float]]:
+    """Valor do prêmio (R$) por DSR/feriado trabalhado quitado como prêmio, por colaborador e dia."""
+    out: Dict[int, Dict[date, float]] = {}
+    if not employee_ids:
+        return out
+    for r in db.query(models.RHRestWorkDecision).filter(
+        models.RHRestWorkDecision.employee_id.in_(employee_ids),
+        models.RHRestWorkDecision.decision == "PREMIO",
+        models.RHRestWorkDecision.worked_date >= start,
+        models.RHRestWorkDecision.worked_date <= end
+    ).all():
+        out.setdefault(r.employee_id, {})[r.worked_date] = float(r.amount or 0.0)
+    return out
+
+
+def rest_work_items(ledger: Dict[date, Any], premio_amounts: Optional[Dict[date, float]] = None) -> List[Dict[str, Any]]:
     """
     DSR/feriado trabalhado no mês (horas 100%): situação e prazo da folga compensatória.
     FOLGA = quitado com folga de dia inteiro (troca na escala ou decisão); PAGAR = em dobro na folha;
-    PENDENTE = precisa de decisão antes de fechar a folha do mês.
+    PREMIO = quitado com o valor acordado; PENDENTE = precisa de decisão antes de fechar a folha do mês.
     """
+    premio_amounts = premio_amounts or {}
     items = []
     for d in sorted(ledger):
         dl = ledger[d]
         if dl.status != "TRABALHO" or not dl.rest_kind:
             continue
-        status = "FOLGA" if dl.rest_full_day else ("PAGAR" if dl.rest_decision == "PAGAR" else "PENDENTE")
+        if dl.rest_full_day:
+            status = "FOLGA"
+        elif dl.rest_decision in ("PAGAR", "PREMIO"):
+            status = dl.rest_decision
+        else:
+            status = "PENDENTE"
         start, end = rest_folga_window(d, dl.rest_kind)
         items.append({
             "date": d.isoformat(),
@@ -303,6 +385,7 @@ def rest_work_items(ledger: Dict[date, Any]) -> List[Dict[str, Any]]:
             "auto": bool(dl.rest_swap_auto),
             "folga_date": dl.rest_swap_with.isoformat() if dl.rest_full_day and dl.rest_swap_with else None,
             "double_minutes": dl.extra_double_min,
+            "premio_amount": premio_amounts.get(d) if status == "PREMIO" else None,
             "excess_to_bank_minutes": dl.extra_min if dl.rest_full_day else 0,
             "window_start": start.isoformat(),
             "window_end": end.isoformat(),
@@ -316,6 +399,7 @@ def bank_entry_to_dict(e: models.RHBankHoursEntry) -> Dict[str, Any]:
         "kind": e.kind,
         "minutes": int(e.minutes or 0),
         "pay_mode": e.pay_mode,
+        "amount": getattr(e, "amount", None),
         "origin_year": getattr(e, "origin_year", None),
         "origin_month": getattr(e, "origin_month", None),
         "note": e.note,
@@ -603,6 +687,16 @@ def calculate_payroll(
     business_days = max(1, num_days - rest_days)
     ledgers = load_month_ledgers(db, organization_id, schedule, employees, settings)
     month_end = date(schedule.year, schedule.month, num_days)
+    rest_premios = rest_premio_amounts(db, [e.id for e in employees], date(schedule.year, schedule.month, 1), month_end)
+    # Férias confirmadas que começam no mês: o recibo entra na folha desta competência
+    month_vacations: Dict[int, List[models.RHVacation]] = {}
+    for vac in db.query(models.RHVacation).filter(
+        models.RHVacation.organization_id == organization_id,
+        models.RHVacation.status == "CONFIRMADA",
+        models.RHVacation.start_date >= date(schedule.year, schedule.month, 1),
+        models.RHVacation.start_date <= month_end,
+    ).order_by(models.RHVacation.start_date.asc()).all():
+        month_vacations.setdefault(vac.employee_id, []).append(vac)
 
     for emp in employees:
         work_days = {
@@ -650,6 +744,13 @@ def calculate_payroll(
         hourly_rate = end_salary / (weekly_hours * 5) if weekly_hours else 0.0
         daily_rate = end_salary / 30
 
+        # Dias de férias no mês são pagos no recibo de férias (art. 145): a folha paga só os demais (mês de 30 dias)
+        vacation_days = sum(1 for wd in work_days.values() if wd.status == "FERIAS")
+        if vacation_days:
+            worked_days = max(0, 30 - vacation_days)
+            salary = salary * worked_days / 30
+            salary_reference = f"{worked_days} dia(s) • {vacation_days} de férias à parte"
+
         add_auto(system_items["SALARIO"], salary, salary_reference)
 
         # Triênio: % do salário base para cada 3 anos completos até o fim do mês
@@ -673,10 +774,14 @@ def calculate_payroll(
         ).all()
         bank_adjustments = sum(e.minutes for e in bank_entries if e.kind == "CREDIT") \
             - sum(e.minutes for e in bank_entries if e.kind == "DEBIT")
-        paid_by_mode = {"PAY": 0, "PAY_NORMAL": 0}
+        paid_by_mode = {mode: 0 for mode in BANK_PAY_MODES}
+        premio_amount = 0.0
         for e in bank_entries:
             if e.kind == "PAYMENT":
-                paid_by_mode[e.pay_mode if e.pay_mode in paid_by_mode else "PAY"] += e.minutes
+                mode = e.pay_mode if e.pay_mode in paid_by_mode else "PAY"
+                paid_by_mode[mode] += e.minutes
+                if mode == "PREMIO":
+                    premio_amount += float(e.amount or 0.0)
 
         available = previous_balance + month_balance + bank_adjustments
         if policy in ("PAY", "PAY_NORMAL"):
@@ -685,24 +790,26 @@ def calculate_payroll(
 
         paid_minutes = sum(paid_by_mode.values())
         he_value = 0.0
+        pay_dates = [
+            {"date": d.isoformat(), "minutes": dl.extra_min}
+            for d, dl in sorted(ledgers[emp.id].items())
+            if dl.extra_min and d.month == schedule.month
+        ]
         if paid_minutes > 0:
             factor_pay = 1 + overtime_rate / 100
             he_rate_value = round(paid_by_mode["PAY"] / 60 * hourly_rate * factor_pay, 2)
             he_normal_value = round(paid_by_mode["PAY_NORMAL"] / 60 * hourly_rate, 2)
             he_value = he_rate_value + he_normal_value
-            pay_dates = [
-                {"date": d.isoformat(), "minutes": dl.extra_min}
-                for d, dl in sorted(ledgers[emp.id].items())
-                if dl.extra_min and d.month == schedule.month
-            ]
             add_auto(system_items["HE50"], he_rate_value,
                      f"{_fmt_hours(paid_by_mode['PAY'])} a {overtime_rate:g}%", (paid_by_mode["PAY"], "MIN", pay_dates))
             add_auto(system_items["HE_NORMAL"], he_normal_value,
                      f"{_fmt_hours(paid_by_mode['PAY_NORMAL'])} normal", (paid_by_mode["PAY_NORMAL"], "MIN", pay_dates))
 
-        # DSR/feriado trabalhado sem folga compensatória que o administrativo decidiu pagar em dobro
-        # (aba Banco de horas). Quitado no próprio mês, fora do banco comum (Lei 605/49 art. 9º; Súmula 146 TST)
-        double_minutes = int(summary.get("double_to_pay_minutes") or 0)
+        # Horas a 100%: DSR/feriado trabalhado sem folga compensatória que o administrativo decidiu pagar
+        # em dobro (Lei 605/49 art. 9º; Súmula 146 TST), mais horas do banco que o administrativo pagou a 100%
+        rest_double_minutes = int(summary.get("double_to_pay_minutes") or 0)
+        bank_double_minutes = paid_by_mode["PAY_DOUBLE"]
+        double_minutes = rest_double_minutes + bank_double_minutes
         he_double_value = round(double_minutes / 60 * hourly_rate * 2, 2) if double_minutes > 0 else 0.0
         if he_double_value:
             days_double = int(summary.get("double_to_pay_days") or 0)
@@ -711,9 +818,33 @@ def calculate_payroll(
                 for d, dl in sorted(ledgers[emp.id].items())
                 if dl.double_to_pay_min and d.month == schedule.month
             ]
+            parts = []
+            if rest_double_minutes:
+                parts.append(f"{days_double} DSR/feriado")
+            if bank_double_minutes:
+                parts.append(f"{_fmt_hours(bank_double_minutes)} do banco")
+                double_dates = double_dates + [p for p in pay_dates if p not in double_dates]
             add_auto(system_items["HE100"], he_double_value,
-                     f"{_fmt_hours(double_minutes)} a 100% ({days_double} dia(s))",
+                     f"{_fmt_hours(double_minutes)} a 100% ({' + '.join(parts)})",
                      (double_minutes, "MIN", double_dates))
+
+        # Prêmio acordado com o colaborador em troca das horas (banco ou DSR/feriado trabalhado).
+        # Valor digitado pelo administrativo; não gera reflexo no DSR.
+        premio_minutes = paid_by_mode["PREMIO"]
+        rest_premio = {
+            d: v for d, v in rest_premios.get(emp.id, {}).items()
+            if d.year == schedule.year and d.month == schedule.month
+            and getattr(ledgers[emp.id].get(d), "rest_decision", None) == "PREMIO"
+        }
+        premio_amount += sum(rest_premio.values())
+        if premio_amount > 0:
+            premio_minutes += sum(ledgers[emp.id][d].extra_double_min for d in rest_premio)
+            ref = [f"{_fmt_hours(premio_minutes)}"] if premio_minutes else []
+            if rest_premio:
+                ref.append(f"{len(rest_premio)} DSR/feriado")
+            add_auto(system_items["PREMIO_BH"], premio_amount, " • ".join(ref) or None,
+                     (premio_minutes, "MIN", [{"date": d.isoformat(), "minutes": ledgers[emp.id][d].extra_double_min}
+                                              for d in sorted(rest_premio)]) if premio_minutes else None)
 
         # Reflexo das horas extras habituais no DSR (Súmula 172 TST; Lei 605/49 art. 7º)
         if he_value + he_double_value > 0:
@@ -761,6 +892,19 @@ def calculate_payroll(
             else:
                 add_auto(item, value)
 
+        # Férias que começam no mês: o recibo é pago à parte (não entra nas rubricas da folha), mas
+        # férias + 1/3 compõem a base de INSS/FGTS da competência e o INSS já retido no recibo é abatido,
+        # como no "INSS Folha" da contabilidade
+        vacation_base = 0.0
+        vacation_inss = 0.0
+        for vac in month_vacations.get(emp.id, []):
+            for line in (vac.calc or {}).get("lines", []):
+                if line.get("key") in VACATION_CONTRIBUTION_KEYS:
+                    vacation_base += float(line.get("amount") or 0.0)
+                elif line.get("key") == "INSS":
+                    vacation_inss += float(line.get("amount") or 0.0)
+        vacation_base = round(vacation_base, 2)
+
         # Bases de cálculo a partir de todos os lançamentos (auto + manuais)
         all_lines = [(it, amt) for it, amt, _, _ in lines] + [(e.item, e.amount) for e in manual_entries]
 
@@ -772,16 +916,24 @@ def calculate_payroll(
                 total += amt if it.kind == "RECEITA" else -amt
             return max(0.0, total)
 
-        inss_base = base_for("incide_inss")
+        payroll_inss_base = base_for("incide_inss")
+        inss_base = round(payroll_inss_base + vacation_base, 2)
         irrf_base = base_for("incide_irrf")
-        fgts_base = base_for("incide_fgts")
+        fgts_base = round(base_for("incide_fgts") + vacation_base, 2)
 
         manual_inss = next((e.amount for e in manual_entries if e.item.system_key == "INSS"), None)
-        inss = manual_inss if manual_inss is not None else calc_inss(inss_base)
-        add_auto(system_items["INSS"], inss, f"base {inss_base:.2f}")
+        # INSS da competência sobre salário + férias, descontado o INSS já retido no recibo de férias
+        inss_ref = (f"base {payroll_inss_base:.2f} + férias {vacation_base:.2f} − INSS férias {vacation_inss:.2f}"
+                    if vacation_base else f"base {inss_base:.2f}")
+        inss = manual_inss if manual_inss is not None else max(0.0, calc_inss(inss_base) - vacation_inss)
+        add_auto(system_items["INSS"], inss, inss_ref)
         add_auto(system_items["IRRF"], calc_irrf(irrf_base, inss, int(emp.dependents or 0)),
                  f"base {irrf_base:.2f}")
-        add_auto(system_items["FGTS"], fgts_base * FGTS_RATE, f"base {fgts_base:.2f}")
+        add_auto(system_items["FGTS"], fgts_base * FGTS_RATE,
+                 f"base {fgts_base:.2f}" + (f" (inclui férias {vacation_base:.2f})" if vacation_base else ""))
+
+        # Arredondamento (999) e Arredondamento Mês Anterior (610) são lançados manualmente,
+        # conforme a folha da contabilidade; o sistema não os calcula.
 
         for item, amount, reference, quantity in lines:
             qty, unit, dates = quantity or (None, None, None)
@@ -848,6 +1000,47 @@ def entry_to_dict(entry: models.RHPayrollEntry) -> Dict[str, Any]:
     }
 
 
+def month_vacation_periods(db: Session, organization_id: int, month_start: date,
+                           month_last: date) -> Dict[int, List[models.RHVacation]]:
+    """Férias confirmadas com algum dia de gozo no mês, por colaborador."""
+    out: Dict[int, List[models.RHVacation]] = {}
+    for vac in db.query(models.RHVacation).filter(
+        models.RHVacation.organization_id == organization_id,
+        models.RHVacation.status == "CONFIRMADA",
+        models.RHVacation.start_date <= month_last,
+        models.RHVacation.start_date >= month_start - timedelta(days=60),
+    ).order_by(models.RHVacation.start_date.asc()).all():
+        if vac.start_date + timedelta(days=int(vac.days or 0) - 1) >= month_start:
+            out.setdefault(vac.employee_id, []).append(vac)
+    return out
+
+
+def vacation_period_rows(emp: models.RHEmployee, vacations: List[models.RHVacation], month_start: date,
+                         month_last: date) -> List[Dict[str, Any]]:
+    """
+    Linha da folha como a da contabilidade: "Férias de 26/10/2026 até 14/11/2026 Dia(s) 6 (044:00)".
+    Horas = dias no mês x jornada diária do mês comercial (semanal x 5 / 30: 7h20 em 44h).
+    """
+    contract = contract_on(emp.contracts, month_last)
+    weekly_hours = (contract.weekly_min / 60) if contract and contract.weekly_min else float(emp.weekly_contract_hours or 44.0)
+    rows = []
+    for vac in vacations:
+        end = vac.start_date + timedelta(days=int(vac.days or 0) - 1)
+        days_in_month = (min(end, month_last) - max(vac.start_date, month_start)).days + 1
+        minutes = round(days_in_month * weekly_hours * 5 / 30 * 60)
+        rows.append({
+            "vacation_id": vac.id,
+            "start_date": vac.start_date.isoformat(),
+            "end_date": end.isoformat(),
+            "days_in_month": days_in_month,
+            "hours": f"{minutes // 60:03d}:{minutes % 60:02d}",
+            "abono_days": int(vac.abono_days or 0),
+            "paid_in_month": month_start <= vac.start_date <= month_last,
+            "receipt_net": (vac.calc or {}).get("net"),
+        })
+    return rows
+
+
 def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMonthlySchedule) -> Dict[str, Any]:
     employees = payroll_employees(db, organization_id, schedule)
 
@@ -880,9 +1073,13 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
         by_emp.setdefault(e.employee_id, []).append(e)
 
     aging_by_emp = compute_bank_aging_map(db, organization_id, schedule, employees, settings)
+    month_start = date(schedule.year, schedule.month, 1)
+    month_last = date(schedule.year, schedule.month, get_month_calendar_info(schedule.year, schedule.month)["num_days"])
+    rest_premios = rest_premio_amounts(db, [e.id for e in employees], month_start, month_last)
 
     grand = {"receitas": 0.0, "despesas": 0.0, "liquido": 0.0, "fgts": 0.0, "beneficios": 0.0}
     month_end = date(schedule.year, schedule.month, get_month_calendar_info(schedule.year, schedule.month)["num_days"])
+    vacations_by_emp = month_vacation_periods(db, organization_id, month_start, month_last)
     rows = []
     for emp in employees:
         emp_entries = sorted(by_emp.get(emp.id, []), key=lambda e: (e.item.kind != "RECEITA", e.item.code))
@@ -910,6 +1107,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "admission_date": emp.admission_date.isoformat() if emp.admission_date else None,
             "termination_date": emp.termination_date.isoformat() if emp.termination_date else None,
             "entries": [entry_to_dict(e) for e in emp_entries],
+            "vacations": vacation_period_rows(emp, vacations_by_emp.get(emp.id, []), month_start, month_last),
             "totals": totals,
             "advance": {
                 "enabled": emp.id in advance_ids,
@@ -918,7 +1116,7 @@ def get_payroll_month(db: Session, organization_id: int, schedule: models.RHMont
             "bank": bank_to_dict(
                 bank_rows.get(emp.id), emp, default_policy,
                 bank_entries_by_emp.get(emp.id), daily_bank_movements(ledgers.get(emp.id, {})),
-                rest_work_items(ledgers.get(emp.id, {})),
+                rest_work_items(ledgers.get(emp.id, {}), rest_premios.get(emp.id)),
                 aging=aging_by_emp.get(emp.id)
             ),
         })

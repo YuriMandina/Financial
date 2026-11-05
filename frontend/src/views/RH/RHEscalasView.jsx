@@ -3,13 +3,14 @@ import {
   Users, Bus, Utensils, AlertTriangle, Calendar, Printer, 
   RefreshCw, Plus, Trash2, Edit2, CheckCircle2, Clock,
   ChevronLeft, ChevronRight, ShieldAlert, Sparkles, CalendarClock,
-  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays, Wallet, TrendingUp, Filter, Check, Eye, EyeOff
+  UserPlus, AlertCircle, Briefcase, Settings2, HelpCircle, CalendarDays, Wallet, TrendingUp, Filter, Check, Eye, EyeOff, Plane
 } from 'lucide-react';
 import Skeleton from '../../components/common/Skeleton';
 import RHJornadasTab from './components/RHJornadasTab';
 import RHJornadaGrid from './components/RHJornadaGrid';
 import RHBeneficiosGrid from './components/RHBeneficiosGrid';
 import RHFeriadosView from './components/RHFeriadosView';
+import RHFeriasView from './components/RHFeriasView';
 import RHFolhaPagamento from './components/RHFolhaPagamento';
 import RHSalaryModal from './components/RHSalaryModal';
 import RHBancoHorasView from './components/RHBancoHorasView';
@@ -1677,6 +1678,18 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
         </button>
 
         <button
+          onClick={() => handleTabChange('ferias')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+            activeTab === 'ferias'
+              ? 'border-indigo-500 text-white bg-slate-900/60'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+          }`}
+        >
+          <Plane size={16} />
+          Férias
+        </button>
+
+        <button
           onClick={() => handleTabChange('folha')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
             activeTab === 'folha'
@@ -1839,6 +1852,13 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       )}
       {activeTab === 'feriados' && (
         <RHFeriadosView
+          token={token}
+          apiBase={API_BASE}
+          onRefreshSchedule={fetchSchedule}
+        />
+      )}
+      {activeTab === 'ferias' && (
+        <RHFeriasView
           token={token}
           apiBase={API_BASE}
           onRefreshSchedule={fetchSchedule}

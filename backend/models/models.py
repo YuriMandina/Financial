@@ -391,8 +391,9 @@ class RHRestWorkDecision(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False, index=True)
     worked_date = Column(Date, nullable=False) # DSR ou feriado trabalhado
-    decision = Column(String, nullable=False) # FOLGA | PAGAR
+    decision = Column(String, nullable=False) # FOLGA | PAGAR (em dobro) | PREMIO (valor acordado)
     folga_date = Column(Date, nullable=True) # Dia da folga compensatória (FOLGA)
+    amount = Column(Float, nullable=True) # PREMIO: valor em R$ acordado com o colaborador
     folga_created = Column(Boolean, default=False) # A folga foi marcada na escala por esta decisão
     note = Column(String, nullable=True)
     decided_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -427,7 +428,8 @@ class RHBankHoursEntry(Base):
     employee_id = Column(Integer, ForeignKey("rh_employees.id"), nullable=False, index=True)
     kind = Column(String, nullable=False) # PAYMENT, CREDIT ou DEBIT
     minutes = Column(Integer, nullable=False) # Sempre positivo; o tipo define o sinal
-    pay_mode = Column(String, nullable=True) # PAYMENT: PAY (com acréscimo) ou PAY_NORMAL
+    pay_mode = Column(String, nullable=True) # PAYMENT: PAY (acréscimo das regras), PAY_DOUBLE (100%), PAY_NORMAL ou PREMIO
+    amount = Column(Float, nullable=True) # PAYMENT/PREMIO: valor em R$ acordado pelas horas
     origin_year = Column(Integer, nullable=True) # Competência de origem para controle de aging/CCT
     origin_month = Column(Integer, nullable=True) # Competência de origem para controle de aging/CCT
     note = Column(String, nullable=True)
@@ -689,6 +691,59 @@ class RHBenefitAdjustment(Base):
 
     schedule = relationship("RHMonthlySchedule", back_populates="benefit_adjustments")
     employee = relationship("RHEmployee")
+
+
+class RHVacation(Base):
+    """
+    Programação de férias do colaborador (CLT arts. 129 a 145): uma fração de gozo de um período
+    aquisitivo, com abono pecuniário opcional. PROGRAMADA não altera a escala; CONFIRMADA (aviso dado)
+    marca os dias como FERIAS na escala; CANCELADA devolve os dias ao saldo do período.
+    """
+    __tablename__ = "rh_vacations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False, index=True)
+    acquisition_start = Column(Date, nullable=False) # Início do período aquisitivo (aniversário da admissão)
+    acquisition_end = Column(Date, nullable=False)
+    start_date = Column(Date, nullable=False) # Primeiro dia de gozo
+    days = Column(Integer, nullable=False) # Dias corridos de gozo
+    abono_days = Column(Integer, default=0) # Abono pecuniário: dias vendidos (até 1/3, art. 143)
+    abono_start_date = Column(Date, nullable=True) # Primeiro dia do abono (dias trabalhados e pagos como abono)
+    advance_13th = Column(Boolean, default=False) # Adiantamento da 1ª parcela do 13º com as férias
+    payment_date = Column(Date, nullable=True) # Pagamento até 2 dias antes do início (art. 145)
+    notice_date = Column(Date, nullable=True) # Aviso de férias ao colaborador (art. 135: 30 dias antes)
+    variable_average = Column(Float, nullable=True) # Médias de variáveis informadas (None = média automática)
+    status = Column(String, nullable=False, default="PROGRAMADA") # PROGRAMADA | CONFIRMADA | CANCELADA
+    # Dias marcados na escala pela confirmação: [{"date", "before"}] para restaurar ao desfazer
+    applied_days = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    calc = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True) # Valores do recibo na confirmação
+    notes = Column(String, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    employee = relationship("RHEmployee")
+
+
+class RHVacationSettlement(Base):
+    """
+    Quitação de um período aquisitivo sem datas de gozo: regulariza férias tiradas antes do controle
+    pelo sistema. O período passa a ter saldo zero; nada é marcado na escala nem calculado.
+    """
+    __tablename__ = "rh_vacation_settlements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("rh_employees.id", ondelete="CASCADE"), nullable=False, index=True)
+    acquisition_start = Column(Date, nullable=False)
+    note = Column(String, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('employee_id', 'acquisition_start', name='uq_vacation_settlement_period'),
+    )
 
 
 # ==============================================================================

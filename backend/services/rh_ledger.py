@@ -16,7 +16,7 @@ from services.rh_holidays_service import get_effective_holidays_map
 
 MAX_COMPENSABLE_DAY_MIN = 600  # Dias acima de 10h não são compensáveis (art. 59, §2º)
 REST_SWAP_WINDOW_DAYS = 6
-# Decisão do administrativo por DSR/feriado trabalhado: (FOLGA | PAGAR, dia da folga)
+# Decisão do administrativo por DSR/feriado trabalhado: (FOLGA | PAGAR | PREMIO, dia da folga)
 RestDecisions = Dict[date, Tuple[str, Optional[date]]]
 TOLERANCE_PER_MARK_MIN = 5   # CLT art. 58, §1º
 TOLERANCE_PER_DAY_MIN = 10
@@ -91,7 +91,7 @@ class DayLedger:
     rest_kind: Optional[str] = None      # DSR | FERIADO quando o dia trabalhado é repouso semanal ou feriado
     rest_full_day: bool = False          # Folga compensatória de dia inteiro quita o repouso (Lei 605/49 art. 9º)
     rest_swap_auto: bool = False         # Troca encontrada na escala, sem decisão do administrativo
-    rest_decision: Optional[str] = None  # FOLGA | PAGAR (aba Banco de horas)
+    rest_decision: Optional[str] = None  # FOLGA | PAGAR | PREMIO (aba Banco de horas)
     late_min: int = 0
     late_waived_min: int = 0
     late_compensated_min: int = 0
@@ -116,7 +116,7 @@ class DayLedger:
     @property
     def double_pending(self) -> bool:
         """Sem folga e sem decisão de pagar: precisa ser quitado no próprio mês."""
-        return self.rest_worked_unpaid_double and self.rest_decision != "PAGAR"
+        return self.rest_worked_unpaid_double and self.rest_decision not in ("PAGAR", "PREMIO")
 
     @property
     def double_to_pay_min(self) -> int:

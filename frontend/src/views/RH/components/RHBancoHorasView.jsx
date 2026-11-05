@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock, Plus, X, Trash2, ChevronDown, ChevronRight, RefreshCw, Wallet,
-  TrendingUp, TrendingDown, Users, AlertCircle, CalendarCheck, Undo2, ShieldAlert, Hourglass, Calendar
+  TrendingUp, TrendingDown, Users, AlertCircle, CalendarCheck, Undo2, ShieldAlert, Hourglass, Calendar, Gift
 } from 'lucide-react';
 import SelectDropdown from '../../../components/common/SelectDropdown';
 
@@ -38,7 +38,27 @@ const MOVEMENT_LABELS = {
 const REST_STATUS = {
   PENDENTE: { label: 'Pendente', cls: 'border-rose-500/40 text-rose-300 bg-rose-500/10' },
   FOLGA: { label: 'Folga compensatória', cls: 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' },
-  PAGAR: { label: 'Pagar em dobro', cls: 'border-amber-500/40 text-amber-300 bg-amber-500/10' }
+  PAGAR: { label: 'Pagar em dobro', cls: 'border-amber-500/40 text-amber-300 bg-amber-500/10' },
+  PREMIO: { label: 'Pago como prêmio', cls: 'border-violet-500/40 text-violet-300 bg-violet-500/10' }
+};
+
+// Formas de pagamento das horas do banco na folha
+const PAY_MODE_LABELS = {
+  PAY: 'Hora extra 50%',
+  PAY_DOUBLE: 'Hora extra 100% (dobro)',
+  PAY_NORMAL: 'Valor normal',
+  PREMIO: 'Prêmio'
+};
+
+const fmtMoney = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+// Aceita "1.234,56", "1234,56" ou "1234.56"
+const parseMoney = (s) => {
+  const str = String(s || '').trim();
+  if (!str) return 0;
+  const normalized = str.includes(',') ? str.replace(/\./g, '').replace(',', '.') : str;
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : 0;
 };
 
 const fmtDay = (iso) => {
@@ -92,6 +112,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [folgaPick, setFolgaPick] = useState(null); // { key, date }: escolha do dia da folga compensatória
+  const [premioPick, setPremioPick] = useState(null); // { key, amount }: valor do prêmio pelo DSR/feriado trabalhado
   const loadedPeriodRef = React.useRef(null);
 
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -161,16 +182,22 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
     }
   };
 
-  // Horas 100%: folga de dia inteiro (marcada na escala) ou pagamento em dobro na folha do mês
-  const handleRestDecision = async (emp, item, decision, folgaDate = null) => {
+  // Horas 100%: folga de dia inteiro (marcada na escala), pagamento em dobro ou prêmio (valor acordado) na folha do mês
+  const handleRestDecision = async (emp, item, decision, folgaDate = null, amount = null) => {
     try {
       await request('/api/rh/payroll/bank-hours/rest-work', {
         method: 'PUT',
-        body: JSON.stringify({ employee_id: emp.employee_id, worked_date: item.date, decision, folga_date: folgaDate })
+        body: JSON.stringify({ employee_id: emp.employee_id, worked_date: item.date, decision, folga_date: folgaDate, amount })
       });
       setFolgaPick(null);
+      setPremioPick(null);
       await load();
-      flash(decision === 'FOLGA' ? 'Folga compensatória marcada na escala.' : decision === 'PAGAR' ? 'Dia será pago em dobro na folha.' : 'Decisão desfeita.');
+      flash(
+        decision === 'FOLGA' ? 'Folga compensatória marcada na escala.'
+          : decision === 'PAGAR' ? 'Dia será pago em dobro na folha.'
+          : decision === 'PREMIO' ? 'Dia será pago como prêmio na folha.'
+          : 'Decisão desfeita.'
+      );
     } catch (err) {
       alert(err.message);
     }
@@ -190,6 +217,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
       origin_month: selectedMonth,
       specifyOrigin: false,
       pay_mode: 'PAY',
+      amount: '',
       note: ''
     }
   });
@@ -229,6 +257,13 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
       }
     }
 
+    const isPremio = finalKind === 'PAYMENT' && data.pay_mode === 'PREMIO';
+    const premioAmount = isPremio ? parseMoney(data.amount) : null;
+    if (isPremio && premioAmount <= 0) {
+      alert('Informe o valor do prêmio.');
+      return;
+    }
+
     try {
       setSaving(true);
       await request('/api/rh/payroll/bank-hours/entries', {
@@ -240,6 +275,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
           kind: finalKind,
           minutes: totalMinutes,
           pay_mode: finalKind === 'PAYMENT' ? data.pay_mode : null,
+          amount: premioAmount,
           origin_year: (finalKind === 'CREDIT' && data.specifyOrigin) ? Number(data.origin_year) : null,
           origin_month: (finalKind === 'CREDIT' && data.specifyOrigin) ? Number(data.origin_month) : null,
           note: finalNote || null
@@ -354,7 +390,9 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
           {b.entries.map((en) => {
             let detail = en.note || '';
             if (en.kind === 'PAYMENT') {
-              detail = `${en.pay_mode === 'PAY' ? 'Com acréscimo' : 'Valor normal'}${en.note ? ` • ${en.note}` : ''}`;
+              const modeLabel = PAY_MODE_LABELS[en.pay_mode] || PAY_MODE_LABELS.PAY;
+              const premio = en.pay_mode === 'PREMIO' ? ` de ${fmtMoney(en.amount)}` : '';
+              detail = `${modeLabel}${premio}${en.note ? ` • ${en.note}` : ''}`;
             } else if (en.origin_year && en.origin_month) {
               const origStr = `Origem: ${MONTH_NAMES[en.origin_month - 1]}/${en.origin_year}`;
               detail = detail ? `${origStr} • ${detail}` : origStr;
@@ -407,8 +445,8 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
           <div>
             <h4 className="text-xs font-bold text-white">Horas 100% • DSR e feriados trabalhados</h4>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Quitar no próprio mês: folga de um dia inteiro em outro dia (vale para qualquer quantidade de horas)
-              ou pagamento em dobro + DSR. Não entram no banco comum.
+              Quitar no próprio mês: folga de um dia inteiro em outro dia (vale para qualquer quantidade de horas),
+              pagamento em dobro + DSR ou prêmio com valor acordado. Não entram no banco comum.
             </p>
           </div>
           {pending > 0 && (
@@ -433,7 +471,8 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
                 const key = `${emp.employee_id}-${item.date}`;
                 const st = REST_STATUS[item.status];
                 const picking = folgaPick?.key === key;
-                const decided = item.status === 'PAGAR' || (item.status === 'FOLGA' && !item.auto);
+                const pickingPremio = premioPick?.key === key;
+                const decided = item.status === 'PAGAR' || item.status === 'PREMIO' || (item.status === 'FOLGA' && !item.auto);
                 return (
                   <tr key={key} className="hover:bg-slate-800/30">
                     <td className="py-2 px-3">
@@ -450,6 +489,7 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
                         {item.status === 'FOLGA' && `Folga em ${fmtDay(item.folga_date)}${item.auto ? ' (encontrada na escala)' : ''}`}
                         {item.status === 'FOLGA' && item.excess_to_bank_minutes > 0 && ` • ${fmtHours(item.excess_to_bank_minutes)} acima do dia no banco comum`}
                         {item.status === 'PAGAR' && `${fmtHours(item.double_minutes, false)} a 100% + DSR na folha do mês`}
+                        {item.status === 'PREMIO' && `${fmtHours(item.double_minutes, false)} quitadas com prêmio de ${fmtMoney(item.premio_amount)}`}
                         {item.status === 'PENDENTE' && `Folga possível entre ${fmtDay(item.window_start)} e ${fmtDay(item.window_end)}`}
                       </div>
                     </td>
@@ -477,12 +517,40 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
                               <X size={13} />
                             </button>
                           </>
+                        ) : pickingPremio ? (
+                          <>
+                            <span className="text-[11px] text-slate-400">R$</span>
+                            <input
+                              inputMode="decimal"
+                              value={premioPick.amount}
+                              autoFocus
+                              placeholder="0,00"
+                              onChange={(e) => setPremioPick({ key, amount: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && parseMoney(premioPick.amount) > 0) {
+                                  handleRestDecision(emp, item, 'PREMIO', null, parseMoney(premioPick.amount));
+                                }
+                              }}
+                              className="w-24 bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-white text-[11px] text-right"
+                            />
+                            <button
+                              type="button"
+                              disabled={parseMoney(premioPick.amount) <= 0}
+                              onClick={() => handleRestDecision(emp, item, 'PREMIO', null, parseMoney(premioPick.amount))}
+                              className={`${btn} border-violet-500/40 text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 disabled:opacity-40`}
+                            >
+                              Confirmar
+                            </button>
+                            <button type="button" onClick={() => setPremioPick(null)} className="p-1 text-slate-500 hover:text-white">
+                              <X size={13} />
+                            </button>
+                          </>
                         ) : (
                           <>
                             {item.status !== 'FOLGA' && (
                               <button
                                 type="button"
-                                onClick={() => setFolgaPick({ key, date: '' })}
+                                onClick={() => { setPremioPick(null); setFolgaPick({ key, date: '' }); }}
                                 className={`${btn} border-emerald-500/40 text-emerald-300 bg-slate-800 hover:bg-slate-700`}
                               >
                                 <CalendarCheck size={12} /> Conceder folga
@@ -497,6 +565,17 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
                                 <Wallet size={12} /> Pagar em dobro
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFolgaPick(null);
+                                setPremioPick({ key, amount: item.premio_amount ? String(item.premio_amount).replace('.', ',') : '' });
+                              }}
+                              className={`${btn} border-violet-500/40 text-violet-300 bg-slate-800 hover:bg-slate-700`}
+                              title={item.status === 'PREMIO' ? 'Alterar o valor do prêmio' : 'Quitar com valor acordado com o colaborador'}
+                            >
+                              <Gift size={12} /> {item.status === 'PREMIO' ? 'Alterar prêmio' : 'Pagar como prêmio'}
+                            </button>
                             {decided && (
                               <button
                                 type="button"
@@ -660,16 +739,36 @@ export default function RHBancoHorasView({ token, apiBase, selectedYear, selecte
               )}
 
               {data.kind === 'PAYMENT' && (
-                <div>
-                  <label className="block text-slate-400 mb-1">Forma de pagamento em folha</label>
-                  <SelectDropdown
-                    value={data.pay_mode}
-                    onChange={(val) => set({ pay_mode: val })}
-                    options={[
-                      { value: 'PAY', label: 'Com acréscimo', subtitle: '% definido nas Regras de RH' },
-                      { value: 'PAY_NORMAL', label: 'Valor normal', subtitle: 'Hora simples' }
-                    ]}
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Forma de pagamento em folha</label>
+                    <SelectDropdown
+                      value={data.pay_mode}
+                      onChange={(val) => set({ pay_mode: val })}
+                      options={[
+                        { value: 'PAY', label: PAY_MODE_LABELS.PAY, subtitle: 'Extras em dias de trabalho • % das Regras de RH' },
+                        { value: 'PAY_DOUBLE', label: PAY_MODE_LABELS.PAY_DOUBLE, subtitle: 'Horas feitas em DSR ou feriado' },
+                        { value: 'PAY_NORMAL', label: PAY_MODE_LABELS.PAY_NORMAL, subtitle: 'Hora simples, sem acréscimo' },
+                        { value: 'PREMIO', label: PAY_MODE_LABELS.PREMIO, subtitle: 'Valor acordado com o colaborador' }
+                      ]}
+                    />
+                  </div>
+                  {data.pay_mode === 'PREMIO' && (
+                    <div>
+                      <label className="block text-slate-400 mb-1">Valor do prêmio por essas horas (R$)</label>
+                      <input
+                        inputMode="decimal"
+                        value={data.amount}
+                        onChange={(e) => set({ amount: e.target.value })}
+                        className={inputCls}
+                        placeholder="0,00"
+                        autoFocus
+                      />
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        As horas saem do saldo do banco e o valor entra na rubrica "Prêmio por Horas (Banco de Horas)", sem reflexo no DSR.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -23,6 +23,7 @@ from api.recebimentos import router as recebimentos_router
 from api.tasks import router as tasks_router
 from api.rh import router as rh_router
 from api.rh_payroll import router as rh_payroll_router
+from api.rh_vacations import router as rh_vacations_router
 from api.estoque_catalogo import router as estoque_catalogo_router
 from api.estoque import router as estoque_router
 
@@ -127,6 +128,11 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS accounting_email VARCHAR;"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS accounting_greeting VARCHAR;"))
             conn.execute(text("ALTER TABLE rh_settings ADD COLUMN IF NOT EXISTS accounting_signature VARCHAR;"))
+            # Banco de horas: pagamento das horas como prêmio (valor acordado)
+            conn.execute(text("ALTER TABLE rh_bank_hours_entries ADD COLUMN IF NOT EXISTS amount FLOAT;"))
+            conn.execute(text("ALTER TABLE rh_rest_work_decisions ADD COLUMN IF NOT EXISTS amount FLOAT;"))
+            # Férias: período do abono pecuniário escolhido no calendário
+            conn.execute(text("ALTER TABLE rh_vacations ADD COLUMN IF NOT EXISTS abono_start_date DATE;"))
     except Exception as e:
         print(f"Warning during auto-migration: {e}")
 
@@ -166,6 +172,7 @@ app.include_router(relatorios_router)
 app.include_router(tasks_router)
 app.include_router(rh_router)
 app.include_router(rh_payroll_router)
+app.include_router(rh_vacations_router)
 app.include_router(estoque_catalogo_router)
 app.include_router(estoque_router)
 

@@ -986,7 +986,9 @@ export default function RHJornadaGrid({
                       if (ledger?.rest_swap_with) tipParts.push(`folga trocada com ${ledger.rest_swap_with.split('-').reverse().slice(0, 2).join('/')}`);
                       if (paidDouble) tipParts.push(ledger?.rest_decision === 'PAGAR'
                         ? 'repouso/feriado trabalhado: pago em dobro + DSR na folha do mês'
-                        : 'repouso/feriado trabalhado sem folga compensatória: decidir na aba Banco de horas (folga de dia inteiro ou pagar em dobro)');
+                        : ledger?.rest_decision === 'PREMIO'
+                        ? 'repouso/feriado trabalhado: pago como prêmio na folha do mês'
+                        : 'repouso/feriado trabalhado sem folga compensatória: decidir na aba Banco de horas (folga de dia inteiro, pagar em dobro ou prêmio)');
                       if (latePending) tipParts.push('atraso fora dos limites: aguarda decisão');
                       if (isChangedCell && previewDiff) tipParts.push('prévia: recalculado ao salvar');
 
@@ -1056,11 +1058,15 @@ export default function RHJornadaGrid({
                             {paidDouble && (
                               <span
                                 className={`absolute -top-1.5 -left-1 px-0.5 rounded text-white text-[7px] leading-none py-0.5 ${
-                                  ledger?.rest_decision === 'PAGAR' ? 'bg-red-600' : 'bg-slate-700 ring-1 ring-red-500'
+                                  ledger?.rest_decision === 'PAGAR' ? 'bg-red-600'
+                                    : ledger?.rest_decision === 'PREMIO' ? 'bg-violet-600'
+                                    : 'bg-slate-700 ring-1 ring-red-500'
                                 }`}
-                                title={ledger?.rest_decision === 'PAGAR' ? 'Pago em dobro' : 'Sem folga compensatória: decidir na aba Banco de horas'}
+                                title={ledger?.rest_decision === 'PAGAR' ? 'Pago em dobro'
+                                  : ledger?.rest_decision === 'PREMIO' ? 'Pago como prêmio'
+                                  : 'Sem folga compensatória: decidir na aba Banco de horas'}
                               >
-                                2x
+                                {ledger?.rest_decision === 'PREMIO' ? 'P' : '2x'}
                               </span>
                             )}
                             {irregularCodes.length > 0 && (

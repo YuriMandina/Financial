@@ -11,9 +11,19 @@ from services.rh_payroll_service import calc_inss, calc_irrf, calculate_payroll,
 class TestPayrollTaxes(unittest.TestCase):
 
     def test_inss_progressive(self):
-        # 1621*7,5% + (2902,84-1621)*9% + (3000-2902,84)*12%
-        expected = round(1621 * 0.075 + (2902.84 - 1621) * 0.09 + (3000 - 2902.84) * 0.12, 2)
-        self.assertEqual(calc_inss(3000.0), expected)
+        # Faixa a faixa, truncando cada uma: 121,57 + 115,36 + 11,65
+        self.assertEqual(calc_inss(3000.0), 248.58)
+        self.assertEqual(calc_inss(1500.0), 112.50)
+
+    def test_inss_matches_accounting_payroll(self):
+        # Folha da contabilidade 10/2026: base INSS -> desconto
+        cases = {
+            2068.53: 161.84, 2074.91: 162.42, 1936.77: 149.98, 2382.11: 190.06, 2740.58: 222.33,
+            1700.00: 128.68, 2500.00: 200.68, 1815.00: 139.03, 2554.75: 205.60, 1625.00: 121.93,
+            3370.68: 293.07,
+        }
+        for base, expected in cases.items():
+            self.assertEqual(calc_inss(base), expected, base)
 
     def test_inss_ceiling(self):
         self.assertEqual(calc_inss(20000.0), calc_inss(8475.55))
@@ -44,7 +54,7 @@ class TestCalculatePayroll(unittest.TestCase):
             models.RHLegalRegime, models.RHContractTemplate,
             models.RHMonthlySchedule, models.RHWorkDay, models.RHWorkDayChange, models.RHRestWorkDecision, models.RHSettings, models.RHBenefitAdjustment,
             models.RHPayrollItem, models.RHPayrollEntry, models.RHSalaryChange, models.RHBankHours,
-            models.RHBankHoursEntry, models.RHSalaryAdvance
+            models.RHBankHoursEntry, models.RHSalaryAdvance, models.RHVacation
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()
@@ -104,7 +114,42 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(lines["INSS"]["amount"], calc_inss(3000.0))
         self.assertNotIn("IRRF", lines)  # isento até R$ 5.000
         self.assertEqual(lines["FGTS"]["amount"], 240.0)
-        self.assertEqual(row["totals"]["liquido"], round(3000.0 - calc_inss(3000.0), 2))
+        # Arredondamento não é automático (lançado manualmente conforme a contabilidade)
+        self.assertNotIn("ARRED", lines)
+        self.assertNotIn("ARRED_ANT", lines)
+        self.assertEqual(row["totals"]["liquido"], 2751.42)
+
+    def test_system_codes_follow_accounting_and_keep_user_codes(self):
+        from services.rh_payroll_service import ensure_system_items
+        items = ensure_system_items(self.db, self.org_id)
+        self.db.commit()
+        codes = {k: items[k].code for k in ("SALARIO", "PREMIO", "TRIENIO", "HE100", "DSR_HE", "ARRED",
+                                             "FALTAS", "DSR_FALTA", "VT", "ADIANTAMENTO", "ARRED_ANT", "INSS")}
+        self.assertEqual(codes, {"SALARIO": "001", "PREMIO": "037", "TRIENIO": "046", "HE100": "402",
+                                 "DSR_HE": "420", "ARRED": "999", "FALTAS": "399", "DSR_FALTA": "990",
+                                 "VT": "604", "ADIANTAMENTO": "606", "ARRED_ANT": "610", "INSS": "903"})
+        # Rubrica com o código antigo padrão migra; código escolhido pelo usuário fica
+        items["PREMIO"].code, items["INSS"].code = "007", "555"
+        self.db.commit()
+        ensure_system_items(self.db, self.org_id)
+        self.assertEqual((items["PREMIO"].code, items["INSS"].code), ("037", "555"))
+
+    def test_manual_rounding_entries_affect_net(self):
+        from services.rh_payroll_service import ensure_system_items
+        items = ensure_system_items(self.db, self.org_id)
+        self.db.add_all([
+            models.RHPayrollEntry(schedule_id=self.schedule.id, employee_id=self.emp.id,
+                                  item_id=items["ARRED"].id, amount=0.93, source="MANUAL"),
+            models.RHPayrollEntry(schedule_id=self.schedule.id, employee_id=self.emp.id,
+                                  item_id=items["ARRED_ANT"].id, amount=0.35, source="MANUAL"),
+        ])
+        self.db.commit()
+        row = self._calc()
+        lines = self._by_key(row)
+        self.assertEqual(lines["ARRED"]["amount"], 0.93)
+        self.assertEqual(lines["ARRED_ANT"]["amount"], 0.35)
+        # 3000 - 248,58 + 0,93 - 0,35 = 2752,00
+        self.assertEqual(row["totals"]["liquido"], 2752.0)
 
     def test_absence_discounts_day_and_dsr(self):
         self.db.add(models.RHWorkDay(schedule_id=self.schedule.id, employee_id=self.emp.id, day=6,
@@ -537,10 +582,52 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(bank["effective_policy"], "BANK")
         self.assertEqual(bank["balance_minutes"], 240)
 
-    def _bank_entry(self, sched, kind, minutes, pay_mode=None, note="ajuste"):
+    def _bank_entry(self, sched, kind, minutes, pay_mode=None, note="ajuste", amount=None):
         self.db.add(models.RHBankHoursEntry(schedule_id=sched.id, employee_id=self.emp.id, kind=kind,
-                                            minutes=minutes, pay_mode=pay_mode, note=note))
+                                            minutes=minutes, pay_mode=pay_mode, note=note, amount=amount))
         self.db.commit()
+
+    def test_bank_payment_at_100_percent(self):
+        self._work_month(self.schedule, extra_days=(1, 2, 5, 6, 7), extra_minutes=240)  # +20h
+        self._bank_entry(self.schedule, "PAYMENT", 300, pay_mode="PAY_DOUBLE")  # paga 5h em dobro
+        lines, bank = self._payroll(self.schedule)
+        hourly = 3000.0 / 200
+        self.assertEqual(lines["HE100"]["amount"], round(5 * hourly * 2, 2))
+        self.assertEqual(lines["HE100"]["quantity"], 300)
+        self.assertNotIn("HE50", lines)
+        self.assertIn("DSR_HE", lines)
+        self.assertEqual(bank["paid_minutes"], 300)
+        self.assertEqual(bank["balance_minutes"], 1200 - 300)
+
+    def test_bank_payment_as_premio(self):
+        self._work_month(self.schedule, extra_days=(1, 2, 5, 6, 7), extra_minutes=240)  # +20h
+        self._bank_entry(self.schedule, "PAYMENT", 600, pay_mode="PREMIO", amount=350.0)  # 10h por R$ 350
+        lines, bank = self._payroll(self.schedule)
+        self.assertEqual(lines["PREMIO_BH"]["amount"], 350.0)
+        self.assertEqual(lines["PREMIO_BH"]["quantity"], 600)
+        self.assertNotIn("HE50", lines)
+        self.assertNotIn("DSR_HE", lines)  # prêmio não reflete no DSR
+        self.assertEqual(bank["paid_minutes"], 600)
+        self.assertEqual(bank["balance_minutes"], 1200 - 600)
+        self.assertEqual(bank["entries"][0]["amount"], 350.0)
+
+    def test_rest_work_paid_as_premio(self):
+        from services.rh_rest_work_service import decide_rest_work
+        self._work_month(self.schedule)
+        self._set_day(4, "TRABALHO", 300)  # 5h no domingo
+        with patch("services.rh_rest_work_service.get_effective_holidays_map", return_value={}):
+            with self.assertRaises(ValueError):  # prêmio exige valor
+                decide_rest_work(self.db, self.org_id, self.emp, date(2026, 10, 4), "PREMIO", None, None, None)
+            decide_rest_work(self.db, self.org_id, self.emp, date(2026, 10, 4), "PREMIO", None, None, None, 200.0)
+        self.db.commit()
+        lines, bank = self._payroll(self.schedule)
+        self.assertNotIn("HE100", lines)
+        self.assertNotIn("DSR_HE", lines)
+        self.assertEqual(lines["PREMIO_BH"]["amount"], 200.0)
+        self.assertEqual(bank["month_balance_minutes"], 0)
+        self.assertEqual(bank["rest_work_pending"], 0)
+        item = bank["rest_work"][0]
+        self.assertEqual((item["status"], item["premio_amount"]), ("PREMIO", 200.0))
 
     def test_partial_payment_keeps_rest_in_bank(self):
         self._work_month(self.schedule, extra_days=(1, 2, 5, 6, 7), extra_minutes=240)  # +20h

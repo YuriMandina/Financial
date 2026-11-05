@@ -139,7 +139,10 @@ export default function DateRangePicker({
   disabled = false,
   compact = false,
   align = 'right',
-  buttonClassName = ''
+  buttonClassName = '',
+  presets: customPresets,   // lista própria de atalhos; [] oculta a coluna (padrão: atalhos de relatório)
+  openAtStart = false,      // abre o calendário no mês da data inicial já escolhida
+  placeholder = 'Selecionar período'
 }) {
   const [open, setOpen]           = useState(false);
   const [selectingEnd, setSelectingEnd] = useState(false);
@@ -213,9 +216,9 @@ export default function DateRangePicker({
     ? `${formatDisplay(startValue)}  →  ${formatDisplay(endValue)}`
     : startValue
       ? `${formatDisplay(startValue)}  →  …`
-      : 'Selecionar período';
+      : placeholder;
 
-  const presets = getPresets();
+  const presets = customPresets === undefined ? getPresets() : (customPresets || []);
 
   const alignClass = align === 'left' ? 'left-0' : 'right-0';
 
@@ -224,7 +227,14 @@ export default function DateRangePicker({
       {/* ── Trigger ── */}
       <button
         type="button"
-        onClick={() => { if (!disabled) { setOpen(o => !o); } }}
+        onClick={() => {
+          if (disabled) return;
+          if (!open && openAtStart && startDate) {
+            setLeftYear(startDate.getFullYear());
+            setLeftMonth(startDate.getMonth());
+          }
+          setOpen(o => !o);
+        }}
         disabled={disabled}
         className={`
           flex items-center transition-all whitespace-nowrap
@@ -257,10 +267,11 @@ export default function DateRangePicker({
           style={{ animation: 'fadeIn 0.12s ease-out' }}
         >
           {/* Presets column */}
-          <div className="w-36 flex-shrink-0 border-r border-slate-700/60 py-3 px-2 flex flex-col gap-0.5">
+          {presets.length > 0 && <div className="w-36 flex-shrink-0 border-r border-slate-700/60 py-3 px-2 flex flex-col gap-0.5">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600 px-2 pb-1.5">Atalhos</p>
             {presets.map(p => (
               <button
+                type="button"
                 key={p.label}
                 onClick={() => applyPreset(p)}
                 className="text-left px-2 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:bg-indigo-500/15 hover:text-indigo-300 transition-colors"
@@ -268,7 +279,7 @@ export default function DateRangePicker({
                 {p.label}
               </button>
             ))}
-          </div>
+          </div>}
 
           {/* Calendar area */}
           <div className="p-4 flex flex-col gap-3">
@@ -286,7 +297,7 @@ export default function DateRangePicker({
               {/* Left */}
               <div>
                 <div className="flex items-center justify-between mb-2.5">
-                  <button onClick={prevMonth} className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-200">
+                  <button type="button" onClick={prevMonth} className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-200">
                     <ChevronLeft size={14} />
                   </button>
                   <span className="text-xs font-bold text-slate-200 px-1">
@@ -312,7 +323,7 @@ export default function DateRangePicker({
                   <span className="text-xs font-bold text-slate-200 px-1">
                     {MESES[rightMonth]} {rightYear}
                   </span>
-                  <button onClick={nextMonth} className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-200">
+                  <button type="button" onClick={nextMonth} className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-200">
                     <ChevronRight size={14} />
                   </button>
                 </div>
@@ -339,6 +350,7 @@ export default function DateRangePicker({
                 </div>
                 {hasRange && (
                   <button
+                    type="button"
                     onClick={() => { onStartChange(''); onEndChange(''); setSelectingEnd(false); }}
                     className="text-xs text-slate-600 hover:text-slate-400 transition-colors ml-3"
                   >

@@ -15,6 +15,16 @@ const MONTH_NAMES = [
 
 const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+// Linha de férias como na folha da contabilidade: "Férias de 26/10/2026 até 14/11/2026 Dia(s) 6 (044:00)".
+// O recibo de férias é pago à parte; na folha do mês de início, férias + 1/3 entram só na base do INSS/FGTS.
+const vacationText = (v) => {
+  const br = (iso) => iso.split('-').reverse().join('/');
+  let text = `Férias de ${br(v.start_date)} até ${br(v.end_date)} Dia(s) ${v.days_in_month} (${v.hours})`;
+  if (v.abono_days) text += ` • abono ${v.abono_days} dia(s)`;
+  if (v.paid_in_month && v.receipt_net != null) text += ` • recibo de férias à parte: ${brl(v.receipt_net)}`;
+  return text;
+};
+
 // Aceita "3.000,50", "3000,50" e "3000.50"
 const parseMoney = (value) => {
   const str = String(value ?? '').trim();
@@ -457,6 +467,9 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                                   </span>
                                 )}
                               </div>
+                              {(emp.vacations || []).map((v) => (
+                                <div key={v.vacation_id} className="text-[10px] text-purple-300">{vacationText(v)}</div>
+                              ))}
                             </div>
                           </div>
                         </td>
@@ -862,6 +875,9 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   </span>
                   <span className="text-[10px]">Salário base: {brl(emp.base_salary)}</span>
                 </div>
+                {(emp.vacations || []).map((v) => (
+                  <div key={v.vacation_id} className="text-[10px] px-2 pt-1">{vacationText(v)}</div>
+                ))}
                 <table className="w-full">
                   <thead>
                     <tr>

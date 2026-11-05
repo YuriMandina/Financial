@@ -22,7 +22,7 @@ class TestAccountingReport(unittest.TestCase):
             models.RHMonthlySchedule, models.RHWorkDay, models.RHWorkDayChange, models.RHRestWorkDecision,
             models.RHSettings, models.RHBenefitAdjustment, models.RHPayrollItem, models.RHPayrollEntry,
             models.RHSalaryChange, models.RHBankHours, models.RHBankHoursEntry, models.RHSalaryAdvance,
-            models.RHAccountingReport,
+            models.RHAccountingReport, models.RHVacation,
         ]
         models.Base.metadata.create_all(engine, tables=[m.__table__ for m in needed])
         self.db = sessionmaker(bind=engine)()

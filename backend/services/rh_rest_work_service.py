@@ -16,7 +16,7 @@ from services.rh_holidays_service import get_effective_holidays_map
 from services.rh_ledger import rest_folga_window
 from services.rh_schedule_service import record_change, snapshot_day
 
-DECISIONS = ("FOLGA", "PAGAR")
+DECISIONS = ("FOLGA", "PAGAR", "PREMIO")
 FOLGA_ORIGIN = "FOLGA_COMP"
 # Dias que não podem virar folga compensatória (já são ausência por outro motivo)
 BLOCKED_STATUSES = ("FERIAS", "ATESTADO", "FALTA", "FOLGA_BH", "FERIADO")
@@ -100,10 +100,11 @@ def _mark_folga(db: Session, organization_id: int, emp: models.RHEmployee, folga
 
 def decide_rest_work(db: Session, organization_id: int, emp: models.RHEmployee, worked_date: date,
                      decision: Optional[str], folga_date: Optional[date], note: Optional[str],
-                     user_id: Optional[int]) -> Optional[models.RHRestWorkDecision]:
+                     user_id: Optional[int], amount: Optional[float] = None) -> Optional[models.RHRestWorkDecision]:
     """
     Registra (ou desfaz, com decision=None) a decisão sobre o DSR/feriado trabalhado.
     FOLGA exige um dia de trabalho do contrato dentro do prazo (rest_folga_window), que vira folga na escala.
+    PREMIO quita o dia com o valor acordado com o colaborador (em R$), em vez do pagamento em dobro.
     """
     worked_schedule = _schedule_for(db, organization_id, worked_date, create=False)
     if worked_schedule is not None and worked_schedule.status == "CLOSED":
@@ -114,6 +115,8 @@ def decide_rest_work(db: Session, organization_id: int, emp: models.RHEmployee, 
         raise ValueError(f"{worked_date.strftime('%d/%m')} não é DSR nem feriado trabalhado.")
     if decision is not None and decision not in DECISIONS:
         raise ValueError("Decisão inválida.")
+    if decision == "PREMIO" and not (amount and amount > 0):
+        raise ValueError("Informe o valor do prêmio.")
 
     row = db.query(models.RHRestWorkDecision).filter(
         models.RHRestWorkDecision.employee_id == emp.id,
@@ -159,6 +162,7 @@ def decide_rest_work(db: Session, organization_id: int, emp: models.RHEmployee, 
     row.decision = decision
     row.folga_date = folga_date if decision == "FOLGA" else None
     row.folga_created = _mark_folga(db, organization_id, emp, folga_date, user_id) if decision == "FOLGA" else False
+    row.amount = round(float(amount), 2) if decision == "PREMIO" else None
     row.note = note
     row.decided_by = user_id
     db.flush()
