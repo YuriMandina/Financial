@@ -742,7 +742,6 @@ def calculate_payroll(
         contract = contract_on(emp.contracts, month_end)
         weekly_hours = (contract.weekly_min / 60) if contract and contract.weekly_min else float(emp.weekly_contract_hours or 44.0)
         hourly_rate = end_salary / (weekly_hours * 5) if weekly_hours else 0.0
-        daily_rate = end_salary / 30
 
         # Dias de férias no mês são pagos no recibo de férias (art. 145): a folha paga só os demais (mês de 30 dias)
         vacation_days = sum(1 for wd in work_days.values() if wd.status == "FERIAS")
@@ -860,14 +859,24 @@ def calculate_payroll(
         bank.paid_minutes = paid_minutes
         bank.balance_minutes = available - paid_minutes
 
-        # Faltas: desconto do dia e perda do DSR da semana
+        # Faltas: desconto do dia e perda do DSR da semana. Como na contabilidade, o dia descontado é o da
+        # remuneração fixa do mês: salário + triênio + prêmio (folha 10/2026: (1.872 + 200) / 30 = 69,07)
         absence_days = sorted(d for d, wd in work_days.items() if wd.status == "FALTA")
         if absence_days:
-            add_auto(system_items["FALTAS"], len(absence_days) * daily_rate, f"{len(absence_days)} dia(s)",
+            full_triennium = end_salary * float(triennium_item.default_value or 0.0) / 100 * triennia \
+                if triennia > 0 and triennium_item.active else 0.0
+            premio_month = sum(float(e.amount or 0.0) for e in manual_entries
+                               if e.item.system_key == "PREMIO" and e.item.kind == "RECEITA")
+            absence_daily = (end_salary + full_triennium + premio_month) / 30
+            parts = ["salário"] + (["triênio"] if full_triennium else []) + (["prêmio"] if premio_month else [])
+            # Referência simples quando a diária é só o salário; com triênio/prêmio, mostra a composição
+            daily_ref = f" • diária {absence_daily:.2f} ({' + '.join(parts)})" if len(parts) > 1 else ""
+            add_auto(system_items["FALTAS"], len(absence_days) * absence_daily,
+                     f"{len(absence_days)} dia(s){daily_ref}",
                      (len(absence_days), "DIAS",
                       [date(schedule.year, schedule.month, d).isoformat() for d in absence_days]))
             dsr_lost = count_lost_dsr(absence_days, work_days, schedule, num_days, dsr_mode)
-            add_auto(system_items["DSR_FALTA"], dsr_lost * daily_rate, f"{dsr_lost} DSR")
+            add_auto(system_items["DSR_FALTA"], dsr_lost * absence_daily, f"{dsr_lost} DSR{daily_ref}")
 
         # Vale transporte: desconto limitado a 6% do salário base
         vt_amount = float(summary.get("total_vt_amount") or 0.0)

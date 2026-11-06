@@ -161,6 +161,23 @@ class TestCalculatePayroll(unittest.TestCase):
         # Faltas reduzem a base do INSS
         self.assertEqual(lines["INSS"]["amount"], calc_inss(2800.0))
 
+    def test_absence_daily_rate_includes_premio(self):
+        # Folha 10/2026 da contabilidade (Jhonata): salário 1.872 + prêmio 200 -> falta e DSR de 69,07 cada,
+        # e o prêmio continua fora da base do INSS
+        from services.rh_payroll_service import ensure_system_items
+        self.role.base_salary = 1872.0
+        premio = ensure_system_items(self.db, self.org_id)["PREMIO"]
+        self.db.add(models.RHPayrollEntry(schedule_id=self.schedule.id, employee_id=self.emp.id, item_id=premio.id,
+                                          amount=200.0, source="MANUAL"))
+        self.db.add(models.RHWorkDay(schedule_id=self.schedule.id, employee_id=self.emp.id, day=6,
+                                     status="FALTA", worked_minutes=0, raw_minutes=0))
+        self.db.commit()
+        lines = self._by_key(self._calc())
+        self.assertEqual(lines["FALTAS"]["amount"], 69.07)
+        self.assertEqual(lines["DSR_FALTA"]["amount"], 69.07)
+        self.assertIn("salário + prêmio", lines["FALTAS"]["reference"])
+        self.assertEqual(lines["INSS"]["amount"], calc_inss(round(1872.0 - 69.07 - 69.07, 2)))
+
     def test_manual_entry_recurring_and_override(self):
         bonus = models.RHPayrollItem(organization_id=self.org_id, code="050", name="Gratificação",
                                      kind="RECEITA", calc_type="PERCENT", default_value=10, recurring=True,
