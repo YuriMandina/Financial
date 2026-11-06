@@ -33,7 +33,26 @@ const parseMoney = (value) => {
   return parseFloat(normalized) || 0;
 };
 
-const toInputMoney = (v) => Number(v || 0).toFixed(2).replace('.', ',');
+// Textos das rubricas do sistema com percentual configurável
+const PERCENT_ITEM_TEXT = {
+  TRIENIO: {
+    short: 'por triênio',
+    label: 'Percentual por triênio (% do salário base)',
+    hint: 'Acumulativo: aplicado uma vez para cada 3 anos completos desde a admissão (ex: 7 anos = 2 triênios).'
+  },
+  ADIANTAMENTO: {
+    short: 'do salário (meses marcados)',
+    label: 'Percentual do adiantamento (% do salário base)',
+    hint: 'Descontado na folha apenas dos colaboradores marcados para receber o adiantamento no mês.'
+  },
+  QUEBRA_CAIXA: {
+    short: 'do salário (cargos marcados)',
+    label: 'Percentual da quebra de caixa (% do salário base)',
+    hint: 'Pago aos colaboradores de cargos marcados com "Recebe quebra de caixa" no cadastro de cargos. Integra também as férias.'
+  }
+};
+
+const toInputMoney =(v) => Number(v || 0).toFixed(2).replace('.', ',');
 
 const fmtHours = (minutes) => {
   const m = Number(minutes || 0);
@@ -1194,7 +1213,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                 </td>
                 <td className="py-2 px-3 text-slate-300">
                   {it.configurable
-                    ? `${Number(it.default_value).toLocaleString('pt-BR')}% ${it.system_key === 'ADIANTAMENTO' ? 'do salário (meses marcados)' : 'por triênio'}`
+                    ? `${Number(it.default_value).toLocaleString('pt-BR')}% ${PERCENT_ITEM_TEXT[it.system_key]?.short || 'por triênio'}`
                     : it.configurable_incidence
                     ? 'Valor no lançamento'
                     : it.system_key
@@ -1318,7 +1337,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
             <>
               <div>
                 <label className="block text-slate-400 mb-1">
-                  {data.system_key === 'ADIANTAMENTO' ? 'Percentual do adiantamento (% do salário base)' : 'Percentual por triênio (% do salário base)'}
+                  {(PERCENT_ITEM_TEXT[data.system_key] || PERCENT_ITEM_TEXT.TRIENIO).label}
                 </label>
                 <input
                   inputMode="decimal"
@@ -1327,9 +1346,7 @@ export default function RHFolhaPagamento({ token, apiBase, selectedYear, selecte
                   className={inputCls}
                 />
                 <span className="text-[10px] text-slate-500">
-                  {data.system_key === 'ADIANTAMENTO'
-                    ? 'Descontado na folha apenas dos colaboradores marcados para receber o adiantamento no mês.'
-                    : 'Acumulativo: aplicado uma vez para cada 3 anos completos desde a admissão (ex: 7 anos = 2 triênios).'}
+                  {(PERCENT_ITEM_TEXT[data.system_key] || PERCENT_ITEM_TEXT.TRIENIO).hint}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">

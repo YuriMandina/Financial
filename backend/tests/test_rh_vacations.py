@@ -199,6 +199,18 @@ class TestVacations(unittest.TestCase):
         self.assertEqual(calc["rounding"], round(-raw_net % 1, 2))
         self.assertEqual(calc["net"], float(-(-raw_net // 1)))  # arredondado para o próximo real
 
+    def test_cash_allowance_integrates_vacation(self):
+        # Quebra de caixa 10% (300) integra férias, 1/3 e abono (Súmula 247 TST)
+        self.emp.role_obj.cash_allowance = True
+        self.db.commit()
+        calc = calculate_vacation_pay(self.db, self.org_id, self.emp, P2, date(2026, 3, 3),
+                                      date(2026, 11, 9), 20, 10)
+        lines = {l["key"]: l["amount"] for l in calc["lines"]}
+        self.assertEqual(lines["FERIAS_QUEBRA_CAIXA"], 200.0)  # 300 / 30 x 20
+        self.assertEqual(lines["FERIAS_TERCO"], 733.33)  # (2000 + 200) / 3
+        self.assertEqual(lines["ABONO"], 1100.0)  # 3300 / 30 x 10
+        self.assertEqual(lines["INSS"], calc_inss(2933.33))
+
     def test_receipt_matches_accounting(self):
         # Recibo da contabilidade: salário 1.700, triênio 4%, 20 dias de gozo + 10 de abono
         self.emp.role_obj.base_salary = 1700.0
@@ -321,13 +333,13 @@ class TestVacations(unittest.TestCase):
 
         # Recibo fica fora da folha: nenhuma rubrica de férias
         self.assertFalse({"FERIAS", "FERIAS_TERCO", "ABONO_FERIAS", "INSS_FERIAS", "FERIAS_LIQUIDO"} & set(lines))
-        # Salário dos 24 dias fora de férias (30 - 6) e triênio sobre ele
-        self.assertEqual(lines["SALARIO"]["amount"], 1360.0)
-        self.assertEqual(lines["TRIENIO"]["amount"], 54.4)
+        # Salário dos 25 dias fora de férias (1 a 25/10; o dia 31 não conta no mês comercial) e triênio
+        self.assertEqual(lines["SALARIO"]["amount"], 1416.67)
+        self.assertEqual(lines["TRIENIO"]["amount"], 56.67)
         # INSS Folha: INSS(salário + triênio + férias do recibo) - INSS férias (como a contabilidade: 100,03)
-        self.assertEqual(lines["INSS"]["amount"], round(calc_inss(1360.0 + 54.4 + 1571.55) - 117.86, 2))
+        self.assertEqual(lines["INSS"]["amount"], round(calc_inss(1416.67 + 56.67 + 1571.55) - 117.86, 2))
         self.assertEqual(round(calc_inss(1076.67 + 43.07 + 1571.55) - 117.86, 2), 100.03)  # números da contabilidade
-        self.assertEqual(lines["FGTS"]["amount"], round((1360.0 + 54.4 + 1571.55) * 0.08, 2))
+        self.assertEqual(lines["FGTS"]["amount"], round((1416.67 + 56.67 + 1571.55) * 0.08, 2))
         # Linha informativa "Férias de 26/10/2026 até 14/11/2026 Dia(s) 6"
         self.assertEqual(row["vacations"], [{
             "vacation_id": v.id, "start_date": "2026-10-26", "end_date": "2026-11-14", "days_in_month": 6,

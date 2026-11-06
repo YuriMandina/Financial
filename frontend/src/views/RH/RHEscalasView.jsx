@@ -116,7 +116,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   const [salaryModalTarget, setSalaryModalTarget] = useState(null); // id do cargo ou 'ALL'
   const [employeeTab, setEmployeeTab] = useState('contrato'); // aba do cadastro do colaborador
   const [fichaEmployeeId, setFichaEmployeeId] = useState(null); // ficha cadastral para impressão
-  const [roleFormData, setRoleFormData] = useState({ name: '', description: '', base_salary: '' });
+  const [roleFormData, setRoleFormData] = useState({ name: '', description: '', base_salary: '', cash_allowance: false });
 
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsFormData, setSettingsFormData] = useState({
@@ -411,7 +411,7 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
       if (!res.ok) throw new Error('Erro ao criar cargo');
       const newRole = await res.json();
       setRoleModalOpen(false);
-      setRoleFormData({ name: '', description: '', base_salary: '' });
+      setRoleFormData({ name: '', description: '', base_salary: '', cash_allowance: false });
       await fetchSchedule();
       if (employeeModalOpen) {
         setEmployeeFormData((prev) => ({ ...prev, role_id: newRole.id }));
@@ -419,6 +419,23 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
     } catch (err) {
       console.error(err);
       alert('Erro ao criar cargo.');
+    }
+  };
+
+  // Quebra de caixa: liga/desliga para todos os colaboradores do cargo (rubrica 040 da folha)
+  const handleToggleCashAllowance = async (role) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/rh/roles/${role.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ cash_allowance: !role.cash_allowance })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Erro ao atualizar cargo');
+      await fetchSchedule();
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
     }
   };
 
@@ -1356,9 +1373,17 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                     <span className="font-semibold text-slate-200">{r.name}</span>
                     <span className="text-slate-500 text-[11px] block">
                       {Number(r.base_salary || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} • {r.employee_count || 0} colaborador(es)
+                      {r.cash_allowance && <span className="text-amber-400"> • quebra de caixa</span>}
                     </span>
                   </div>
                   <div className="flex items-center">
+                    <button
+                      onClick={() => handleToggleCashAllowance(r)}
+                      className={`p-1 ${r.cash_allowance ? 'text-amber-400 hover:text-amber-300' : 'text-slate-500 hover:text-amber-400'}`}
+                      title={r.cash_allowance ? 'Recebe quebra de caixa: clique para remover' : 'Marcar cargo para receber quebra de caixa'}
+                    >
+                      <Wallet size={13} />
+                    </button>
                     <button
                       onClick={() => setSalaryModalTarget(r.id)}
                       className="text-slate-500 hover:text-emerald-400 p-1"
@@ -2279,6 +2304,13 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
+
+              <StyledCheckbox
+                checked={!!roleFormData.cash_allowance}
+                onChange={(checked) => setRoleFormData({ ...roleFormData, cash_allowance: checked })}
+                label="Recebe quebra de caixa"
+                description="Operadores de caixa: % do salário base na folha (rubrica Quebra de Caixa)"
+              />
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button

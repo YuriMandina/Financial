@@ -222,6 +222,46 @@ class TestCalculatePayroll(unittest.TestCase):
         self.assertEqual(lines["TRIENIO"]["amount"], 300.0)
         self.assertEqual(lines["INSS"]["amount"], calc_inss(3000.0))
 
+    def test_cash_allowance_only_for_marked_roles(self):
+        self.assertNotIn("QUEBRA_CAIXA", self._by_key(self._calc()))
+        self.role.cash_allowance = True
+        self.db.commit()
+        lines = self._by_key(self._calc())
+        self.assertEqual(lines["QUEBRA_CAIXA"]["code"], "040")
+        self.assertEqual(lines["QUEBRA_CAIXA"]["amount"], 300.0)  # 10% de 3.000
+        self.assertEqual(lines["INSS"]["amount"], calc_inss(3300.0))  # natureza salarial
+
+    def _set_family(self, salary, deps, admission=None):
+        self.role.base_salary = salary
+        self.emp.admission_date = admission
+        self.emp.profile = {"dependentes": deps}
+        self.db.commit()
+        return self._by_key(self._calc())
+
+    def test_salario_familia_by_quota(self):
+        kid = {"nome": "Filho", "salario_familia": True, "nascimento": "2020-03-10"}
+        lines = self._set_family(1900.0, [kid, dict(kid, nome="Filha"), {"nome": "Cônjuge", "irrf": True}])
+        sf = lines["SALARIO_FAMILIA"]
+        self.assertEqual(sf["code"], "599")
+        self.assertEqual(sf["amount"], 135.08)  # 2 cotas x 67,54
+        self.assertEqual(lines["INSS"]["amount"], calc_inss(1900.0))  # não entra na base
+
+        # Acima do limite (1.980,38) não há direito
+        self.assertNotIn("SALARIO_FAMILIA", self._set_family(2000.0, [kid]))
+
+    def test_salario_familia_age_and_invalid(self):
+        # Completa 14 anos em 10/2026: ainda recebe no mês do aniversário; em 09/2026 já completou
+        in_month = {"nome": "A", "salario_familia": True, "nascimento": "2012-10-20"}
+        over = {"nome": "B", "salario_familia": True, "nascimento": "2012-09-05"}
+        self.assertEqual(self._set_family(1500.0, [in_month, over])["SALARIO_FAMILIA"]["amount"], 67.54)
+        lines = self._set_family(1500.0, [in_month, dict(over, invalido=True)])
+        self.assertEqual(lines["SALARIO_FAMILIA"]["amount"], 135.08)
+
+    def test_salario_familia_proportional_on_admission(self):
+        kid = {"nome": "Filho", "salario_familia": True}
+        lines = self._set_family(1500.0, [kid], admission=date(2026, 10, 17))  # 17 a 31/10 = 15 dias
+        self.assertEqual(lines["SALARIO_FAMILIA"]["amount"], 33.77)
+
     def _absence_week_5x2(self):
         # Semana 5-11/out/2026: falta na quarta (7), sábado (10) e domingo (11) como DSR
         for day, status in [(7, "FALTA"), (10, "DSR"), (11, "DSR")]:

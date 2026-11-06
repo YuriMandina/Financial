@@ -88,11 +88,13 @@ class RHRoleCreate(BaseModel):
     name: str
     description: Optional[str] = None
     base_salary: float = 0.0
+    cash_allowance: bool = False
 
 class RHRoleUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     base_salary: Optional[float] = None
+    cash_allowance: Optional[bool] = None
 
 class RHContractTemplateCreate(BaseModel):
     code: str
@@ -296,7 +298,8 @@ def create_role(
         organization_id=current_user.organization_id,
         name=payload.name.strip(),
         description=payload.description.strip() if payload.description else None,
-        base_salary=round(payload.base_salary or 0.0, 2)
+        base_salary=round(payload.base_salary or 0.0, 2),
+        cash_allowance=bool(payload.cash_allowance)
     )
     db.add(new_role)
     db.commit()
@@ -315,6 +318,8 @@ def update_role(
         role.name = payload.name.strip()
     if payload.description is not None:
         role.description = payload.description.strip() or None
+    if payload.cash_allowance is not None:
+        role.cash_allowance = payload.cash_allowance
     if payload.base_salary is not None:
         # Com histórico, mudanças de salário só por aumento com data de vigência
         if get_salary_history(db, role.id):
@@ -2108,6 +2113,7 @@ def _role_to_dict(db: Session, role: models.RHRole) -> Dict[str, Any]:
         "name": role.name,
         "description": role.description,
         "base_salary": current_role_salary(db, role),
+        "cash_allowance": bool(role.cash_allowance),
         "employee_count": db.query(models.RHEmployee).filter(
             models.RHEmployee.role_id == role.id, models.RHEmployee.active == True
         ).count(),

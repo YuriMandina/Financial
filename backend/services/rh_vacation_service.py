@@ -467,9 +467,13 @@ def calculate_vacation_pay(
     triennium_item = items["TRIENIO"]
     triennia = completed_triennia(emp.admission_date, start_date)
     triennium = salary * float(triennium_item.default_value or 0.0) / 100 * triennia if triennium_item.active else 0.0
+    # Quebra de caixa (Súmula 247 TST): parcela salarial do cargo, integra a remuneração das férias
+    cash_item = items["QUEBRA_CAIXA"]
+    cash_pct = float(cash_item.default_value or 0.0) if cash_item.active and role is not None and role.cash_allowance else 0.0
+    cash_allowance = round(salary * cash_pct / 100, 2)
     auto_avg = variable_average(db, emp, acquisition_start, acquisition_end)
     average = float(variable_override) if variable_override is not None else auto_avg
-    remuneration = round(salary + triennium + average, 2)
+    remuneration = round(salary + triennium + cash_allowance + average, 2)
     daily = remuneration / 30
     triennium_pct = float(triennium_item.default_value or 0.0) * triennia
 
@@ -477,15 +481,16 @@ def calculate_vacation_pay(
     # cada uma arredondada; o 1/3 incide sobre a soma delas. O abono usa a remuneração inteira.
     ferias = round(salary / 30 * days, 2)
     ferias_trienio = round(triennium / 30 * days, 2)
+    ferias_quebra = round(cash_allowance / 30 * days, 2)
     ferias_medias = round(average / 30 * days, 2)
-    terco = round((ferias + ferias_trienio + ferias_medias) / 3, 2)
+    terco = round((ferias + ferias_trienio + ferias_quebra + ferias_medias) / 3, 2)
     dobra = round(daily * doubled_days, 2)
     terco_dobra = round(dobra / 3, 2)
     abono = round(daily * abono_days, 2)
     terco_abono = round(abono / 3, 2)
     advance = round(remuneration / 2, 2) if advance_13th else 0.0
 
-    inss_base = round(ferias + ferias_trienio + ferias_medias + terco, 2)
+    inss_base = round(ferias + ferias_trienio + ferias_quebra + ferias_medias + terco, 2)
     inss = calc_inss(inss_base)
     irrf_base = round(inss_base + dobra + terco_dobra, 2)
     irrf = calc_irrf(irrf_base, inss, int(emp.dependents or 0))
@@ -495,6 +500,7 @@ def calculate_vacation_pay(
     receipts = [
         {"key": "FERIAS", "code": "009", "label": "Férias", "reference": f"{days} dia(s)", "amount": ferias},
         {"key": "FERIAS_TRIENIO", "code": "046", "label": f"Triênio {triennium_pct:g}%", "reference": f"{days} dia(s)", "amount": ferias_trienio},
+        {"key": "FERIAS_QUEBRA_CAIXA", "code": cash_item.code, "label": f"Quebra de Caixa {cash_pct:g}%", "reference": f"{days} dia(s)", "amount": ferias_quebra},
         {"key": "FERIAS_MEDIAS", "code": None, "label": "Médias de variáveis sobre férias", "reference": f"{days} dia(s)", "amount": ferias_medias},
         {"key": "FERIAS_TERCO", "code": "597", "label": "1/3 Férias", "reference": "1/3", "amount": terco},
         {"key": "FERIAS_DOBRA", "code": None, "label": "Férias em dobro (art. 137)", "reference": f"{doubled_days} dia(s)", "amount": dobra},
@@ -524,6 +530,7 @@ def calculate_vacation_pay(
         "salary": round(salary, 2),
         "triennium": round(triennium, 2),
         "triennia": triennia,
+        "cash_allowance": cash_allowance,
         "variable_average": round(average, 2),
         "variable_average_auto": auto_avg,
         "variable_average_manual": variable_override is not None,

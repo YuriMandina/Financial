@@ -182,7 +182,8 @@ export const PROFILE_SECTIONS = [
         options: opts(['Filho(a)', 'Enteado(a)', 'Cônjuge', 'Companheiro(a)', 'Pai/Mãe', 'Outro'])
       },
       { key: 'irrf', label: 'Dependente IRRF', type: 'checkbox', span: 1 },
-      { key: 'salario_familia', label: 'Salário-Família', type: 'checkbox', span: 1 }
+      { key: 'salario_familia', label: 'Salário-Família', type: 'checkbox', span: 1 },
+      { key: 'invalido', label: 'Inválido (SF após 14 anos)', type: 'checkbox', span: 1 }
     ]
   },
   {

@@ -205,6 +205,7 @@ class RHRole(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     base_salary = Column(Float, default=0.0) # Salário do cargo vigente hoje (isonomia salarial)
+    cash_allowance = Column(Boolean, default=False) # Quebra de caixa: % do salário base (operadores de caixa)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     salary_changes = relationship("RHSalaryChange", back_populates="role", cascade="all, delete-orphan")

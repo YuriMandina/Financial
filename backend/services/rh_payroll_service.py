@@ -38,6 +38,11 @@ IRRF_BRACKETS_2026 = [
     (float("inf"), 0.275, 908.73),
 ]
 IRRF_DEPENDENT_DEDUCTION = 189.59
+
+# Salário-família (Portaria Interministerial MPS/MF nº 13/2026): cota por filho/enteado menor de 14 anos
+# (ou inválido) para salário de contribuição até o limite; acima do limite não há direito (não é proporcional)
+SALARIO_FAMILIA_COTA_2026 = 67.54
+SALARIO_FAMILIA_LIMIT_2026 = 1980.38
 IRRF_SIMPLIFIED_DISCOUNT = 607.20
 
 # Redução do IRRF a partir de 2026 (Lei 15.270/2025): isenção até R$ 5.000,00
@@ -74,11 +79,15 @@ SYSTEM_ITEMS = {
     "HE_FIXO": ("005", "Valor Fixo por Horas Extras (Banco)", "RECEITA", True, True, True, True),
     "DSR_HE": ("420", "DSR sobre Horas Extras", "RECEITA", True, True, True, True),
     "TRIENIO": ("046", "Triênio", "RECEITA", True, True, True, True),
+    # Quebra de caixa: natureza salarial (Súmula 247 TST), integra INSS/IRRF/FGTS; só cargos marcados
+    "QUEBRA_CAIXA": ("040", "Quebra de Caixa", "RECEITA", True, True, True, True),
     # Prêmio não integra a base de INSS/FGTS (CLT art. 457 §2º; Lei 8.212 art. 28 §9º "z"); IRRF incide
     "PREMIO": ("037", "Prêmio", "RECEITA", False, True, False, True),
     "PREMIO_BH": ("009", "Prêmio por Horas (Banco de Horas)", "RECEITA", False, True, False, True),
     "FALTAS": ("399", "Faltas", "DESPESA", True, True, True, True),
     "DSR_FALTA": ("990", "DSR sobre Faltas", "DESPESA", True, True, True, True),
+    # Salário-família: benefício previdenciário pago pela empresa (compensado na guia); sem incidências
+    "SALARIO_FAMILIA": ("599", "Salário Família", "RECEITA", False, False, False, True),
     "VT": ("604", "Vale Transporte (6%)", "DESPESA", False, False, False, True),
     "ADIANTAMENTO": ("606", "Adiantamento Salarial", "DESPESA", False, False, False, True),
     # Arredondamento do líquido para o próximo real inteiro; devolvido no mês seguinte
@@ -98,7 +107,7 @@ REMOVED_SYSTEM_KEYS = {
 }
 
 # Linhas do recibo de férias que formam a base de INSS/FGTS da competência (férias gozadas + 1/3)
-VACATION_CONTRIBUTION_KEYS = ("FERIAS", "FERIAS_TRIENIO", "FERIAS_MEDIAS", "FERIAS_TERCO")
+VACATION_CONTRIBUTION_KEYS = ("FERIAS", "FERIAS_TRIENIO", "FERIAS_QUEBRA_CAIXA", "FERIAS_MEDIAS", "FERIAS_TERCO")
 
 # Códigos padrão anteriores: rubricas ainda com eles passam para o código da contabilidade.
 # Códigos alterados pelo usuário não são tocados.
@@ -110,7 +119,7 @@ LEGACY_SYSTEM_CODES = {
 TAX_KEYS = {"INSS", "IRRF", "FGTS"}
 
 # Rubricas do sistema com percentual configurável: system_key -> % padrão
-CONFIGURABLE_PERCENT_ITEMS = {"TRIENIO": 4.0, "ADIANTAMENTO": 40.0}
+CONFIGURABLE_PERCENT_ITEMS = {"TRIENIO": 4.0, "ADIANTAMENTO": 40.0, "QUEBRA_CAIXA": 10.0}
 
 # Rubricas do sistema lançadas à mão, com incidências editáveis (prêmio: confirmar com a contabilidade)
 CONFIGURABLE_INCIDENCE_ITEMS = {"PREMIO", "PREMIO_BH"}
@@ -194,6 +203,32 @@ def ensure_system_items(db: Session, organization_id: int) -> Dict[str, models.R
     if created:
         db.flush()
     return existing
+
+
+def salario_familia_quotas(emp: models.RHEmployee, month_start: date) -> int:
+    """
+    Cotas do salário-família: dependentes da ficha marcados como "Salário-Família". Com data de nascimento,
+    o direito vai até o mês do 14º aniversário (Decreto 3.048 art. 88, II), salvo dependente inválido.
+    """
+    deps = (emp.profile or {}).get("dependentes") or []
+    quotas = 0
+    for d in deps:
+        if not isinstance(d, dict) or not d.get("salario_familia") or not (d.get("nome") or "").strip():
+            continue
+        birth = None
+        try:
+            birth = date.fromisoformat(str(d.get("nascimento") or "")[:10])
+        except ValueError:
+            pass
+        if birth and not d.get("invalido"):
+            try:
+                fourteenth = birth.replace(year=birth.year + 14)
+            except ValueError:  # 29/02
+                fourteenth = date(birth.year + 14, 3, 1)
+            if date(fourteenth.year, fourteenth.month, 1) < month_start:
+                continue
+        quotas += 1
+    return quotas
 
 
 def payroll_employees(db: Session, organization_id: int, schedule: models.RHMonthlySchedule) -> List[models.RHEmployee]:
@@ -686,6 +721,7 @@ def calculate_payroll(
     overtime_fixed_value = float(getattr(settings, "overtime_fixed_value", None) or 0.0)
     business_days = max(1, num_days - rest_days)
     ledgers = load_month_ledgers(db, organization_id, schedule, employees, settings)
+    month_start = date(schedule.year, schedule.month, 1)
     month_end = date(schedule.year, schedule.month, num_days)
     rest_premios = rest_premio_amounts(db, [e.id for e in employees], date(schedule.year, schedule.month, 1), month_end)
     # Férias confirmadas que começam no mês: o recibo entra na folha desta competência
@@ -741,12 +777,16 @@ def calculate_payroll(
         # Divisor pela jornada do contrato vigente no fim do mês: 220h (44h), 210h (42h), 200h (40h)
         contract = contract_on(emp.contracts, month_end)
         weekly_hours = (contract.weekly_min / 60) if contract and contract.weekly_min else float(emp.weekly_contract_hours or 44.0)
-        hourly_rate = end_salary / (weekly_hours * 5) if weekly_hours else 0.0
 
         # Dias de férias no mês são pagos no recibo de férias (art. 145): a folha paga só os demais (mês de 30 dias)
         vacation_days = sum(1 for wd in work_days.values() if wd.status == "FERIAS")
         if vacation_days:
-            worked_days = max(0, 30 - vacation_days)
+            # Mês comercial: dias 1..30. Em mês de 31 dias o dia 31 é ignorado (férias de 26/10 a 31/10
+            # descontam 5 dias, não 6); em fevereiro os dias fictícios seguem o status do último dia do mês.
+            def _is_vacation(d: int) -> bool:
+                wd = work_days.get(min(d, num_days))
+                return getattr(wd, "status", None) == "FERIAS"
+            worked_days = sum(1 for d in range(1, 31) if not _is_vacation(d))
             salary = salary * worked_days / 30
             salary_reference = f"{worked_days} dia(s) • {vacation_days} de férias à parte"
 
@@ -759,6 +799,20 @@ def calculate_payroll(
             pct = float(triennium_item.default_value or 0.0)
             add_auto(triennium_item, salary * pct / 100 * triennia,
                      f"{triennia} triênio(s) x {pct:g}%")
+        # Arredondado a centavos como a rubrica paga: a contabilidade compõe hora/diária com o valor da folha
+        # (78,81, não 78,8064), senão a HE sai 279,40 em vez de 279,41
+        # Quebra de caixa: % do salário base do mês (proporcional como o salário) para cargos marcados
+        cash_item = system_items["QUEBRA_CAIXA"]
+        if cash_item.active and emp.role_obj is not None and emp.role_obj.cash_allowance:
+            pct = float(cash_item.default_value or 0.0)
+            add_auto(cash_item, salary * pct / 100, f"{pct:g}% do salário base")
+
+        full_triennium = round(end_salary * float(triennium_item.default_value or 0.0) / 100 * triennia, 2) \
+            if triennia > 0 and triennium_item.active else 0.0
+
+        # Valor-hora (HE): salário + triênio (adicional habitual, Súmula 264 TST); o prêmio não integra
+        # (art. 457 §2 CLT). Folha 10/2026: (1.970,16 + 78,81) / 220 x 2 x 15h = 279,41
+        hourly_rate = (end_salary + full_triennium) / (weekly_hours * 5) if weekly_hours else 0.0
 
         # Banco de horas: saldo anterior + escala do mês + ajustes manuais - pagamentos lançados.
         # O destino automático (política) pode ainda pagar o restante ao fim do mês.
@@ -863,8 +917,6 @@ def calculate_payroll(
         # remuneração fixa do mês: salário + triênio + prêmio (folha 10/2026: (1.872 + 200) / 30 = 69,07)
         absence_days = sorted(d for d, wd in work_days.items() if wd.status == "FALTA")
         if absence_days:
-            full_triennium = end_salary * float(triennium_item.default_value or 0.0) / 100 * triennia \
-                if triennia > 0 and triennium_item.active else 0.0
             premio_month = sum(float(e.amount or 0.0) for e in manual_entries
                                if e.item.system_key == "PREMIO" and e.item.kind == "RECEITA")
             absence_daily = (end_salary + full_triennium + premio_month) / 30
@@ -940,6 +992,21 @@ def calculate_payroll(
                  f"base {irrf_base:.2f}")
         add_auto(system_items["FGTS"], fgts_base * FGTS_RATE,
                  f"base {fgts_base:.2f}" + (f" (inclui férias {vacation_base:.2f})" if vacation_base else ""))
+
+        # Salário-família: cotas x valor, se o salário de contribuição do mês (folha + férias) não passar
+        # do limite; proporcional aos dias nos meses de admissão e desligamento (Portaria MPS/MF 13/2026)
+        sf_quotas = salario_familia_quotas(emp, month_start)
+        if sf_quotas and inss_base <= SALARIO_FAMILIA_LIMIT_2026:
+            first_day = max(month_start, emp.admission_date or month_start)
+            last_day = min(month_end, emp.termination_date or month_end)
+            if (first_day, last_day) == (month_start, month_end):
+                sf_days = 30
+            else:
+                sf_days = min(30, max(0, (last_day - first_day).days + 1))
+            sf_ref = f"{sf_quotas} cota(s) x {SALARIO_FAMILIA_COTA_2026:.2f}".replace(".", ",")
+            if sf_days < 30:
+                sf_ref += f" • {sf_days}/30 dia(s)"
+            add_auto(system_items["SALARIO_FAMILIA"], sf_quotas * SALARIO_FAMILIA_COTA_2026 * sf_days / 30, sf_ref)
 
         # Arredondamento (999) e Arredondamento Mês Anterior (610) são lançados manualmente,
         # conforme a folha da contabilidade; o sistema não os calcula.

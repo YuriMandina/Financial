@@ -121,6 +121,7 @@ async def startup_event():
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS termination_date DATE;"))
             conn.execute(text("ALTER TABLE rh_employees ADD COLUMN IF NOT EXISTS termination_reason VARCHAR;"))
             conn.execute(text("ALTER TABLE rh_payroll_items ADD COLUMN IF NOT EXISTS report_to_accounting BOOLEAN;"))
+            conn.execute(text("ALTER TABLE rh_roles ADD COLUMN IF NOT EXISTS cash_allowance BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE rh_payroll_items ADD COLUMN IF NOT EXISTS report_mode VARCHAR;"))
             conn.execute(text("ALTER TABLE rh_payroll_entries ADD COLUMN IF NOT EXISTS quantity FLOAT;"))
             conn.execute(text("ALTER TABLE rh_payroll_entries ADD COLUMN IF NOT EXISTS quantity_unit VARCHAR;"))
