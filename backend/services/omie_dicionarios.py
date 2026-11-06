@@ -22,13 +22,18 @@ def _omie_extrair_dicionario_fornecedores():
                 headers={"Content-Type": "application/json"},
                 timeout=15,
             ).json()
+            if "faultstring" in res:
+                raise RuntimeError(res["faultstring"])
             total_paginas = res.get("total_de_paginas", 1)
             for cli in res.get("clientes_cadastro", []):
                 dicionario[cli["codigo_cliente_omie"]] = cli.get(
                     "nome_fantasia", cli.get("razao_social", "")
                 )
-        except:
-            break
+        except Exception as e:
+            # Falha (timeout / limite do Omie): nao devolver dicionario parcial,
+            # senao ele seria salvo no cache permanente e nunca mais refeito.
+            print(f"[Omie] Falha ao extrair dicionario na pagina {pagina_atual}: {e}")
+            return None
         pagina_atual += 1
         time.sleep(0.3)
 
@@ -40,7 +45,7 @@ def extrair_dicionario_fornecedores(force_sync=False):
         "Dicionário Fornecedores",
         _omie_extrair_dicionario_fornecedores,
         force_sync=force_sync
-    )
+    ) or {}
 
 def consultar_cliente_pontual_omie(codigo_cliente: int | str):
     """Consulta pontualmente um cliente no Omie caso ele não esteja no cache."""
@@ -85,11 +90,16 @@ def _omie_extrair_dicionario_categorias():
                 headers={"Content-Type": "application/json"},
                 timeout=15,
             ).json()
+            if "faultstring" in res:
+                raise RuntimeError(res["faultstring"])
             total_paginas = res.get("total_de_paginas", 1)
             for cat in res.get("categoria_cadastro", []):
                 dicionario[cat["codigo"]] = cat["descricao"]
-        except:
-            break
+        except Exception as e:
+            # Falha (timeout / limite do Omie): nao devolver dicionario parcial,
+            # senao ele seria salvo no cache permanente e nunca mais refeito.
+            print(f"[Omie] Falha ao extrair dicionario na pagina {pagina_atual}: {e}")
+            return None
         pagina_atual += 1
         time.sleep(0.3)
 
@@ -100,7 +110,7 @@ def extrair_dicionario_categorias():
         "dicionario_categorias",
         "Dicionário Categorias",
         _omie_extrair_dicionario_categorias
-    )
+    ) or {}
 
 
 def _omie_extrair_dicionario_contas_correntes():
@@ -121,6 +131,8 @@ def _omie_extrair_dicionario_contas_correntes():
                 headers={"Content-Type": "application/json"},
                 timeout=15,
             ).json()
+            if "faultstring" in res:
+                raise RuntimeError(res["faultstring"])
             total_paginas = res.get("total_de_paginas", 1)
             lista_contas = res.get("ListarContasCorrentes", [])
             for cc in lista_contas:
@@ -129,8 +141,11 @@ def _omie_extrair_dicionario_contas_correntes():
                     continue
                 id_cc = str(cc.get("nCodCC", ""))
                 dicionario[id_cc] = cc.get("descricao", f"Conta {id_cc}")
-        except:
-            break
+        except Exception as e:
+            # Falha (timeout / limite do Omie): nao devolver dicionario parcial,
+            # senao ele seria salvo no cache permanente e nunca mais refeito.
+            print(f"[Omie] Falha ao extrair dicionario na pagina {pagina_atual}: {e}")
+            return None
         pagina_atual += 1
         time.sleep(0.3)
 
@@ -142,4 +157,4 @@ def extrair_dicionario_contas_correntes(force_sync=False):
         "Dicionário Contas Correntes",
         _omie_extrair_dicionario_contas_correntes,
         force_sync=force_sync
-    )
+    ) or {}
