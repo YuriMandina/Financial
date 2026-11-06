@@ -13,6 +13,7 @@ import ModalRecebimento from '../../components/modals/ModalRecebimento';
 import ModalHistoricoRecibos from '../../components/modals/ModalHistoricoRecibos';
 import ModalSnapshots from '../../components/modals/ModalSnapshots';
 import ReciboPagamento from '../../components/modals/ReciboPagamento';
+import { ordenarNotasRecibo } from '../../utils/recibos';
 import ReciboCobranca from '../../components/modals/ReciboCobranca';
 
 import { useAuth } from '../../context/AuthContext';
@@ -636,17 +637,13 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
 
   const imprimirRecibo = () => {
     if (!reciboGerado) return;
-    const notasOrdenadas = [...reciboGerado.notas].sort((a, b) => {
-      const dataA = converterDataBrParaDate(a.contaOriginal.data_emissao).getTime();
-      const dataB = converterDataBrParaDate(b.contaOriginal.data_emissao).getTime();
-      return dataB - dataA;
-    });
+    const notasOrdenadas = ordenarNotasRecibo(reciboGerado.notas).map(x => x._n);
 
     const linhas = notasOrdenadas.map(n => `
       <tr>
-        <td style="padding:6px 10px;border:1px solid #e2e8f0;">${n.contaOriginal.data_emissao || '-'}</td>
-        <td style="padding:6px 10px;border:1px solid #e2e8f0;">${n.contaOriginal.numero_documento_fiscal} - ${n.contaOriginal.numero_parcela}</td>
-        <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">R$ ${n.contaOriginal.saldo_devedor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+        <td style="padding:6px 10px;border:1px solid #e2e8f0;">${n.data_emissao || '-'}</td>
+        <td style="padding:6px 10px;border:1px solid #e2e8f0;">${n.numero_documento_fiscal} - ${n.numero_parcela}</td>
+        <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">R$ ${n.original.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
         <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;">${n.desconto > 0 ? `<span style="color:#ef4444;">-R$ ${n.desconto.toLocaleString('pt-BR')}</span>` : ''}${n.juros > 0 ? `<span style="color:#f59e0b;"> +R$ ${n.juros.toLocaleString('pt-BR')}</span>` : ''}${n.desconto === 0 && n.juros === 0 ? '-' : ''}</td>
         <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:bold;color:#059669;">R$ ${n.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
       </tr>`).join('');
@@ -675,11 +672,11 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
     </head><body>
       <div class="header"><h1>Recibo de Pagamento</h1><p class="sub">Financial - Açougue</p></div>
       <div class="row"><span class="label">Recebemos de:</span><span class="value" style="font-size:15px;">${reciboGerado.cliente}</span></div>
-      <div class="total-box"><span class="label">Valor Total Pago</span><span class="value">R$ ${reciboGerado.totalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
+      <div class="total-box"><span class="label">Valor Total Pago</span><span class="value">R$ ${Number(reciboGerado.totalPago || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
       <div class="row"><span class="label">Data de Pagamento:</span><span class="value">${reciboGerado.data_pagamento}</span></div>
       <div class="row"><span class="label">Conta de Destino:</span><span class="value">${reciboGerado.banco || '-'}</span></div>
-      <div class="row"><span class="label">Subtotal Original:</span><span class="value">R$ ${reciboGerado.totalOriginal.toLocaleString('pt-BR')}</span></div>
-      <div class="row"><span class="label">Descontos / Juros:</span><span class="value">-R$ ${reciboGerado.totalDesconto.toLocaleString('pt-BR')} / +R$ ${reciboGerado.totalJuros.toLocaleString('pt-BR')}</span></div>
+      <div class="row"><span class="label">Subtotal Original:</span><span class="value">R$ ${Number(reciboGerado.totalOriginal || 0).toLocaleString('pt-BR')}</span></div>
+      <div class="row"><span class="label">Descontos / Juros:</span><span class="value">-R$ ${Number(reciboGerado.totalDesconto || 0).toLocaleString('pt-BR')} / +R$ ${Number(reciboGerado.totalJuros || 0).toLocaleString('pt-BR')}</span></div>
       <p class="section-title">Composição das Notas Recebidas</p>
       <table><thead><tr><th>Emissão</th><th>Nota / Parcela</th><th style="text-align:right">Original</th><th style="text-align:right">Desc/Juros</th><th style="text-align:right">Pago</th></tr></thead><tbody>${linhas}</tbody></table>
       <div class="assinatura">
@@ -826,7 +823,8 @@ export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
           numero_documento_fiscal: p.contaOriginal?.numero_documento_fiscal,
           numero_parcela: p.contaOriginal?.numero_parcela,
           data_vencimento: p.contaOriginal?.data_previsao_br,
-          data_emissao: p.contaOriginal?.data_emissao
+          data_emissao: p.contaOriginal?.data_emissao,
+          saldo_devedor: p.contaOriginal?.saldo_devedor
         }))
       };
 

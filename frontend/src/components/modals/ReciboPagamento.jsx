@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircle, Copy, Printer, Loader2 } from 'lucide-react';
-import { converterDataBrParaDate } from '../../utils/formatters';
+import { ordenarNotasRecibo } from '../../utils/recibos';
 
 export default function ReciboPagamento({ 
   reciboGerado, 
@@ -33,7 +33,7 @@ export default function ReciboPagamento({
               </div>
               <div className="col-span-2 flex justify-between border-b border-slate-100 pb-2 bg-emerald-50 p-3 rounded-lg">
                 <span className="text-emerald-700 font-bold uppercase">Valor Total Pago:</span>
-                <span className="font-black text-emerald-600 text-2xl">R$ {reciboGerado.totalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                <span className="font-black text-emerald-600 text-2xl">R$ {Number(reciboGerado.totalPago || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between border-b border-slate-100 pb-2 pr-4">
                 <span className="text-slate-500 font-medium">Data Pgto:</span>
@@ -45,11 +45,11 @@ export default function ReciboPagamento({
               </div>
               <div className="flex justify-between border-b border-slate-100 pb-2 pr-4">
                 <span className="text-slate-500 font-medium">Subtotal Orig:</span>
-                <span className="font-bold text-slate-900">R$ {reciboGerado.totalOriginal.toLocaleString('pt-BR')}</span>
+                <span className="font-bold text-slate-900">R$ {Number(reciboGerado.totalOriginal || 0).toLocaleString('pt-BR')}</span>
               </div>
               <div className="flex justify-between border-b border-slate-100 pb-2 pl-4">
                 <span className="text-slate-500 font-medium">Desc / Juros:</span>
-                <span className="font-bold text-slate-900">-R$ {reciboGerado.totalDesconto.toLocaleString('pt-BR')} / +R$ {reciboGerado.totalJuros.toLocaleString('pt-BR')}</span>
+                <span className="font-bold text-slate-900">-R$ {Number(reciboGerado.totalDesconto || 0).toLocaleString('pt-BR')} / +R$ {Number(reciboGerado.totalJuros || 0).toLocaleString('pt-BR')}</span>
               </div>
             </div>
 
@@ -66,15 +66,11 @@ export default function ReciboPagamento({
                   </tr>
                 </thead>
                 <tbody>
-                  {[...reciboGerado.notas].sort((a,b) => {
-                    const dataA = converterDataBrParaDate(a.contaOriginal?.data_emissao || '').getTime();
-                    const dataB = converterDataBrParaDate(b.contaOriginal?.data_emissao || '').getTime();
-                    return dataB - dataA;
-                  }).map(n => (
-                    <tr key={n.codigo_lancamento} className="border-b border-slate-100">
-                      <td className="py-2 px-3">{n.contaOriginal?.data_emissao || '-'}</td>
-                      <td className="py-2 px-3">{n.contaOriginal?.numero_documento_fiscal} - {n.contaOriginal?.numero_parcela}</td>
-                      <td className="py-2 px-3 text-right">R$ {n.contaOriginal.saldo_devedor.toLocaleString('pt-BR')}</td>
+                  {ordenarNotasRecibo(reciboGerado.notas).map(({ _n: n, codigo_lancamento }) => (
+                    <tr key={codigo_lancamento} className="border-b border-slate-100">
+                      <td className="py-2 px-3">{n.data_emissao || '-'}</td>
+                      <td className="py-2 px-3">{n.numero_documento_fiscal} - {n.numero_parcela}</td>
+                      <td className="py-2 px-3 text-right">R$ {n.original.toLocaleString('pt-BR')}</td>
                       <td className="py-2 px-3 text-right text-slate-500">
                         {n.desconto > 0 && <span className="text-red-500">-R${n.desconto.toLocaleString('pt-BR')}</span>}
                         {n.juros > 0 && <span className="text-amber-500">+R${n.juros.toLocaleString('pt-BR')}</span>}

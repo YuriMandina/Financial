@@ -62,6 +62,7 @@ class PagamentoItem(BaseModel):
     numero_parcela: str | None = None
     data_vencimento: str | None = None
     data_emissao: str | None = None
+    saldo_devedor: float | None = None
 
 class TotaisRecibo(BaseModel):
     totalOriginal: float = 0.0
@@ -106,6 +107,7 @@ def obter_recebimentos_abertos(data_inicio: str = None, data_fim: str = None, fo
 
         contas_lista = []
         total = 0.0
+        clientes_sem_nome = set()
 
         for c in contas_brutas:
             tipo_doc = str(c.get("codigo_tipo_documento", "")).strip().upper()
@@ -120,11 +122,13 @@ def obter_recebimentos_abertos(data_inicio: str = None, data_fim: str = None, fo
             nome_cli = dict_cli_str.get(id_cli)
             if not nome_cli or nome_cli == id_cli:
                 # Fallback sob demanda caso o cliente seja novo e ainda não esteja no cache
-                nome_pontual = consultar_cliente_pontual_omie(id_cli)
+                # Uma consulta por cliente (nao por titulo); falhas tambem ficam memorizadas
+                nome_pontual = consultar_cliente_pontual_omie(id_cli) if id_cli not in clientes_sem_nome else None
                 if nome_pontual:
                     nome_cli = nome_pontual
                     dict_cli_str[id_cli] = nome_pontual
                 else:
+                    clientes_sem_nome.add(id_cli)
                     nome_cli = tratar_vazio(id_cli)
 
             desc_cat = dict_cat_str.get(id_cat, tratar_vazio(id_cat))
