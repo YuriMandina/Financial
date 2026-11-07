@@ -45,12 +45,11 @@ function ItemStatus({ item }) {
   );
 }
 
-export default function InventarioDetalhe({ api, countId, motivos, onBack, onTaskStart }) {
+export default function InventarioDetalhe({ api, countId, motivos, onBack, onTaskStart, tab = 'itens', onTabChange }) {
   // --- [BLOCO: Estado] ---
   const [count, setCount] = useState(null);
   const [error, setError] = useState(null);
   const [issueList, setIssueList] = useState(null);
-  const [tab, setTab] = useState('itens');
   const [filter, setFilter] = useState('TODOS');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(new Set());
@@ -256,7 +255,7 @@ export default function InventarioDetalhe({ api, countId, motivos, onBack, onTas
           hint={hasSnapshot ? `Saldo capturado em ${formatDateTime(count.snapshot_at)}` : 'Saldo ainda não capturado'} />
       </div>
 
-      <Tabs active={tab} onChange={setTab} tabs={[
+      <Tabs active={tab} onChange={onTabChange} tabs={[
         { key: 'itens', label: 'Itens', badge: issueList?.length || 0 },
         { key: 'resumo', label: 'Resumo por motivo' },
         { key: 'documentos', label: 'Documentos' },

@@ -22,6 +22,24 @@ import { PROFILE_TABS, profileCompleteness, TERMINATION_REASON_OPTIONS } from '.
 import StyledCheckbox from '../../components/common/StyledCheckbox';
 import SelectDropdown from '../../components/common/SelectDropdown';
 import { API_BASE } from '../../config/api';
+import { useBlocker, useSearchParams } from 'react-router';
+import { MENU_PATHS, useRouteTab } from '../../routes';
+
+const RH_TABS = ['jornada', 'transporte', 'alimentacao', 'resumo', 'folha_ponto', 'mural', 'equipe', 'feriados', 'ferias', 'folha', 'auditoria'];
+// Nome da aba na URL quando o id interno não bate com o rótulo exibido
+const RH_TAB_SLUGS = {
+  resumo: 'banco-de-horas',
+  folha_ponto: 'folhas-de-ponto',
+  folha: 'folha-de-pagamento',
+};
+
+// Competência na URL: ?mes=AAAA-MM (sem parâmetro = mês atual)
+const parseCompetencia = (value, today) => {
+  const match = /^(\d{4})-(\d{2})$/.exec(value || '');
+  const month = match ? Number(match[2]) : 0;
+  if (!match || month < 1 || month > 12) return { year: today.getFullYear(), month: today.getMonth() + 1 };
+  return { year: Number(match[1]), month };
+};
 
 
 // ==============================================================================
@@ -70,9 +88,16 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   // ==============================================================================
 
   const today = new Date();
-  const [selectedYear, setSelectedYear] = useState(today.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
-  const [activeTab, setActiveTab] = useState('jornada'); // 'jornada', 'transporte', 'alimentacao', 'resumo', 'folha_ponto', 'mural', 'equipe'
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { year: selectedYear, month: selectedMonth } = parseCompetencia(searchParams.get('mes'), today);
+  const setCompetencia = (year, month) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('mes', `${year}-${String(month).padStart(2, '0')}`);
+      return next;
+    });
+  };
+  const [activeTab, setActiveTab] = useRouteTab(MENU_PATHS['rh-escalas'], RH_TABS, 'jornada', RH_TAB_SLUGS);
   
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
@@ -151,16 +176,23 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
   // Edições da grade de jornada ainda não salvas (evita perdê-las ao trocar de aba ou mês)
   const [jornadaDirty, setJornadaDirty] = useState(false);
 
-  const confirmDiscardJornada = () => {
-    if (!jornadaDirty) return true;
-    const ok = window.confirm('Há alterações não salvas na Grade de Jornada (ex: faltas ou turnos). Descartar e continuar?');
-    if (ok) setJornadaDirty(false);
-    return ok;
-  };
+  // Qualquer navegação (aba, mês, outro menu, botão Voltar) com a grade suja pede confirmação
+  const jornadaBlocker = useBlocker(({ currentLocation, nextLocation }) =>
+    jornadaDirty
+    && (currentLocation.pathname !== nextLocation.pathname || currentLocation.search !== nextLocation.search));
+
+  useEffect(() => {
+    if (jornadaBlocker.state !== 'blocked') return;
+    if (window.confirm('Há alterações não salvas na Grade de Jornada (ex: faltas ou turnos). Descartar e continuar?')) {
+      setJornadaDirty(false);
+      jornadaBlocker.proceed();
+    } else {
+      jornadaBlocker.reset();
+    }
+  }, [jornadaBlocker]);
 
   const handleTabChange = (tab) => {
     if (tab === activeTab) return;
-    if (activeTab === 'jornada' && !confirmDiscardJornada()) return;
     setActiveTab(tab);
   };
 
@@ -1476,13 +1508,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
           <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg p-1">
             <button
               onClick={() => {
-                if (!confirmDiscardJornada()) return;
-                if (selectedMonth === 1) {
-                  setSelectedMonth(12);
-                  setSelectedYear((y) => y - 1);
-                } else {
-                  setSelectedMonth((m) => m - 1);
-                }
+                if (selectedMonth === 1) setCompetencia(selectedYear - 1, 12);
+                else setCompetencia(selectedYear, selectedMonth - 1);
               }}
               className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
               title="Mês Anterior"
@@ -1494,13 +1521,8 @@ export default function RHEscalasView({ token, onOpenCompanySettings }) {
             </span>
             <button
               onClick={() => {
-                if (!confirmDiscardJornada()) return;
-                if (selectedMonth === 12) {
-                  setSelectedMonth(1);
-                  setSelectedYear((y) => y + 1);
-                } else {
-                  setSelectedMonth((m) => m + 1);
-                }
+                if (selectedMonth === 12) setCompetencia(selectedYear + 1, 1);
+                else setCompetencia(selectedYear, selectedMonth + 1);
               }}
               className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors"
               title="Próximo Mês"

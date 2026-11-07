@@ -1,39 +1,49 @@
-import React, { useState } from 'react';
-import { 
-  TrendingUp, LayoutDashboard, FileText, Database, CreditCard, 
-  Receipt, Target, PieChart, CalendarDays, Boxes, ChevronLeft, ChevronRight 
+import React from 'react';
+import { Link } from 'react-router';
+import {
+  TrendingUp, LayoutDashboard, FileText, Database, CreditCard,
+  Receipt, Target, PieChart, CalendarDays, Boxes, ChevronLeft, ChevronRight
 } from 'lucide-react';
+import { MENU_PATHS } from '../../routes';
 
-const SidebarItem = ({ id, icone: Icon, texto, menuAtivo, setMenuAtivo, collapsed, setContasBrutas, setSelecionados, setClienteFiltro, setContaFiltro, setPaginaAtual }) => {
+const MENU_ITEMS = [
+  { id: 'dashboard', icone: LayoutDashboard, texto: 'Visão Geral' },
+  { id: 'contas-pagar', icone: FileText, texto: 'Contas a Pagar' },
+  { id: 'contas-pagas', icone: Database, texto: 'Contas Pagas' },
+  { id: 'recebimentos', icone: CreditCard, texto: 'Contas a Receber (Convênios)' },
+  { id: 'contas-recebidas', icone: Receipt, texto: 'Contas Recebidas (Convênios)' },
+  { id: 'curva-abc', icone: TrendingUp, texto: 'Curva ABC e Lucratividade' },
+  { id: 'dre-gerencial', icone: Target, texto: 'DRE Gerencial' },
+  { id: 'desossa', icone: PieChart, texto: 'Rateio e Custeio' },
+  { id: 'estoque', icone: Boxes, texto: 'Inventário' },
+  { id: 'rh-escalas', icone: CalendarDays, texto: 'Departamento Pessoal' },
+];
+
+// Link real (não botão): permite abrir em nova aba com Ctrl/botão do meio.
+const SidebarItem = ({ id, icone: Icon, texto, menuAtivo, collapsed }) => {
   const isActive = menuAtivo === id;
   return (
-    <button
-      onClick={() => { 
-        setMenuAtivo(id); 
-        setContasBrutas?.([]); 
-        setSelecionados?.([]); 
-        setClienteFiltro?.(''); 
-        setContaFiltro?.('TODAS'); 
-        setPaginaAtual?.(1); 
-      }}
+    <Link
+      to={MENU_PATHS[id]}
       title={collapsed ? texto : undefined}
+      aria-current={isActive ? 'page' : undefined}
       className={`w-full flex items-center rounded-lg text-sm font-medium transition-all print:hidden ${
         collapsed ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-2.5'
       } ${
-        isActive 
-          ? 'bg-slate-800 text-white border border-slate-700/70 shadow-sm' 
+        isActive
+          ? 'bg-slate-800 text-white border border-slate-700/70 shadow-sm'
           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
       }`}
     >
       <Icon size={18} className={`shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
       {!collapsed && <span className="text-left truncate">{texto}</span>}
-    </button>
+    </Link>
   );
 };
 
-export default function Sidebar({ menuAtivo, setMenuAtivo, collapsed, setCollapsed, setContasBrutas, setSelecionados, setClienteFiltro, setContaFiltro, setPaginaAtual }) {
+export default function Sidebar({ menuAtivo, collapsed, setCollapsed }) {
   return (
-    <aside 
+    <aside
       className={`bg-slate-900 border-r border-slate-800 flex flex-col z-20 print:hidden shrink-0 transition-all duration-200 ${
         collapsed ? 'w-16' : 'w-64'
       }`}
@@ -66,16 +76,9 @@ export default function Sidebar({ menuAtivo, setMenuAtivo, collapsed, setCollaps
       </div>
 
       <nav className="flex-1 px-2.5 py-4 space-y-1 overflow-y-auto overflow-x-hidden">
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="dashboard" icone={LayoutDashboard} texto="Visão Geral" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="contas-pagar" icone={FileText} texto="Contas a Pagar" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="contas-pagas" icone={Database} texto="Contas Pagas" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="recebimentos" icone={CreditCard} texto="Contas a Receber (Convênios)" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="contas-recebidas" icone={Receipt} texto="Contas Recebidas (Convênios)" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="curva-abc" icone={TrendingUp} texto="Curva ABC e Lucratividade" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="dre-gerencial" icone={Target} texto="DRE Gerencial" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="desossa" icone={PieChart} texto="Rateio e Custeio" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="estoque" icone={Boxes} texto="Inventário" />
-        <SidebarItem collapsed={collapsed} menuAtivo={menuAtivo} setMenuAtivo={setMenuAtivo} setContasBrutas={setContasBrutas} setSelecionados={setSelecionados} setClienteFiltro={setClienteFiltro} setContaFiltro={setContaFiltro} setPaginaAtual={setPaginaAtual} id="rh-escalas" icone={CalendarDays} texto="Departamento Pessoal" />
+        {MENU_ITEMS.map((item) => (
+          <SidebarItem key={item.id} {...item} menuAtivo={menuAtivo} collapsed={collapsed} />
+        ))}
       </nav>
 
       {/* Botão de Expansão no Rodapé quando recolhido */}

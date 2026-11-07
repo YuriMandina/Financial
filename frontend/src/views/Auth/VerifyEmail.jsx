@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { API_BASE } from '../../config/api';
+import { useNavigate } from 'react-router';
 
 export const VerifyEmail = ({ onVerified }) => {
+  const navigate = useNavigate();
   const [status, setStatus] = useState('loading'); // loading, success, error
   const [message, setMessage] = useState('Verificando seu e-mail...');
   const hasFetched = useRef(false);
@@ -42,7 +44,7 @@ export const VerifyEmail = ({ onVerified }) => {
         if (data.access_token) {
           localStorage.setItem('token', data.access_token);
           setTimeout(() => {
-            window.history.replaceState({}, document.title, "/");
+            navigate('/', { replace: true });
             onVerified(data.access_token);
           }, 2000);
         }
@@ -53,7 +55,7 @@ export const VerifyEmail = ({ onVerified }) => {
     };
 
     verifyToken();
-  }, [onVerified]);
+  }, [onVerified, navigate]);
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">

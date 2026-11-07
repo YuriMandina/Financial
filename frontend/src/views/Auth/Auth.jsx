@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, Mail, Lock, UserPlus, LogIn, Settings, Users, Link } from 'lucide-react';
 import { API_BASE } from '../../config/api';
+import { useNavigate } from 'react-router';
 
 export const AuthScreen = ({ onLogin }) => {
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -73,7 +75,7 @@ export const AuthScreen = ({ onLogin }) => {
               body: JSON.stringify({ token: inviteToken })
             });
             // Token accepted, clean URL
-            window.history.replaceState({}, document.title, "/");
+            navigate('/', { replace: true });
           } catch (err) {
             console.error("Erro ao aceitar convite:", err);
           }

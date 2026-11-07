@@ -21,7 +21,7 @@ import { useTaskSync } from '../../context/TaskSyncContext';
 import { converterDataBrParaDate } from '../../utils/formatters';
 import { API_BASE } from '../../config/api';
 
-export default function FinancialReportsView({ menuAtivo, onMenuChange }) {
+export default function FinancialReportsView({ menuAtivo }) {
   const { token, userName, fetchWithAuth } = useAuth();
   const { handleGlobalTaskStart, globalRefreshCounter, triggerGlobalRefresh } = useTaskSync();
 

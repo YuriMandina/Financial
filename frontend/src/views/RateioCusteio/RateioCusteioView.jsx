@@ -8,14 +8,14 @@ import { NumericFormat } from 'react-number-format';
 import DatePicker from '../../components/common/DatePicker';
 import ProgressModal from '../../components/common/ProgressModal';
 import { API_BASE } from '../../config/api';
+import { MENU_PATHS, useRouteTab } from '../../routes';
+
+const RATEIO_TABS = ['sync', 'templates', 'operacao', 'historico', 'simulador'];
+const RATEIO_TAB_SLUGS = { sync: 'sincronizacao', operacao: 'novo-rateio' };
 
 export default function RateioECusteio({ token, onTaskStart, refreshCounter }) {
-  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('desossa_activeTab') || 'sync');
+  const [activeTab, setActiveTab] = useRouteTab(MENU_PATHS.desossa, RATEIO_TABS, 'sync', RATEIO_TAB_SLUGS);
   const [calculationResult, setCalculationResult] = useState(null);
-
-  useEffect(() => {
-    sessionStorage.setItem('desossa_activeTab', activeTab);
-  }, [activeTab]);
   
   return (
     <div className="p-6 text-slate-200">

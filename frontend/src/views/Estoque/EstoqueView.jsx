@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
 import { Boxes } from 'lucide-react';
 import { createEstoqueApi } from './estoqueApi';
 import { Alert, Tabs } from './components/ui';
@@ -8,12 +9,34 @@ import CadastroTab from './components/CadastroTab';
 import PendenciasTab from './components/PendenciasTab';
 import IndicadoresTab from './components/IndicadoresTab';
 import { AppContagemButton } from './components/AppContagemModal';
+import { MENU_PATHS } from '../../routes';
+
+const BASE = MENU_PATHS.estoque;
+const TABS = ['inventarios', 'cadastro', 'pendencias', 'indicadores'];
+const DETALHE_TABS = ['itens', 'resumo', 'documentos'];
+
+// URL: /inventario/<aba>  ou  /inventario/contagem/<id>/<aba-do-detalhe>
+function parseEstoquePath(splat = '') {
+  const [first, id, detalheTab] = splat.split('/').filter(Boolean);
+  if (first === 'contagem' && id) {
+    return {
+      tab: 'inventarios',
+      openCountId: id,
+      detalheTab: DETALHE_TABS.includes(detalheTab) ? detalheTab : 'itens',
+    };
+  }
+  return { tab: TABS.includes(first) ? first : 'inventarios', openCountId: null, detalheTab: 'itens' };
+}
 
 export default function EstoqueView({ token, onTaskStart, refreshCounter }) {
   // --- [BLOCO: Estado e API] ---
   const api = useMemo(() => createEstoqueApi(token), [token]);
-  const [tab, setTab] = useState('inventarios');
-  const [openCountId, setOpenCountId] = useState(null);
+  const navigate = useNavigate();
+  const { '*': splat } = useParams();
+  const { tab, openCountId, detalheTab } = parseEstoquePath(splat);
+  const setTab = (key) => navigate(`${BASE}/${key}`);
+  const setOpenCountId = (id) => navigate(id ? `${BASE}/contagem/${id}` : `${BASE}/inventarios`);
+  const setDetalheTab = (key) => navigate(`${BASE}/contagem/${openCountId}/${key}`);
   const [motivos, setMotivos] = useState(null);
   const [semFamilia, setSemFamilia] = useState(0);
   const [error, setError] = useState(null);
@@ -43,7 +66,8 @@ export default function EstoqueView({ token, onTaskStart, refreshCounter }) {
 
       {/* --- [BLOCO: Conteúdo] --- */}
       {openCountId && motivos ? (
-        <InventarioDetalhe api={api} countId={openCountId} motivos={motivos} onTaskStart={onTaskStart}
+        <InventarioDetalhe key={openCountId} api={api} countId={openCountId} motivos={motivos} onTaskStart={onTaskStart}
+          tab={detalheTab} onTabChange={setDetalheTab}
           onBack={() => setOpenCountId(null)} />
       ) : (
         <div className="space-y-6">

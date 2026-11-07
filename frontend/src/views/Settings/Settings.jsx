@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, Key, Users, UserPlus, Send, Copy, Settings as SettingsIcon, Eye, EyeOff, X, UserX, UserCheck, Zap, Shield, Building2 } from 'lucide-react';
 import { API_BASE } from '../../config/api';
+import { MENU_PATHS, useRouteTab } from '../../routes';
 
 // Máscaras dos dados da empresa
 const formatCnpjCpf = (value) => {
@@ -45,9 +46,12 @@ const SETTINGS_GROUPS = [
   }
 ];
 const ORG_TABS = SETTINGS_GROUPS[0].tabs.map((t) => t.id);
+const ALL_TABS = SETTINGS_GROUPS.flatMap((g) => g.tabs.map((t) => t.id));
+// Nome da aba na URL (/configuracoes/<slug>)
+const TAB_SLUGS = { company: 'empresa', omie: 'omie', invites: 'membros', security: 'seguranca', preferences: 'preferencias' };
 
-export const Settings = ({ token, initialTab }) => {
-  const [activeTab, setActiveTab] = useState(initialTab || 'omie');
+export const Settings = ({ token }) => {
+  const [activeTab, setActiveTab] = useRouteTab(MENU_PATHS.configuracoes, ALL_TABS, 'omie', TAB_SLUGS);
 
   // Dados da empresa
   const [company, setCompany] = useState({});

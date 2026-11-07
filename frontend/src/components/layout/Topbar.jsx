@@ -1,7 +1,9 @@
 import React from 'react';
+import { Link } from 'react-router';
+import { MENU_PATHS } from '../../routes';
 import { Settings as SettingsIcon, LogOut, Users, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 
-export default function Topbar({ menuAtivo, setMenuAtivo, userName, handleLogout, sidebarCollapsed, onToggleSidebar }) {
+export default function Topbar({ menuAtivo, userName, handleLogout, sidebarCollapsed, onToggleSidebar }) {
   return (
     <header className="h-16 shrink-0 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 sm:px-6 z-40 sticky top-0 print:hidden">
       {/* Botão de Toggle da Sidebar na Topbar */}
@@ -17,8 +19,8 @@ export default function Topbar({ menuAtivo, setMenuAtivo, userName, handleLogout
       </div>
 
       <div className="flex items-center gap-3">
-        <button 
-          onClick={() => setMenuAtivo('configuracoes')}
+        <Link
+          to={MENU_PATHS.configuracoes}
           className={`p-2 rounded-lg transition-colors ${
             menuAtivo === 'configuracoes' 
               ? 'bg-slate-800 text-indigo-400 border border-slate-700/60' 
@@ -27,7 +29,7 @@ export default function Topbar({ menuAtivo, setMenuAtivo, userName, handleLogout
           title="Configurações"
         >
           <SettingsIcon size={18} />
-        </button>
+        </Link>
 
         <button
           onClick={handleLogout}
